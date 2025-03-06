@@ -10,8 +10,11 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
 ## Features
 
 - Send emails with subject, content, attachments, and recipients
-- Read email messages by ID
+- Full support for international characters in subject lines and email content
+- Read email messages by ID with advanced MIME structure handling
+- View email attachments information (filenames, types, sizes)
 - Search emails with various criteria (subject, sender, date range)
+- List all available Gmail labels (system and user-defined)
 - List emails in inbox, sent, or custom labels
 - Mark emails as read/unread
 - Move emails to different labels/folders
@@ -168,6 +171,40 @@ The server provides several tools that can be used through the Claude Desktop:
   "labelIds": ["INBOX", "IMPORTANT"]
 }
 ```
+
+### List Email Labels
+```json
+{
+  // No parameters needed
+}
+```
+
+## Advanced Features
+
+### International Character Support
+
+The server fully supports non-ASCII characters in email subjects and content, including:
+- Turkish, Chinese, Japanese, Korean, and other non-Latin alphabets
+- Special characters and symbols
+- Proper encoding ensures correct display in email clients like Outlook
+
+### Complex Email Handling
+
+The server can properly extract content from various email types:
+- HTML-formatted emails
+- Multi-part MIME messages
+- Calendar invitations
+- Notification emails (LinkedIn, social media, etc.)
+- Emails with attachments
+
+## Security Notes
+
+- OAuth credentials are stored securely in your local environment (`~/.gmail-mcp/`)
+- The server uses offline access to maintain persistent authentication
+- Never share or commit your credentials to version control
+- Regularly review and revoke unused access in your Google Account settings
+- Credentials are stored globally but are only accessible by the current user
+
 
 ## Security Notes
 

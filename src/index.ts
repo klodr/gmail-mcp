@@ -24,6 +24,35 @@ const CONFIG_DIR = path.join(os.homedir(), '.gmail-mcp');
 const OAUTH_PATH = process.env.GMAIL_OAUTH_PATH || path.join(CONFIG_DIR, 'gcp-oauth.keys.json');
 const CREDENTIALS_PATH = process.env.GMAIL_CREDENTIALS_PATH || path.join(CONFIG_DIR, 'credentials.json');
 
+// Type definitions for Gmail API responses
+interface GmailMessagePart {
+    partId?: string;
+    mimeType?: string;
+    filename?: string;
+    headers?: Array<{
+        name: string;
+        value: string;
+    }>;
+    body?: {
+        attachmentId?: string;
+        size?: number;
+        data?: string;
+    };
+    parts?: GmailMessagePart[];
+}
+
+interface EmailAttachment {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+}
+
+interface EmailContent {
+    text: string;
+    html: string;
+}
+
 // OAuth2 configuration
 let oauth2Client: OAuth2Client;
 
@@ -38,6 +67,40 @@ function encodeEmailHeader(text: string): string {
         return '=?UTF-8?B?' + Buffer.from(text).toString('base64') + '?=';
     }
     return text;
+}
+
+/**
+ * Recursively extract email body content from MIME message parts
+ * Handles complex email structures with nested parts
+ */
+function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
+    // Initialize containers for different content types
+    let textContent = '';
+    let htmlContent = '';
+    
+    // If the part has a body with data, process it based on MIME type
+    if (messagePart.body && messagePart.body.data) {
+        const content = Buffer.from(messagePart.body.data, 'base64').toString('utf8');
+        
+        // Store content based on its MIME type
+        if (messagePart.mimeType === 'text/plain') {
+            textContent = content;
+        } else if (messagePart.mimeType === 'text/html') {
+            htmlContent = content;
+        }
+    }
+    
+    // If the part has nested parts, recursively process them
+    if (messagePart.parts && messagePart.parts.length > 0) {
+        for (const part of messagePart.parts) {
+            const { text, html } = extractEmailContent(part);
+            if (text) textContent += text;
+            if (html) htmlContent += html;
+        }
+    }
+    
+    // Return both plain text and HTML content
+    return { text: textContent, html: htmlContent };
 }
 
 async function loadCredentials() {
@@ -157,6 +220,9 @@ const DeleteEmailSchema = z.object({
     messageId: z.string().describe("ID of the email message to delete"),
 });
 
+// New schema for listing email labels
+const ListEmailLabelsSchema = z.object({}).describe("Retrieves all available Gmail labels");
+
 // Main function
 async function main() {
     await loadCredentials();
@@ -206,6 +272,11 @@ async function main() {
                 name: "delete_email",
                 description: "Permanently deletes an email",
                 inputSchema: zodToJsonSchema(DeleteEmailSchema),
+            },
+            {
+                name: "list_email_labels",
+                description: "Retrieves all available Gmail labels",
+                inputSchema: zodToJsonSchema(ListEmailLabelsSchema),
             },
         ],
     }));
@@ -271,16 +342,51 @@ async function main() {
                     const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
                     const date = headers.find(h => h.name?.toLowerCase() === 'date')?.value || '';
 
-                    let body = '';
-                    if (response.data.payload?.body?.data) {
-                        body = Buffer.from(response.data.payload.body.data, 'base64').toString('utf8');
+                    // Extract email content using the recursive function
+                    const { text, html } = extractEmailContent(response.data.payload as GmailMessagePart || {});
+                    
+                    // Use plain text content if available, otherwise use HTML content
+                    // (optionally, you could implement HTML-to-text conversion here)
+                    let body = text || html || '';
+                    
+                    // If we only have HTML content, add a note for the user
+                    const contentTypeNote = !text && html ? 
+                        '[Note: This email is HTML-formatted. Plain text version not available.]\n\n' : '';
+                    
+                    // Get attachment information
+                    const attachments: EmailAttachment[] = [];
+                    const processAttachmentParts = (part: GmailMessagePart, path: string = '') => {
+                        if (part.body && part.body.attachmentId) {
+                            const filename = part.filename || `attachment-${part.body.attachmentId}`;
+                            attachments.push({
+                                id: part.body.attachmentId,
+                                filename: filename,
+                                mimeType: part.mimeType || 'application/octet-stream',
+                                size: part.body.size || 0
+                            });
+                        }
+                        
+                        if (part.parts) {
+                            part.parts.forEach((subpart: GmailMessagePart) => 
+                                processAttachmentParts(subpart, `${path}/parts`)
+                            );
+                        }
+                    };
+                    
+                    if (response.data.payload) {
+                        processAttachmentParts(response.data.payload as GmailMessagePart);
                     }
+                    
+                    // Add attachment info to output if any are present
+                    const attachmentInfo = attachments.length > 0 ? 
+                        `\n\nAttachments (${attachments.length}):\n` + 
+                        attachments.map(a => `- ${a.filename} (${a.mimeType}, ${Math.round(a.size/1024)} KB)`).join('\n') : '';
 
                     return {
                         content: [
                             {
                                 type: "text",
-                                text: `Subject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}\n\n${body}`,
+                                text: `Subject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}\n\n${contentTypeNote}${body}${attachmentInfo}`,
                             },
                         ],
                     };
@@ -357,6 +463,43 @@ async function main() {
                             {
                                 type: "text",
                                 text: `Email ${validatedArgs.messageId} deleted successfully`,
+                            },
+                        ],
+                    };
+                }
+                
+                case "list_email_labels": {
+                    const response = await gmail.users.labels.list({
+                        userId: 'me',
+                    });
+
+                    const labels = response.data.labels || [];
+                    const formattedLabels = labels.map(label => ({
+                        id: label.id,
+                        name: label.name,
+                        type: label.type,
+                        // Include additional useful information about each label
+                        messageListVisibility: label.messageListVisibility,
+                        labelListVisibility: label.labelListVisibility,
+                        // Only include count if it's a system label (as custom labels don't typically have counts)
+                        messagesTotal: label.messagesTotal,
+                        messagesUnread: label.messagesUnread,
+                        color: label.color
+                    }));
+
+                    // Group labels by type (system vs user) for better organization
+                    const systemLabels = formattedLabels.filter(label => label.type === 'system');
+                    const userLabels = formattedLabels.filter(label => label.type === 'user');
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Found ${labels.length} labels (${systemLabels.length} system, ${userLabels.length} user):\n\n` +
+                                    "System Labels:\n" +
+                                    systemLabels.map(l => `ID: ${l.id}\nName: ${l.name}\n`).join('\n') +
+                                    "\nUser Labels:\n" +
+                                    userLabels.map(l => `ID: ${l.id}\nName: ${l.name}\n`).join('\n')
                             },
                         ],
                     };
