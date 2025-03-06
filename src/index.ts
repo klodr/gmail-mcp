@@ -27,6 +27,19 @@ const CREDENTIALS_PATH = process.env.GMAIL_CREDENTIALS_PATH || path.join(CONFIG_
 // OAuth2 configuration
 let oauth2Client: OAuth2Client;
 
+/**
+ * Helper function to encode email headers containing non-ASCII characters
+ * according to RFC 2047 MIME specification
+ */
+function encodeEmailHeader(text: string): string {
+    // Only encode if the text contains non-ASCII characters
+    if (/[^\x00-\x7F]/.test(text)) {
+        // Use MIME Words encoding (RFC 2047)
+        return '=?UTF-8?B?' + Buffer.from(text).toString('base64') + '?=';
+    }
+    return text;
+}
+
 async function loadCredentials() {
     try {
         // Create config directory if it doesn't exist
@@ -204,17 +217,28 @@ async function main() {
             switch (name) {
                 case "send_email": {
                     const validatedArgs = SendEmailSchema.parse(args);
+                    
+                    // Encode subject and other potential headers that might contain non-ASCII characters
+                    const encodedSubject = encodeEmailHeader(validatedArgs.subject);
+                    
+                    // Create email content with proper headers and encoding
                     const message = [
                         'From: me',
                         `To: ${validatedArgs.to.join(', ')}`,
                         validatedArgs.cc ? `Cc: ${validatedArgs.cc.join(', ')}` : '',
                         validatedArgs.bcc ? `Bcc: ${validatedArgs.bcc.join(', ')}` : '',
-                        `Subject: ${validatedArgs.subject}`,
+                        `Subject: ${encodedSubject}`,
+                        'MIME-Version: 1.0',
+                        'Content-Type: text/plain; charset=UTF-8',
+                        'Content-Transfer-Encoding: 7bit',
                         '',
                         validatedArgs.body
                     ].filter(Boolean).join('\r\n');
 
-                    const encodedMessage = Buffer.from(message).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                    const encodedMessage = Buffer.from(message).toString('base64')
+                        .replace(/\+/g, '-')
+                        .replace(/\//g, '_')
+                        .replace(/=+$/, '');
 
                     const response = await gmail.users.messages.send({
                         userId: 'me',
