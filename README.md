@@ -134,11 +134,13 @@ docker run -i --rm \
 }
 ```
 
-## Usage Examples
+## Available Tools
 
-The server provides several tools that can be used through the Claude Desktop:
+The server provides the following tools that can be used through Claude Desktop:
 
-### Send Email
+### 1. Send Email (`send_email`)
+Sends a new email immediately.
+
 ```json
 {
   "to": ["recipient@example.com"],
@@ -149,61 +151,98 @@ The server provides several tools that can be used through the Claude Desktop:
 }
 ```
 
-### Search Emails
+### 2. Draft Email (`draft_email`)
+Creates a draft email without sending it.
+
 ```json
 {
-  "query": "from:sender@example.com after:2024/01/01",
+  "to": ["recipient@example.com"],
+  "subject": "Draft Report",
+  "body": "Here's the draft report for your review.",
+  "cc": ["manager@example.com"]
+}
+```
+
+### 3. Read Email (`read_email`)
+Retrieves the content of a specific email by its ID.
+
+```json
+{
+  "messageId": "182ab45cd67ef"
+}
+```
+
+### 4. Search Emails (`search_emails`)
+Searches for emails using Gmail search syntax.
+
+```json
+{
+  "query": "from:sender@example.com after:2024/01/01 has:attachment",
   "maxResults": 10
 }
 ```
 
-### Read Email
-```json
-{
-  "messageId": "message123"
-}
-```
+### 5. Modify Email (`modify_email`)
+Moves emails to different labels/folders.
 
-### Move Email
 ```json
 {
-  "messageId": "message123",
+  "messageId": "182ab45cd67ef",
   "labelIds": ["INBOX", "IMPORTANT"]
 }
 ```
 
-### List Email Labels
+### 6. Delete Email (`delete_email`)
+Permanently deletes an email.
+
 ```json
 {
-  // No parameters needed
+  "messageId": "182ab45cd67ef"
 }
 ```
 
+### 7. List Email Labels (`list_email_labels`)
+Retrieves all available Gmail labels.
+
+```json
+{}
+```
+
+## Advanced Search Syntax
+
+The `search_emails` tool supports Gmail's powerful search operators:
+
+| Operator | Example | Description |
+|----------|---------|-------------|
+| `from:` | `from:john@example.com` | Emails from a specific sender |
+| `to:` | `to:mary@example.com` | Emails sent to a specific recipient |
+| `subject:` | `subject:"meeting notes"` | Emails with specific text in the subject |
+| `has:attachment` | `has:attachment` | Emails with attachments |
+| `after:` | `after:2024/01/01` | Emails received after a date |
+| `before:` | `before:2024/02/01` | Emails received before a date |
+| `is:` | `is:unread` | Emails with a specific state |
+| `label:` | `label:work` | Emails with a specific label |
+
+You can combine multiple operators: `from:john@example.com after:2024/01/01 has:attachment`
+
 ## Advanced Features
+
+### Email Content Extraction
+
+The server intelligently extracts email content from complex MIME structures:
+
+- Prioritizes plain text content when available
+- Falls back to HTML content if plain text is not available
+- Handles multi-part MIME messages with nested parts
+- Processes attachments information (filename, type, size)
+- Preserves original email headers (From, To, Subject, Date)
 
 ### International Character Support
 
 The server fully supports non-ASCII characters in email subjects and content, including:
 - Turkish, Chinese, Japanese, Korean, and other non-Latin alphabets
 - Special characters and symbols
-- Proper encoding ensures correct display in email clients like Outlook
-
-### Complex Email Handling
-
-The server can properly extract content from various email types:
-- HTML-formatted emails
-- Multi-part MIME messages
-- Calendar invitations
-- Notification emails (LinkedIn, social media, etc.)
-- Emails with attachments
-
-## Security Notes
-
-- OAuth credentials are stored securely in your local environment (`~/.gmail-mcp/`)
-- The server uses offline access to maintain persistent authentication
-- Never share or commit your credentials to version control
-- Regularly review and revoke unused access in your Google Account settings
-- Credentials are stored globally but are only accessible by the current user
+- Proper encoding ensures correct display in email clients
 
 
 ## Security Notes
