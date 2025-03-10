@@ -1,57 +1,57 @@
 #!/usr/bin/env node
 
-// 基础调试脚本
-console.log('====== 开始执行设置脚本 ======');
+// Basic debugging script
+console.log('====== Starting Setup Script ======');
 
 try {
-  // ES 模块导入
-  console.log('正在导入模块...');
+  // ES module imports
+  console.log('Importing modules...');
   import('fs').then(fs => {
-    console.log('成功导入 fs 模块');
+    console.log('Successfully imported fs module');
     
     import('path').then(path => {
-      console.log('成功导入 path 模块');
+      console.log('Successfully imported path module');
       
       import('os').then(os => {
-        console.log('成功导入 os 模块');
+        console.log('Successfully imported os module');
         
         import('child_process').then(({ execSync }) => {
-          console.log('成功导入 child_process 模块');
+          console.log('Successfully imported child_process module');
           
           import('url').then(({ fileURLToPath }) => {
-            console.log('成功导入 url 模块');
+            console.log('Successfully imported url module');
             
-            // 获取目录路径
+            // Get directory path
             const __filename = fileURLToPath(import.meta.url);
             const __dirname = path.dirname(__filename);
-            console.log(`当前目录: ${__dirname}`);
+            console.log(`Current directory: ${__dirname}`);
             
-            // 检查 Node.js 版本
+            // Check Node.js version
             const nodeVersion = process.versions.node.split('.');
-            console.log(`Node.js 版本: ${process.versions.node}`);
+            console.log(`Node.js version: ${process.versions.node}`);
             
-            // 项目路径
+            // Project path
             const basePath = path.resolve(__dirname);
-            console.log(`项目路径: ${basePath}`);
+            console.log(`Project path: ${basePath}`);
             
-            // 创建配置
-            console.log('开始创建 MCP 配置...');
+            // Create configuration
+            console.log('Starting to create MCP configuration...');
             const serverScriptPath = path.join(basePath, 'dist', 'index.js');
-            console.log(`服务器脚本路径: ${serverScriptPath}`);
+            console.log(`Server script path: ${serverScriptPath}`);
             
-            // 创建配置目录
+            // Create configuration directory
             const configDir = path.join(os.homedir(), '.gmail-mcp');
-            console.log(`配置目录: ${configDir}`);
+            console.log(`Configuration directory: ${configDir}`);
             
             if (!fs.existsSync(configDir)) {
-              console.log('创建配置目录...');
+              console.log('Creating configuration directory...');
               fs.mkdirSync(configDir, { recursive: true });
-              console.log('配置目录创建成功');
+              console.log('Configuration directory created successfully');
             } else {
-              console.log('配置目录已存在');
+              console.log('Configuration directory already exists');
             }
             
-            // 创建 MCP 配置
+            // Create MCP configuration
             const config = {
               "mcpServers": {
                 "gmail": {
@@ -61,13 +61,13 @@ try {
               }
             };
             
-            // 保存配置
+            // Save configuration
             const configPath = path.join(basePath, 'mcp-config.json');
-            console.log(`正在保存配置到: ${configPath}`);
+            console.log(`Saving configuration to: ${configPath}`);
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-            console.log('配置已保存');
+            console.log('Configuration saved');
             
-            // 获取 Claude Desktop 配置路径
+            // Get Claude Desktop configuration path
             let claudeConfigPath;
             if (process.platform === 'win32') {
               claudeConfigPath = path.join(process.env.APPDATA, 'Claude', 'claude_desktop_config.json');
@@ -77,33 +77,33 @@ try {
               claudeConfigPath = path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json');
             }
             
-            console.log(`Claude Desktop 配置路径: ${claudeConfigPath}`);
+            console.log(`Claude Desktop configuration path: ${claudeConfigPath}`);
             
-            // 输出说明
-            console.log('\n===== 设置完成 =====');
-            console.log(`MCP 配置已写入: ${configPath}`);
-            console.log('\nMCP 配置内容:');
+            // Output instructions
+            console.log('\n===== Setup Complete =====');
+            console.log(`MCP configuration written to: ${configPath}`);
+            console.log('\nMCP configuration content:');
             console.log(JSON.stringify(config, null, 2));
-            console.log(`\n请将此配置合并到 Claude Desktop 配置文件: ${claudeConfigPath}`);
-            console.log('\n在使用 Gmail MCP 服务器之前，您需要进行身份验证:');
+            console.log(`\nPlease merge this configuration into the Claude Desktop configuration file: ${claudeConfigPath}`);
+            console.log('\nBefore using the Gmail MCP server, you need to authenticate:');
             console.log(`node ${serverScriptPath} auth`);
             
-            console.log('\n设置完成! 您现在可以将 Gmail MCP 服务器与兼容的客户端一起使用。');
+            console.log('\nSetup complete! You can now use the Gmail MCP server with compatible clients.');
           }).catch(err => {
-            console.error('导入 url 模块时出错:', err);
+            console.error('Error importing url module:', err);
           });
         }).catch(err => {
-          console.error('导入 child_process 模块时出错:', err);
+          console.error('Error importing child_process module:', err);
         });
       }).catch(err => {
-        console.error('导入 os 模块时出错:', err);
+        console.error('Error importing os module:', err);
       });
     }).catch(err => {
-      console.error('导入 path 模块时出错:', err);
+      console.error('Error importing path module:', err);
     });
   }).catch(err => {
-    console.error('导入 fs 模块时出错:', err);
+    console.error('Error importing fs module:', err);
   });
 } catch (error) {
-  console.error('执行脚本时出错:', error);
+  console.error('Error executing script:', error);
 }
