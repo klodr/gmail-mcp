@@ -199,9 +199,12 @@ const SearchEmailsSchema = z.object({
     maxResults: z.number().optional().describe("Maximum number of results to return"),
 });
 
+// Updated schema to include removeLabelIds
 const ModifyEmailSchema = z.object({
     messageId: z.string().describe("ID of the email message to modify"),
-    labelIds: z.array(z.string()).describe("List of label IDs to apply"),
+    labelIds: z.array(z.string()).optional().describe("List of label IDs to apply"),
+    addLabelIds: z.array(z.string()).optional().describe("List of label IDs to add to the message"),
+    removeLabelIds: z.array(z.string()).optional().describe("List of label IDs to remove from the message"),
 });
 
 const DeleteEmailSchema = z.object({
@@ -432,14 +435,29 @@ async function main() {
                     };
                 }
 
+                // Updated implementation for the modify_email handler
                 case "modify_email": {
                     const validatedArgs = ModifyEmailSchema.parse(args);
+                    
+                    // Prepare request body
+                    const requestBody: any = {};
+                    
+                    if (validatedArgs.labelIds) {
+                        requestBody.addLabelIds = validatedArgs.labelIds;
+                    }
+                    
+                    if (validatedArgs.addLabelIds) {
+                        requestBody.addLabelIds = validatedArgs.addLabelIds;
+                    }
+                    
+                    if (validatedArgs.removeLabelIds) {
+                        requestBody.removeLabelIds = validatedArgs.removeLabelIds;
+                    }
+                    
                     await gmail.users.messages.modify({
                         userId: 'me',
                         id: validatedArgs.messageId,
-                        requestBody: {
-                            addLabelIds: validatedArgs.labelIds,
-                        },
+                        requestBody: requestBody,
                     });
 
                     return {

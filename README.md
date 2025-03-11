@@ -183,12 +183,13 @@ Searches for emails using Gmail search syntax.
 ```
 
 ### 5. Modify Email (`modify_email`)
-Moves emails to different labels/folders.
+Adds or removes labels from emails (move to different folders, archive, etc.).
 
 ```json
 {
   "messageId": "182ab45cd67ef",
-  "labelIds": ["INBOX", "IMPORTANT"]
+  "addLabelIds": ["IMPORTANT"],
+  "removeLabelIds": ["INBOX"]
 }
 ```
 
