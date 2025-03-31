@@ -121,10 +121,14 @@ async function loadCredentials() {
             process.exit(1);
         }
 
+        const callback = process.argv[2] === 'auth' && process.argv[3] 
+        ? process.argv[3] 
+        : "http://localhost:3000/oauth2callback";
+
         oauth2Client = new OAuth2Client(
             keys.client_id,
             keys.client_secret,
-            'http://localhost:3000/oauth2callback'
+            callback
         );
 
         if (fs.existsSync(CREDENTIALS_PATH)) {

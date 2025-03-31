@@ -133,6 +133,47 @@ docker run -i --rm \
 }
 ```
 
+### Cloud Server Authentication
+
+For cloud server environments (like n8n), you can specify a custom callback URL during authentication:
+
+```bash
+npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2callback
+```
+
+#### Setup Instructions for Cloud Environment
+
+1. **Configure Reverse Proxy:**
+   - Set up your n8n container to expose a port for authentication
+   - Configure a reverse proxy to forward traffic from your domain (e.g., `gmail.gongrzhe.com`) to this port
+
+2. **DNS Configuration:**
+   - Add an A record in your DNS settings to resolve your domain to your cloud server's IP address
+
+3. **Google Cloud Platform Setup:**
+   - In your Google Cloud Console, add your custom domain callback URL (e.g., `https://gmail.gongrzhe.com/oauth2callback`) to the authorized redirect URIs list
+
+4. **Run Authentication:**
+   ```bash
+   npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2callback
+   ```
+
+5. **Configure in your application:**
+   ```json
+   {
+     "mcpServers": {
+       "gmail": {
+         "command": "npx",
+         "args": [
+           "@gongrzhe/server-gmail-autoauth-mcp"
+         ]
+       }
+     }
+   }
+   ```
+
+This approach allows authentication flows to work properly in environments where localhost isn't accessible, such as containerized applications or cloud servers.
+
 ## Available Tools
 
 The server provides the following tools that can be used through Claude Desktop:
