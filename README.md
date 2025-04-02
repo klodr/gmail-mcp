@@ -18,6 +18,7 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
 - Mark emails as read/unread
 - Move emails to different labels/folders
 - Delete emails
+- **Batch operations for efficiently processing multiple emails at once**
 - Full integration with Gmail API
 - Simple OAuth2 authentication flow with auto browser launch
 - Support for both Desktop and Web application credentials
@@ -249,6 +250,28 @@ Retrieves all available Gmail labels.
 {}
 ```
 
+### 8. Batch Modify Emails (`batch_modify_emails`)
+Modifies labels for multiple emails in efficient batches.
+
+```json
+{
+  "messageIds": ["182ab45cd67ef", "182ab45cd67eg", "182ab45cd67eh"],
+  "addLabelIds": ["IMPORTANT"],
+  "removeLabelIds": ["INBOX"],
+  "batchSize": 50
+}
+```
+
+### 9. Batch Delete Emails (`batch_delete_emails`)
+Permanently deletes multiple emails in efficient batches.
+
+```json
+{
+  "messageIds": ["182ab45cd67ef", "182ab45cd67eg", "182ab45cd67eh"],
+  "batchSize": 50
+}
+```
+
 ## Advanced Search Syntax
 
 The `search_emails` tool supports Gmail's powerful search operators:
@@ -285,6 +308,15 @@ The server fully supports non-ASCII characters in email subjects and content, in
 - Special characters and symbols
 - Proper encoding ensures correct display in email clients
 
+### Batch Operations
+
+The server includes efficient batch processing capabilities:
+
+- Process up to 50 emails at once (configurable batch size)
+- Automatic chunking of large email sets to avoid API limits
+- Detailed success/failure reporting for each operation
+- Graceful error handling with individual retries
+- Perfect for bulk inbox management and organization tasks
 
 ## Security Notes
 
@@ -307,6 +339,11 @@ The server fully supports non-ASCII characters in email subjects and content, in
 3. **Port Already in Use**
    - If port 3000 is already in use, please free it up before running authentication
    - You can find and stop the process using that port
+
+4. **Batch Operation Failures**
+   - If batch operations fail, they automatically retry individual items
+   - Check the detailed error messages for specific failures
+   - Consider reducing the batch size if you encounter rate limiting
 
 ## Contributing
 
