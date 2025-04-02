@@ -218,6 +218,19 @@ const DeleteEmailSchema = z.object({
 // New schema for listing email labels
 const ListEmailLabelsSchema = z.object({}).describe("Retrieves all available Gmail labels");
 
+// Schemas for batch operations
+const BatchModifyEmailsSchema = z.object({
+    messageIds: z.array(z.string()).describe("List of message IDs to modify"),
+    addLabelIds: z.array(z.string()).optional().describe("List of label IDs to add to all messages"),
+    removeLabelIds: z.array(z.string()).optional().describe("List of label IDs to remove from all messages"),
+    batchSize: z.number().optional().default(50).describe("Number of messages to process in each batch (default: 50)"),
+});
+
+const BatchDeleteEmailsSchema = z.object({
+    messageIds: z.array(z.string()).describe("List of message IDs to delete"),
+    batchSize: z.number().optional().default(50).describe("Number of messages to process in each batch (default: 50)"),
+});
+
 // Main function
 async function main() {
     await loadCredentials();
@@ -278,6 +291,16 @@ async function main() {
                 description: "Retrieves all available Gmail labels",
                 inputSchema: zodToJsonSchema(ListEmailLabelsSchema),
             },
+            {
+                name: "batch_modify_emails",
+                description: "Modifies labels for multiple emails in batches",
+                inputSchema: zodToJsonSchema(BatchModifyEmailsSchema),
+            },
+            {
+                name: "batch_delete_emails",
+                description: "Permanently deletes multiple emails in batches",
+                inputSchema: zodToJsonSchema(BatchDeleteEmailsSchema),
+            },
         ],
     }))
 
@@ -325,6 +348,37 @@ async function main() {
                     ],
                 };
             }
+        }
+
+        // Helper function to process operations in batches
+        async function processBatches<T, U>(
+            items: T[],
+            batchSize: number,
+            processFn: (batch: T[]) => Promise<U[]>
+        ): Promise<{ successes: U[], failures: { item: T, error: Error }[] }> {
+            const successes: U[] = [];
+            const failures: { item: T, error: Error }[] = [];
+            
+            // Process in batches
+            for (let i = 0; i < items.length; i += batchSize) {
+                const batch = items.slice(i, i + batchSize);
+                try {
+                    const results = await processFn(batch);
+                    successes.push(...results);
+                } catch (error) {
+                    // If batch fails, try individual items
+                    for (const item of batch) {
+                        try {
+                            const result = await processFn([item]);
+                            successes.push(...result);
+                        } catch (itemError) {
+                            failures.push({ item, error: itemError as Error });
+                        }
+                    }
+                }
+            }
+            
+            return { successes, failures };
         }
 
         try {
@@ -523,6 +577,110 @@ async function main() {
                                     systemLabels.map(l => `ID: ${l.id}\nName: ${l.name}\n`).join('\n') +
                                     "\nUser Labels:\n" +
                                     userLabels.map(l => `ID: ${l.id}\nName: ${l.name}\n`).join('\n')
+                            },
+                        ],
+                    };
+                }
+
+                case "batch_modify_emails": {
+                    const validatedArgs = BatchModifyEmailsSchema.parse(args);
+                    const messageIds = validatedArgs.messageIds;
+                    const batchSize = validatedArgs.batchSize || 50;
+                    
+                    // Prepare request body
+                    const requestBody: any = {};
+                    
+                    if (validatedArgs.addLabelIds) {
+                        requestBody.addLabelIds = validatedArgs.addLabelIds;
+                    }
+                    
+                    if (validatedArgs.removeLabelIds) {
+                        requestBody.removeLabelIds = validatedArgs.removeLabelIds;
+                    }
+
+                    // Process messages in batches
+                    const { successes, failures } = await processBatches(
+                        messageIds,
+                        batchSize,
+                        async (batch) => {
+                            const results = await Promise.all(
+                                batch.map(async (messageId) => {
+                                    const result = await gmail.users.messages.modify({
+                                        userId: 'me',
+                                        id: messageId,
+                                        requestBody: requestBody,
+                                    });
+                                    return { messageId, success: true };
+                                })
+                            );
+                            return results;
+                        }
+                    );
+
+                    // Generate summary of the operation
+                    const successCount = successes.length;
+                    const failureCount = failures.length;
+                    
+                    let resultText = `Batch label modification complete.\n`;
+                    resultText += `Successfully processed: ${successCount} messages\n`;
+                    
+                    if (failureCount > 0) {
+                        resultText += `Failed to process: ${failureCount} messages\n\n`;
+                        resultText += `Failed message IDs:\n`;
+                        resultText += failures.map(f => `- ${(f.item as string).substring(0, 16)}... (${f.error.message})`).join('\n');
+                    }
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: resultText,
+                            },
+                        ],
+                    };
+                }
+
+                case "batch_delete_emails": {
+                    const validatedArgs = BatchDeleteEmailsSchema.parse(args);
+                    const messageIds = validatedArgs.messageIds;
+                    const batchSize = validatedArgs.batchSize || 50;
+
+                    // Process messages in batches
+                    const { successes, failures } = await processBatches(
+                        messageIds,
+                        batchSize,
+                        async (batch) => {
+                            const results = await Promise.all(
+                                batch.map(async (messageId) => {
+                                    await gmail.users.messages.delete({
+                                        userId: 'me',
+                                        id: messageId,
+                                    });
+                                    return { messageId, success: true };
+                                })
+                            );
+                            return results;
+                        }
+                    );
+
+                    // Generate summary of the operation
+                    const successCount = successes.length;
+                    const failureCount = failures.length;
+                    
+                    let resultText = `Batch delete operation complete.\n`;
+                    resultText += `Successfully deleted: ${successCount} messages\n`;
+                    
+                    if (failureCount > 0) {
+                        resultText += `Failed to delete: ${failureCount} messages\n\n`;
+                        resultText += `Failed message IDs:\n`;
+                        resultText += failures.map(f => `- ${(f.item as string).substring(0, 16)}... (${f.error.message})`).join('\n');
+                    }
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: resultText,
                             },
                         ],
                     };
