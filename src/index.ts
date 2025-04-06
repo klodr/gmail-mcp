@@ -17,7 +17,7 @@ import http from 'http';
 import open from 'open';
 import os from 'os';
 import {createEmailMessage} from "./utl.js";
-import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel } from "./label-manager.js";
+import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -601,9 +601,9 @@ async function main() {
                                 type: "text",
                                 text: `Found ${labelResults.count.total} labels (${labelResults.count.system} system, ${labelResults.count.user} user):\n\n` +
                                     "System Labels:\n" +
-                                    systemLabels.map(l => `ID: ${l.id}\nName: ${l.name}\n`).join('\n') +
+                                    systemLabels.map((l: GmailLabel) => `ID: ${l.id}\nName: ${l.name}\n`).join('\n') +
                                     "\nUser Labels:\n" +
-                                    userLabels.map(l => `ID: ${l.id}\nName: ${l.name}\n`).join('\n')
+                                    userLabels.map((l: GmailLabel) => `ID: ${l.id}\nName: ${l.name}\n`).join('\n')
                             },
                         ],
                     };

@@ -136,8 +136,8 @@ export async function listLabels(gmail: any) {
         const labels = response.data.labels || [];
         
         // Group labels by type for better organization
-        const systemLabels = labels.filter(label => label.type === 'system');
-        const userLabels = labels.filter(label => label.type === 'user');
+        const systemLabels = labels.filter((label:GmailLabel) => label.type === 'system');
+        const userLabels = labels.filter((label:GmailLabel) => label.type === 'user');
 
         return {
             all: labels,
