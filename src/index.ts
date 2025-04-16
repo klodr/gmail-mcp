@@ -95,7 +95,7 @@ function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
 async function loadCredentials() {
     try {
         // Create config directory if it doesn't exist
-        if (!fs.existsSync(CONFIG_DIR)) {
+        if (!process.env.GMAIL_OAUTH_PATH && !CREDENTIALS_PATH &&!fs.existsSync(CONFIG_DIR)) {
             fs.mkdirSync(CONFIG_DIR, { recursive: true });
         }
 
