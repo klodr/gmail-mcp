@@ -9,6 +9,7 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
 ## Features
 
 - Send emails with subject, content, attachments, and recipients
+- Support for HTML emails and multipart messages with both HTML and plain text versions
 - Full support for international characters in subject lines and email content
 - Read email messages by ID with advanced MIME structure handling
 - View email attachments information (filenames, types, sizes)
@@ -181,7 +182,8 @@ This approach allows authentication flows to work properly in environments where
 The server provides the following tools that can be used through Claude Desktop:
 
 ### 1. Send Email (`send_email`)
-Sends a new email immediately.
+
+Sends a new email immediately. Supports plain text, HTML, or multipart emails.
 
 ```json
 {
@@ -189,7 +191,31 @@ Sends a new email immediately.
   "subject": "Meeting Tomorrow",
   "body": "Hi,\n\nJust a reminder about our meeting tomorrow at 10 AM.\n\nBest regards",
   "cc": ["cc@example.com"],
-  "bcc": ["bcc@example.com"]
+  "bcc": ["bcc@example.com"],
+  "mimeType": "text/plain"
+}
+
+```
+HTML Email Example:
+
+```json
+{
+  "to": ["recipient@example.com"],
+  "subject": "Meeting Tomorrow",
+  "mimeType": "text/html",
+  "body": "<html><body><h1>Meeting Reminder</h1><p>Just a reminder about our <b>meeting tomorrow</b> at 10 AM.</p><p>Best regards</p></body></html>"
+}
+```
+
+Multipart Email Example (HTML + Plain Text):
+
+```json
+{
+  "to": ["recipient@example.com"],
+  "subject": "Meeting Tomorrow",
+  "mimeType": "multipart/alternative",
+  "body": "Hi,\n\nJust a reminder about our meeting tomorrow at 10 AM.\n\nBest regards",
+  "htmlBody": "<html><body><h1>Meeting Reminder</h1><p>Just a reminder about our <b>meeting tomorrow</b> at 10 AM.</p><p>Best regards</p></body></html>"
 }
 ```
 

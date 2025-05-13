@@ -1,15 +1,17 @@
 version: '3.8'
 
 services:
-  redis:
-    image: redis:latest
-    container_name: my-redis
-    ports:
-      - "6379:6379"
+  gmail-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
     volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    restart: always
+      - mcp-gmail:/gmail-server
+    environment:
+      - GMAIL_CREDENTIALS_PATH=/gmail-server/credentials.json
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
 
 volumes:
-  redis_data: 
+  mcp-gmail:

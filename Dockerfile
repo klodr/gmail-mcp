@@ -1,27 +1,28 @@
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY package.json package-lock.json* ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
-# Copy source code
-COPY . .
+# Copy source files
+COPY tsconfig.json ./
+COPY src ./src
 
 # Build the application
 RUN npm run build
 
-# Create data directory
-RUN mkdir -p /app/calendar-data
+# Create directory for credentials
+RUN mkdir -p /gmail-server
 
-# Set permissions for the data directory
-RUN chown -R node:node /app/calendar-data
+# Set environment variables
+ENV NODE_ENV=production
 
-# Switch to non-root user
-USER node
+# Expose port for OAuth flow
+EXPOSE 3000
 
-# Start the server
-CMD ["node", "build/index.js"]
+# Set entrypoint command
+ENTRYPOINT ["node", "dist/index.js"]
