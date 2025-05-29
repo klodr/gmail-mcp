@@ -355,23 +355,15 @@ async function main() {
         const { name, arguments: args } = request.params;
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
-            console.log(`[DEBUG] Starting ${action} email action`);
-            console.log(`[DEBUG] Has attachments: ${validatedArgs.attachments ? validatedArgs.attachments.length : 0}`);
-            
             let message: string;
             
             try {
                 // Check if we have attachments
                 if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
-                    console.log(`[DEBUG] Processing ${validatedArgs.attachments.length} attachments`);
-                    console.log(`[DEBUG] Attachment paths:`, validatedArgs.attachments);
-                    
                     // Use Nodemailer to create properly formatted RFC822 message
                     message = await createEmailWithNodemailer(validatedArgs);
-                    console.log(`[DEBUG] Created email message with Nodemailer, length: ${message.length}`);
                     
                     if (action === "send") {
-                        console.log(`[DEBUG] Encoding message with attachments to base64...`);
                         const encodedMessage = Buffer.from(message).toString('base64')
                             .replace(/\+/g, '-')
                             .replace(/\//g, '_')
@@ -385,7 +377,6 @@ async function main() {
                             }
                         });
                         
-                        console.log(`[DEBUG] Gmail API response received, ID: ${result.data.id}`);
                         return {
                             content: [
                                 {
@@ -396,7 +387,6 @@ async function main() {
                         };
                     } else {
                         // For drafts with attachments, use the raw message
-                        console.log(`[DEBUG] Encoding draft message to base64...`);
                         const encodedMessage = Buffer.from(message).toString('base64')
                             .replace(/\+/g, '-')
                             .replace(/\//g, '_')
@@ -407,14 +397,12 @@ async function main() {
                             ...(validatedArgs.threadId && { threadId: validatedArgs.threadId })
                         };
                         
-                        console.log(`[DEBUG] Calling Gmail API to create draft...`);
                         const response = await gmail.users.drafts.create({
                             userId: 'me',
                             requestBody: {
                                 message: messageRequest,
                             },
                         });
-                        console.log(`[DEBUG] Gmail API draft response received, ID: ${response.data.id}`);
                         return {
                             content: [
                                 {
@@ -427,14 +415,11 @@ async function main() {
                 } else {
                     // For emails without attachments, use the existing simple method
                     message = createEmailMessage(validatedArgs);
-                    console.log(`[DEBUG] Created simple email message, length: ${message.length}`);
                     
-                    console.log(`[DEBUG] Encoding message to base64...`);
                     const encodedMessage = Buffer.from(message).toString('base64')
                         .replace(/\+/g, '-')
                         .replace(/\//g, '_')
                         .replace(/=+$/, '');
-                    console.log(`[DEBUG] Encoded message length: ${encodedMessage.length}`);
 
                     // Define the type for messageRequest
                     interface GmailMessageRequest {
@@ -449,16 +434,13 @@ async function main() {
                     // Add threadId if specified
                     if (validatedArgs.threadId) {
                         messageRequest.threadId = validatedArgs.threadId;
-                        console.log(`[DEBUG] Added threadId: ${validatedArgs.threadId}`);
                     }
 
                     if (action === "send") {
-                        console.log(`[DEBUG] Calling Gmail API to send message...`);
                         const response = await gmail.users.messages.send({
                             userId: 'me',
                             requestBody: messageRequest,
                         });
-                        console.log(`[DEBUG] Gmail API response received, ID: ${response.data.id}`);
                         return {
                             content: [
                                 {
@@ -468,14 +450,12 @@ async function main() {
                             ],
                         };
                     } else {
-                        console.log(`[DEBUG] Calling Gmail API to create draft...`);
                         const response = await gmail.users.drafts.create({
                             userId: 'me',
                             requestBody: {
                                 message: messageRequest,
                         },
                         });
-                        console.log(`[DEBUG] Gmail API draft response received, ID: ${response.data.id}`);
                         return {
                             content: [
                                 {
@@ -487,12 +467,9 @@ async function main() {
                     }
                 }
             } catch (error: any) {
-                console.error(`[ERROR] Failed in handleEmailAction:`, error);
-                console.error(`[ERROR] Error stack:`, error.stack);
-                console.error(`[ERROR] Error message:`, error.message);
-                if (error.response) {
-                    console.error(`[ERROR] Gmail API response:`, error.response.data);
-                    console.error(`[ERROR] Gmail API status:`, error.response.status);
+                // Log attachment-related errors for debugging
+                if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
+                    console.error(`Failed to send email with ${validatedArgs.attachments.length} attachments:`, error.message);
                 }
                 throw error;
             }

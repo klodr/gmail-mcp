@@ -115,8 +115,6 @@ export function createEmailMessage(validatedArgs: any): string {
 
 
 export async function createEmailWithNodemailer(validatedArgs: any): Promise<string> {
-    console.log(`[DEBUG] createEmailWithNodemailer: Starting with ${validatedArgs.attachments?.length || 0} attachments`);
-    
     // Validate email addresses
     (validatedArgs.to as string[]).forEach(email => {
         if (!validateEmail(email)) {
@@ -139,7 +137,6 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
         }
         
         const fileName = path.basename(filePath);
-        console.log(`[DEBUG] Adding attachment: ${fileName}`);
         
         attachments.push({
             filename: fileName,
@@ -164,7 +161,6 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
     const info = await transporter.sendMail(mailOptions);
     const rawMessage = info.message.toString();
     
-    console.log(`[DEBUG] Generated raw RFC822 message, length: ${rawMessage.length}`);
     return rawMessage;
 }
 
