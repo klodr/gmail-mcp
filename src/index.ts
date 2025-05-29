@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import open from 'open';
 import os from 'os';
-import {createEmailMessage} from "./utl.js";
+import {createEmailMessage, createEmailWithNodemailer, GmailMessagePart} from "./utl.js";
 import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,21 +27,6 @@ const OAUTH_PATH = process.env.GMAIL_OAUTH_PATH || path.join(CONFIG_DIR, 'gcp-oa
 const CREDENTIALS_PATH = process.env.GMAIL_CREDENTIALS_PATH || path.join(CONFIG_DIR, 'credentials.json');
 
 // Type definitions for Gmail API responses
-interface GmailMessagePart {
-    partId?: string;
-    mimeType?: string;
-    filename?: string;
-    headers?: Array<{
-        name: string;
-        value: string;
-    }>;
-    body?: {
-        attachmentId?: string;
-        size?: number;
-        data?: string;
-    };
-    parts?: GmailMessagePart[];
-}
 
 interface EmailAttachment {
     id: string;
@@ -197,6 +182,7 @@ const SendEmailSchema = z.object({
     bcc: z.array(z.string()).optional().describe("List of BCC recipients"),
     threadId: z.string().optional().describe("Thread ID to reply to"),
     inReplyTo: z.string().optional().describe("Message ID being replied to"),
+    attachments: z.array(z.string()).optional().describe("List of file paths to attach to the email"),
 });
 
 const ReadEmailSchema = z.object({
@@ -258,6 +244,13 @@ const BatchModifyEmailsSchema = z.object({
 const BatchDeleteEmailsSchema = z.object({
     messageIds: z.array(z.string()).describe("List of message IDs to delete"),
     batchSize: z.number().optional().default(50).describe("Number of messages to process in each batch (default: 50)"),
+});
+
+const DownloadAttachmentSchema = z.object({
+    messageId: z.string().describe("ID of the email message containing the attachment"),
+    attachmentId: z.string().describe("ID of the attachment to download"),
+    filename: z.string().optional().describe("Filename to save the attachment as (if not provided, uses original filename)"),
+    savePath: z.string().optional().describe("Directory path to save the attachment (defaults to current directory)"),
 });
 
 // Main function
@@ -350,6 +343,11 @@ async function main() {
                 description: "Gets an existing label by name or creates it if it doesn't exist",
                 inputSchema: zodToJsonSchema(GetOrCreateLabelSchema),
             },
+            {
+                name: "download_attachment",
+                description: "Downloads an email attachment to a specified location",
+                inputSchema: zodToJsonSchema(DownloadAttachmentSchema),
+            },
         ],
     }))
 
@@ -357,56 +355,146 @@ async function main() {
         const { name, arguments: args } = request.params;
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
-            const message = createEmailMessage(validatedArgs);
+            console.log(`[DEBUG] Starting ${action} email action`);
+            console.log(`[DEBUG] Has attachments: ${validatedArgs.attachments ? validatedArgs.attachments.length : 0}`);
+            
+            let message: string;
+            
+            try {
+                // Check if we have attachments
+                if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
+                    console.log(`[DEBUG] Processing ${validatedArgs.attachments.length} attachments`);
+                    console.log(`[DEBUG] Attachment paths:`, validatedArgs.attachments);
+                    
+                    // Use Nodemailer to create properly formatted RFC822 message
+                    message = await createEmailWithNodemailer(validatedArgs);
+                    console.log(`[DEBUG] Created email message with Nodemailer, length: ${message.length}`);
+                    
+                    if (action === "send") {
+                        console.log(`[DEBUG] Encoding message with attachments to base64...`);
+                        const encodedMessage = Buffer.from(message).toString('base64')
+                            .replace(/\+/g, '-')
+                            .replace(/\//g, '_')
+                            .replace(/=+$/, '');
 
-            const encodedMessage = Buffer.from(message).toString('base64')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
+                        const result = await gmail.users.messages.send({
+                            userId: 'me',
+                            requestBody: {
+                                raw: encodedMessage,
+                                ...(validatedArgs.threadId && { threadId: validatedArgs.threadId })
+                            }
+                        });
+                        
+                        console.log(`[DEBUG] Gmail API response received, ID: ${result.data.id}`);
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email sent successfully with ID: ${result.data.id}`,
+                                },
+                            ],
+                        };
+                    } else {
+                        // For drafts with attachments, use the raw message
+                        console.log(`[DEBUG] Encoding draft message to base64...`);
+                        const encodedMessage = Buffer.from(message).toString('base64')
+                            .replace(/\+/g, '-')
+                            .replace(/\//g, '_')
+                            .replace(/=+$/, '');
+                        
+                        const messageRequest = {
+                            raw: encodedMessage,
+                            ...(validatedArgs.threadId && { threadId: validatedArgs.threadId })
+                        };
+                        
+                        console.log(`[DEBUG] Calling Gmail API to create draft...`);
+                        const response = await gmail.users.drafts.create({
+                            userId: 'me',
+                            requestBody: {
+                                message: messageRequest,
+                            },
+                        });
+                        console.log(`[DEBUG] Gmail API draft response received, ID: ${response.data.id}`);
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email draft created successfully with ID: ${response.data.id}`,
+                                },
+                            ],
+                        };
+                    }
+                } else {
+                    // For emails without attachments, use the existing simple method
+                    message = createEmailMessage(validatedArgs);
+                    console.log(`[DEBUG] Created simple email message, length: ${message.length}`);
+                    
+                    console.log(`[DEBUG] Encoding message to base64...`);
+                    const encodedMessage = Buffer.from(message).toString('base64')
+                        .replace(/\+/g, '-')
+                        .replace(/\//g, '_')
+                        .replace(/=+$/, '');
+                    console.log(`[DEBUG] Encoded message length: ${encodedMessage.length}`);
 
-            // Define the type for messageRequest
-            interface GmailMessageRequest {
-                raw: string;
-                threadId?: string;
-            }
+                    // Define the type for messageRequest
+                    interface GmailMessageRequest {
+                        raw: string;
+                        threadId?: string;
+                    }
 
-            const messageRequest: GmailMessageRequest = {
-                raw: encodedMessage,
-            };
+                    const messageRequest: GmailMessageRequest = {
+                        raw: encodedMessage,
+                    };
 
-            // Add threadId if specified
-            if (validatedArgs.threadId) {
-                messageRequest.threadId = validatedArgs.threadId;
-            }
+                    // Add threadId if specified
+                    if (validatedArgs.threadId) {
+                        messageRequest.threadId = validatedArgs.threadId;
+                        console.log(`[DEBUG] Added threadId: ${validatedArgs.threadId}`);
+                    }
 
-            if (action === "send") {
-                const response = await gmail.users.messages.send({
-                    userId: 'me',
-                    requestBody: messageRequest,
-                });
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Email sent successfully with ID: ${response.data.id}`,
+                    if (action === "send") {
+                        console.log(`[DEBUG] Calling Gmail API to send message...`);
+                        const response = await gmail.users.messages.send({
+                            userId: 'me',
+                            requestBody: messageRequest,
+                        });
+                        console.log(`[DEBUG] Gmail API response received, ID: ${response.data.id}`);
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email sent successfully with ID: ${response.data.id}`,
+                                },
+                            ],
+                        };
+                    } else {
+                        console.log(`[DEBUG] Calling Gmail API to create draft...`);
+                        const response = await gmail.users.drafts.create({
+                            userId: 'me',
+                            requestBody: {
+                                message: messageRequest,
                         },
-                    ],
-                };
-            } else {
-                const response = await gmail.users.drafts.create({
-                    userId: 'me',
-                    requestBody: {
-                        message: messageRequest,
-                    },
-                });
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Email draft created successfully with ID: ${response.data.id}`,
-                        },
-                    ],
-                };
+                        });
+                        console.log(`[DEBUG] Gmail API draft response received, ID: ${response.data.id}`);
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email draft created successfully with ID: ${response.data.id}`,
+                                },
+                            ],
+                        };
+                    }
+                }
+            } catch (error: any) {
+                console.error(`[ERROR] Failed in handleEmailAction:`, error);
+                console.error(`[ERROR] Error stack:`, error.stack);
+                console.error(`[ERROR] Error message:`, error.message);
+                if (error.response) {
+                    console.error(`[ERROR] Gmail API response:`, error.response.data);
+                    console.error(`[ERROR] Gmail API status:`, error.response.status);
+                }
+                throw error;
             }
         }
 
@@ -503,7 +591,7 @@ async function main() {
                     // Add attachment info to output if any are present
                     const attachmentInfo = attachments.length > 0 ?
                         `\n\nAttachments (${attachments.length}):\n` +
-                        attachments.map(a => `- ${a.filename} (${a.mimeType}, ${Math.round(a.size/1024)} KB)`).join('\n') : '';
+                        attachments.map(a => `- ${a.filename} (${a.mimeType}, ${Math.round(a.size/1024)} KB, ID: ${a.id})`).join('\n') : '';
 
                     return {
                         content: [
@@ -799,6 +887,83 @@ async function main() {
                             },
                         ],
                     };
+                }
+
+                case "download_attachment": {
+                    const validatedArgs = DownloadAttachmentSchema.parse(args);
+                    
+                    try {
+                        // Get the attachment data from Gmail API
+                        const attachmentResponse = await gmail.users.messages.attachments.get({
+                            userId: 'me',
+                            messageId: validatedArgs.messageId,
+                            id: validatedArgs.attachmentId,
+                        });
+
+                        if (!attachmentResponse.data.data) {
+                            throw new Error('No attachment data received');
+                        }
+
+                        // Decode the base64 data
+                        const data = attachmentResponse.data.data;
+                        const buffer = Buffer.from(data, 'base64url');
+
+                        // Determine save path and filename
+                        const savePath = validatedArgs.savePath || process.cwd();
+                        let filename = validatedArgs.filename;
+                        
+                        if (!filename) {
+                            // Get original filename from message if not provided
+                            const messageResponse = await gmail.users.messages.get({
+                                userId: 'me',
+                                id: validatedArgs.messageId,
+                                format: 'full',
+                            });
+                            
+                            // Find the attachment part to get original filename
+                            const findAttachment = (part: any): string | null => {
+                                if (part.body && part.body.attachmentId === validatedArgs.attachmentId) {
+                                    return part.filename || `attachment-${validatedArgs.attachmentId}`;
+                                }
+                                if (part.parts) {
+                                    for (const subpart of part.parts) {
+                                        const found = findAttachment(subpart);
+                                        if (found) return found;
+                                    }
+                                }
+                                return null;
+                            };
+                            
+                            filename = findAttachment(messageResponse.data.payload) || `attachment-${validatedArgs.attachmentId}`;
+                        }
+
+                        // Ensure save directory exists
+                        if (!fs.existsSync(savePath)) {
+                            fs.mkdirSync(savePath, { recursive: true });
+                        }
+
+                        // Write file
+                        const fullPath = path.join(savePath, filename);
+                        fs.writeFileSync(fullPath, buffer);
+
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Attachment downloaded successfully:\nFile: ${filename}\nSize: ${buffer.length} bytes\nSaved to: ${fullPath}`,
+                                },
+                            ],
+                        };
+                    } catch (error: any) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Failed to download attachment: ${error.message}`,
+                                },
+                            ],
+                        };
+                    }
                 }
 
                 default:
