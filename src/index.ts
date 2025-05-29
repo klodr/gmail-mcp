@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import open from 'open';
 import os from 'os';
-import {createEmailMessage, createEmailWithNodemailer, GmailMessagePart} from "./utl.js";
+import {createEmailMessage, createEmailWithNodemailer} from "./utl.js";
 import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +27,21 @@ const OAUTH_PATH = process.env.GMAIL_OAUTH_PATH || path.join(CONFIG_DIR, 'gcp-oa
 const CREDENTIALS_PATH = process.env.GMAIL_CREDENTIALS_PATH || path.join(CONFIG_DIR, 'credentials.json');
 
 // Type definitions for Gmail API responses
+interface GmailMessagePart {
+    partId?: string;
+    mimeType?: string;
+    filename?: string;
+    headers?: Array<{
+        name: string;
+        value: string;
+    }>;
+    body?: {
+        attachmentId?: string;
+        size?: number;
+        data?: string;
+    };
+    parts?: GmailMessagePart[];
+}
 
 interface EmailAttachment {
     id: string;

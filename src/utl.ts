@@ -3,23 +3,6 @@ import path from 'path';
 import { lookup as mimeLookup } from 'mime-types';
 import nodemailer from 'nodemailer';
 
-// Gmail API MessagePart interface (matching the API documentation)
-export interface GmailMessagePart {
-    partId?: string;
-    mimeType?: string;
-    filename?: string;
-    headers?: Array<{
-        name: string;
-        value: string;
-    }>;
-    body?: {
-        attachmentId?: string;
-        size?: number;
-        data?: string;
-    };
-    parts?: GmailMessagePart[];
-}
-
 /**
  * Helper function to encode email headers containing non-ASCII characters
  * according to RFC 2047 MIME specification
