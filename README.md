@@ -342,6 +342,229 @@ Permanently deletes multiple emails in efficient batches.
 }
 ```
 
+### 14. Create Filter (`create_filter`)
+Creates a new Gmail filter with custom criteria and actions.
+
+```json
+{
+  "criteria": {
+    "from": "newsletter@company.com",
+    "hasAttachment": false
+  },
+  "action": {
+    "addLabelIds": ["Label_Newsletter"],
+    "removeLabelIds": ["INBOX"]
+  }
+}
+```
+
+### 15. List Filters (`list_filters`)
+Retrieves all Gmail filters.
+
+```json
+{}
+```
+
+### 16. Get Filter (`get_filter`)
+Gets details of a specific Gmail filter.
+
+```json
+{
+  "filterId": "ANe1Bmj1234567890"
+}
+```
+
+### 17. Delete Filter (`delete_filter`)
+Deletes a Gmail filter.
+
+```json
+{
+  "filterId": "ANe1Bmj1234567890"
+}
+```
+
+### 18. Create Filter from Template (`create_filter_from_template`)
+Creates a filter using pre-defined templates for common scenarios.
+
+```json
+{
+  "template": "fromSender",
+  "parameters": {
+    "senderEmail": "notifications@github.com",
+    "labelIds": ["Label_GitHub"],
+    "archive": true
+  }
+}
+```
+
+## Filter Management Features
+
+### Filter Criteria
+
+You can create filters based on various criteria:
+
+| Criteria | Example | Description |
+|----------|---------|-------------|
+| `from` | `"sender@example.com"` | Emails from a specific sender |
+| `to` | `"recipient@example.com"` | Emails sent to a specific recipient |
+| `subject` | `"Meeting"` | Emails with specific text in subject |
+| `query` | `"has:attachment"` | Gmail search query syntax |
+| `negatedQuery` | `"spam"` | Text that must NOT be present |
+| `hasAttachment` | `true` | Emails with attachments |
+| `size` | `10485760` | Email size in bytes |
+| `sizeComparison` | `"larger"` | Size comparison (`larger`, `smaller`) |
+
+### Filter Actions
+
+Filters can perform the following actions:
+
+| Action | Example | Description |
+|--------|---------|-------------|
+| `addLabelIds` | `["IMPORTANT", "Label_Work"]` | Add labels to matching emails |
+| `removeLabelIds` | `["INBOX", "UNREAD"]` | Remove labels from matching emails |
+| `forward` | `"backup@example.com"` | Forward emails to another address |
+
+### Filter Templates
+
+The server includes pre-built templates for common filtering scenarios:
+
+#### 1. From Sender Template (`fromSender`)
+Filters emails from a specific sender and optionally archives them.
+
+```json
+{
+  "template": "fromSender",
+  "parameters": {
+    "senderEmail": "newsletter@company.com",
+    "labelIds": ["Label_Newsletter"],
+    "archive": true
+  }
+}
+```
+
+#### 2. Subject Filter Template (`withSubject`)
+Filters emails with specific subject text and optionally marks as read.
+
+```json
+{
+  "template": "withSubject",
+  "parameters": {
+    "subjectText": "[URGENT]",
+    "labelIds": ["Label_Urgent"],
+    "markAsRead": false
+  }
+}
+```
+
+#### 3. Attachment Filter Template (`withAttachments`)
+Filters all emails with attachments.
+
+```json
+{
+  "template": "withAttachments",
+  "parameters": {
+    "labelIds": ["Label_Attachments"]
+  }
+}
+```
+
+#### 4. Large Email Template (`largeEmails`)
+Filters emails larger than a specified size.
+
+```json
+{
+  "template": "largeEmails",
+  "parameters": {
+    "sizeInBytes": 10485760,
+    "labelIds": ["Label_Large"]
+  }
+}
+```
+
+#### 5. Content Filter Template (`containingText`)
+Filters emails containing specific text and optionally marks as important.
+
+```json
+{
+  "template": "containingText",
+  "parameters": {
+    "searchText": "invoice",
+    "labelIds": ["Label_Finance"],
+    "markImportant": true
+  }
+}
+```
+
+#### 6. Mailing List Template (`mailingList`)
+Filters mailing list emails and optionally archives them.
+
+```json
+{
+  "template": "mailingList",
+  "parameters": {
+    "listIdentifier": "dev-team",
+    "labelIds": ["Label_DevTeam"],
+    "archive": true
+  }
+}
+```
+
+### Common Filter Examples
+
+Here are some practical filter examples:
+
+**Auto-organize newsletters:**
+```json
+{
+  "criteria": {
+    "from": "newsletter@company.com"
+  },
+  "action": {
+    "addLabelIds": ["Label_Newsletter"],
+    "removeLabelIds": ["INBOX"]
+  }
+}
+```
+
+**Handle promotional emails:**
+```json
+{
+  "criteria": {
+    "query": "unsubscribe OR promotional"
+  },
+  "action": {
+    "addLabelIds": ["Label_Promotions"],
+    "removeLabelIds": ["INBOX", "UNREAD"]
+  }
+}
+```
+
+**Priority emails from boss:**
+```json
+{
+  "criteria": {
+    "from": "boss@company.com"
+  },
+  "action": {
+    "addLabelIds": ["IMPORTANT", "Label_Boss"]
+  }
+}
+```
+
+**Large attachments:**
+```json
+{
+  "criteria": {
+    "size": 10485760,
+    "sizeComparison": "larger",
+    "hasAttachment": true
+  },
+  "action": {
+    "addLabelIds": ["Label_LargeFiles"]
+  }
+}
+```
+
 ## Advanced Search Syntax
 
 The `search_emails` tool supports Gmail's powerful search operators:
