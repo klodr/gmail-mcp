@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import open from 'open';
 import os from 'os';
-import {createEmailMessage} from "./utl.js";
+import {createEmailMessage, createEmailWithNodemailer} from "./utl.js";
 import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 import { createFilter, listFilters, getFilter, deleteFilter, filterTemplates, GmailFilterCriteria, GmailFilterAction } from "./filter-manager.js";
 
@@ -201,6 +201,7 @@ const SendEmailSchema = z.object({
     bcc: z.array(z.string()).optional().describe("List of BCC recipients"),
     threadId: z.string().optional().describe("Thread ID to reply to"),
     inReplyTo: z.string().optional().describe("Message ID being replied to"),
+    attachments: z.array(z.string()).optional().describe("List of file paths to attach to the email"),
 });
 
 const ReadEmailSchema = z.object({
@@ -308,6 +309,14 @@ const CreateFilterFromTemplateSchema = z.object({
         markImportant: z.boolean().optional().describe("Whether to mark as important")
     }).describe("Template-specific parameters")
 }).describe("Creates a filter using a pre-defined template");
+
+const DownloadAttachmentSchema = z.object({
+    messageId: z.string().describe("ID of the email message containing the attachment"),
+    attachmentId: z.string().describe("ID of the attachment to download"),
+    filename: z.string().optional().describe("Filename to save the attachment as (if not provided, uses original filename)"),
+    savePath: z.string().optional().describe("Directory path to save the attachment (defaults to current directory)"),
+});
+
 
 // Main function
 async function main() {
@@ -423,6 +432,10 @@ async function main() {
                 name: "create_filter_from_template",
                 description: "Creates a filter using a pre-defined template for common scenarios",
                 inputSchema: zodToJsonSchema(CreateFilterFromTemplateSchema),
+            {
+                name: "download_attachment",
+                description: "Downloads an email attachment to a specified location",
+                inputSchema: zodToJsonSchema(DownloadAttachmentSchema),
             },
         ],
     }))
@@ -431,56 +444,123 @@ async function main() {
         const { name, arguments: args } = request.params;
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
-            const message = createEmailMessage(validatedArgs);
+            let message: string;
+            
+            try {
+                // Check if we have attachments
+                if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
+                    // Use Nodemailer to create properly formatted RFC822 message
+                    message = await createEmailWithNodemailer(validatedArgs);
+                    
+                    if (action === "send") {
+                        const encodedMessage = Buffer.from(message).toString('base64')
+                            .replace(/\+/g, '-')
+                            .replace(/\//g, '_')
+                            .replace(/=+$/, '');
 
-            const encodedMessage = Buffer.from(message).toString('base64')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
+                        const result = await gmail.users.messages.send({
+                            userId: 'me',
+                            requestBody: {
+                                raw: encodedMessage,
+                                ...(validatedArgs.threadId && { threadId: validatedArgs.threadId })
+                            }
+                        });
+                        
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email sent successfully with ID: ${result.data.id}`,
+                                },
+                            ],
+                        };
+                    } else {
+                        // For drafts with attachments, use the raw message
+                        const encodedMessage = Buffer.from(message).toString('base64')
+                            .replace(/\+/g, '-')
+                            .replace(/\//g, '_')
+                            .replace(/=+$/, '');
+                        
+                        const messageRequest = {
+                            raw: encodedMessage,
+                            ...(validatedArgs.threadId && { threadId: validatedArgs.threadId })
+                        };
+                        
+                        const response = await gmail.users.drafts.create({
+                            userId: 'me',
+                            requestBody: {
+                                message: messageRequest,
+                            },
+                        });
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email draft created successfully with ID: ${response.data.id}`,
+                                },
+                            ],
+                        };
+                    }
+                } else {
+                    // For emails without attachments, use the existing simple method
+                    message = createEmailMessage(validatedArgs);
+                    
+                    const encodedMessage = Buffer.from(message).toString('base64')
+                        .replace(/\+/g, '-')
+                        .replace(/\//g, '_')
+                        .replace(/=+$/, '');
 
-            // Define the type for messageRequest
-            interface GmailMessageRequest {
-                raw: string;
-                threadId?: string;
-            }
+                    // Define the type for messageRequest
+                    interface GmailMessageRequest {
+                        raw: string;
+                        threadId?: string;
+                    }
 
-            const messageRequest: GmailMessageRequest = {
-                raw: encodedMessage,
-            };
+                    const messageRequest: GmailMessageRequest = {
+                        raw: encodedMessage,
+                    };
 
-            // Add threadId if specified
-            if (validatedArgs.threadId) {
-                messageRequest.threadId = validatedArgs.threadId;
-            }
+                    // Add threadId if specified
+                    if (validatedArgs.threadId) {
+                        messageRequest.threadId = validatedArgs.threadId;
+                    }
 
-            if (action === "send") {
-                const response = await gmail.users.messages.send({
-                    userId: 'me',
-                    requestBody: messageRequest,
-                });
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Email sent successfully with ID: ${response.data.id}`,
+                    if (action === "send") {
+                        const response = await gmail.users.messages.send({
+                            userId: 'me',
+                            requestBody: messageRequest,
+                        });
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email sent successfully with ID: ${response.data.id}`,
+                                },
+                            ],
+                        };
+                    } else {
+                        const response = await gmail.users.drafts.create({
+                            userId: 'me',
+                            requestBody: {
+                                message: messageRequest,
                         },
-                    ],
-                };
-            } else {
-                const response = await gmail.users.drafts.create({
-                    userId: 'me',
-                    requestBody: {
-                        message: messageRequest,
-                    },
-                });
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: `Email draft created successfully with ID: ${response.data.id}`,
-                        },
-                    ],
-                };
+                        });
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Email draft created successfully with ID: ${response.data.id}`,
+                                },
+                            ],
+                        };
+                    }
+                }
+            } catch (error: any) {
+                // Log attachment-related errors for debugging
+                if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
+                    console.error(`Failed to send email with ${validatedArgs.attachments.length} attachments:`, error.message);
+                }
+                throw error;
             }
         }
 
@@ -577,7 +657,7 @@ async function main() {
                     // Add attachment info to output if any are present
                     const attachmentInfo = attachments.length > 0 ?
                         `\n\nAttachments (${attachments.length}):\n` +
-                        attachments.map(a => `- ${a.filename} (${a.mimeType}, ${Math.round(a.size/1024)} KB)`).join('\n') : '';
+                        attachments.map(a => `- ${a.filename} (${a.mimeType}, ${Math.round(a.size/1024)} KB, ID: ${a.id})`).join('\n') : '';
 
                     return {
                         content: [
@@ -875,6 +955,7 @@ async function main() {
                     };
                 }
 
+
                 // Filter management handlers
                 case "create_filter": {
                     const validatedArgs = CreateFilterSchema.parse(args);
@@ -1024,6 +1105,81 @@ async function main() {
                             },
                         ],
                     };
+                }
+                case "download_attachment": {
+                    const validatedArgs = DownloadAttachmentSchema.parse(args);
+                    
+                    try {
+                        // Get the attachment data from Gmail API
+                        const attachmentResponse = await gmail.users.messages.attachments.get({
+                            userId: 'me',
+                            messageId: validatedArgs.messageId,
+                            id: validatedArgs.attachmentId,
+                        });
+
+                        if (!attachmentResponse.data.data) {
+                            throw new Error('No attachment data received');
+                        }
+
+                        // Decode the base64 data
+                        const data = attachmentResponse.data.data;
+                        const buffer = Buffer.from(data, 'base64url');
+
+                        // Determine save path and filename
+                        const savePath = validatedArgs.savePath || process.cwd();
+                        let filename = validatedArgs.filename;
+                        
+                        if (!filename) {
+                            // Get original filename from message if not provided
+                            const messageResponse = await gmail.users.messages.get({
+                                userId: 'me',
+                                id: validatedArgs.messageId,
+                                format: 'full',
+                            });
+                            
+                            // Find the attachment part to get original filename
+                            const findAttachment = (part: any): string | null => {
+                                if (part.body && part.body.attachmentId === validatedArgs.attachmentId) {
+                                    return part.filename || `attachment-${validatedArgs.attachmentId}`;
+                                }
+                                if (part.parts) {
+                                    for (const subpart of part.parts) {
+                                        const found = findAttachment(subpart);
+                                        if (found) return found;
+                                    }
+                                }
+                                return null;
+                            };
+                            
+                            filename = findAttachment(messageResponse.data.payload) || `attachment-${validatedArgs.attachmentId}`;
+                        }
+
+                        // Ensure save directory exists
+                        if (!fs.existsSync(savePath)) {
+                            fs.mkdirSync(savePath, { recursive: true });
+                        }
+
+                        // Write file
+                        const fullPath = path.join(savePath, filename);
+                        fs.writeFileSync(fullPath, buffer);
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Attachment downloaded successfully:\nFile: ${filename}\nSize: ${buffer.length} bytes\nSaved to: ${fullPath}`,
+                                },
+                            ],
+                        };
+                    } catch (error: any) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `Failed to download attachment: ${error.message}`,
+                                },
+                            ],
+                        };
+                    }
                 }
 
                 default:

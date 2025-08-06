@@ -8,11 +8,13 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
 
 ## Features
 
-- Send emails with subject, content, attachments, and recipients
+- Send emails with subject, content, **attachments**, and recipients
+- **Full attachment support** - send and receive file attachments
+- **Download email attachments** to local filesystem
 - Support for HTML emails and multipart messages with both HTML and plain text versions
 - Full support for international characters in subject lines and email content
 - Read email messages by ID with advanced MIME structure handling
-- View email attachments information (filenames, types, sizes)
+- **Enhanced attachment display** showing filenames, types, sizes, and download IDs
 - Search emails with various criteria (subject, sender, date range)
 - **Comprehensive label management with ability to create, update, delete and list labels**
 - List all available Gmail labels (system and user-defined)
@@ -183,8 +185,9 @@ The server provides the following tools that can be used through Claude Desktop:
 
 ### 1. Send Email (`send_email`)
 
-Sends a new email immediately. Supports plain text, HTML, or multipart emails.
+Sends a new email immediately. Supports plain text, HTML, or multipart emails **with optional file attachments**.
 
+Basic Email:
 ```json
 {
   "to": ["recipient@example.com"],
@@ -194,10 +197,23 @@ Sends a new email immediately. Supports plain text, HTML, or multipart emails.
   "bcc": ["bcc@example.com"],
   "mimeType": "text/plain"
 }
-
 ```
-HTML Email Example:
 
+**Email with Attachments:**
+```json
+{
+  "to": ["recipient@example.com"],
+  "subject": "Project Files",
+  "body": "Hi,\n\nPlease find the project files attached.\n\nBest regards",
+  "attachments": [
+    "/path/to/document.pdf",
+    "/path/to/spreadsheet.xlsx",
+    "/path/to/presentation.pptx"
+  ]
+}
+```
+
+HTML Email Example:
 ```json
 {
   "to": ["recipient@example.com"],
@@ -208,7 +224,6 @@ HTML Email Example:
 ```
 
 Multipart Email Example (HTML + Plain Text):
-
 ```json
 {
   "to": ["recipient@example.com"],
@@ -220,19 +235,20 @@ Multipart Email Example (HTML + Plain Text):
 ```
 
 ### 2. Draft Email (`draft_email`)
-Creates a draft email without sending it.
+Creates a draft email without sending it. **Also supports attachments**.
 
 ```json
 {
   "to": ["recipient@example.com"],
   "subject": "Draft Report",
   "body": "Here's the draft report for your review.",
-  "cc": ["manager@example.com"]
+  "cc": ["manager@example.com"],
+  "attachments": ["/path/to/draft_report.docx"]
 }
 ```
 
 ### 3. Read Email (`read_email`)
-Retrieves the content of a specific email by its ID.
+Retrieves the content of a specific email by its ID. **Now shows enhanced attachment information**.
 
 ```json
 {
@@ -240,7 +256,39 @@ Retrieves the content of a specific email by its ID.
 }
 ```
 
-### 4. Search Emails (`search_emails`)
+**Enhanced Response includes attachment details:**
+```
+Subject: Project Files
+From: sender@example.com
+To: recipient@example.com
+Date: Thu, 19 Jun 2025 10:30:00 -0400
+
+Email body content here...
+
+Attachments (2):
+- document.pdf (application/pdf, 245 KB, ID: ANGjdJ9fkTs-i3GCQo5o97f_itG...)
+- spreadsheet.xlsx (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, 89 KB, ID: BWHkeL8gkUt-j4HDRp6o98g_juI...)
+```
+
+### 4. **Download Attachment (`download_attachment`)**
+**NEW**: Downloads email attachments to your local filesystem.
+
+```json
+{
+  "messageId": "182ab45cd67ef",
+  "attachmentId": "ANGjdJ9fkTs-i3GCQo5o97f_itG...",
+  "savePath": "/path/to/downloads",
+  "filename": "downloaded_document.pdf"
+}
+```
+
+Parameters:
+- `messageId`: The ID of the email containing the attachment
+- `attachmentId`: The attachment ID (shown in enhanced email display)
+- `savePath`: Directory to save the file (optional, defaults to current directory)
+- `filename`: Custom filename (optional, uses original filename if not provided)
+
+### 5. Search Emails (`search_emails`)
 Searches for emails using Gmail search syntax.
 
 ```json
@@ -250,7 +298,7 @@ Searches for emails using Gmail search syntax.
 }
 ```
 
-### 5. Modify Email (`modify_email`)
+### 6. Modify Email (`modify_email`)
 Adds or removes labels from emails (move to different folders, archive, etc.).
 
 ```json
@@ -261,7 +309,7 @@ Adds or removes labels from emails (move to different folders, archive, etc.).
 }
 ```
 
-### 6. Delete Email (`delete_email`)
+### 7. Delete Email (`delete_email`)
 Permanently deletes an email.
 
 ```json
@@ -270,14 +318,14 @@ Permanently deletes an email.
 }
 ```
 
-### 7. List Email Labels (`list_email_labels`)
+### 8. List Email Labels (`list_email_labels`)
 Retrieves all available Gmail labels.
 
 ```json
 {}
 ```
 
-### 8. Create Label (`create_label`)
+### 9. Create Label (`create_label`)
 Creates a new Gmail label.
 
 ```json
@@ -288,7 +336,7 @@ Creates a new Gmail label.
 }
 ```
 
-### 9. Update Label (`update_label`)
+### 10. Update Label (`update_label`)
 Updates an existing Gmail label.
 
 ```json
@@ -300,7 +348,7 @@ Updates an existing Gmail label.
 }
 ```
 
-### 10. Delete Label (`delete_label`)
+### 11. Delete Label (`delete_label`)
 Deletes a Gmail label.
 
 ```json
@@ -309,7 +357,7 @@ Deletes a Gmail label.
 }
 ```
 
-### 11. Get or Create Label (`get_or_create_label`)
+### 12. Get or Create Label (`get_or_create_label`)
 Gets an existing label by name or creates it if it doesn't exist.
 
 ```json
@@ -320,7 +368,7 @@ Gets an existing label by name or creates it if it doesn't exist.
 }
 ```
 
-### 12. Batch Modify Emails (`batch_modify_emails`)
+### 13. Batch Modify Emails (`batch_modify_emails`)
 Modifies labels for multiple emails in efficient batches.
 
 ```json
@@ -332,7 +380,7 @@ Modifies labels for multiple emails in efficient batches.
 }
 ```
 
-### 13. Batch Delete Emails (`batch_delete_emails`)
+### 14. Batch Delete Emails (`batch_delete_emails`)
 Permanently deletes multiple emails in efficient batches.
 
 ```json
@@ -584,6 +632,19 @@ You can combine multiple operators: `from:john@example.com after:2024/01/01 has:
 
 ## Advanced Features
 
+### **Email Attachment Support**
+
+The server provides comprehensive attachment functionality:
+
+- **Sending Attachments**: Include file paths in the `attachments` array when sending or drafting emails
+- **Attachment Detection**: Automatically detects MIME types and file sizes
+- **Download Capability**: Download any email attachment to your local filesystem
+- **Enhanced Display**: View detailed attachment information including filenames, types, sizes, and download IDs
+- **Multiple Formats**: Support for all common file types (documents, images, archives, etc.)
+- **RFC822 Compliance**: Uses Nodemailer for proper MIME message formatting
+
+**Supported File Types**: All standard file types including PDF, DOCX, XLSX, PPTX, images (PNG, JPG, GIF), archives (ZIP, RAR), and more.
+
 ### Email Content Extraction
 
 The server intelligently extracts email content from complex MIME structures:
@@ -591,7 +652,7 @@ The server intelligently extracts email content from complex MIME structures:
 - Prioritizes plain text content when available
 - Falls back to HTML content if plain text is not available
 - Handles multi-part MIME messages with nested parts
-- Processes attachments information (filename, type, size)
+- **Processes attachments information (filename, type, size, download ID)**
 - Preserves original email headers (From, To, Subject, Date)
 
 ### International Character Support
@@ -635,6 +696,7 @@ The server includes efficient batch processing capabilities:
 - Never share or commit your credentials to version control
 - Regularly review and revoke unused access in your Google Account settings
 - Credentials are stored globally but are only accessible by the current user
+- **Attachment files are processed locally and never stored permanently by the server**
 
 ## Troubleshooting
 
@@ -654,6 +716,12 @@ The server includes efficient batch processing capabilities:
    - If batch operations fail, they automatically retry individual items
    - Check the detailed error messages for specific failures
    - Consider reducing the batch size if you encounter rate limiting
+
+5. **Attachment Issues**
+   - **File Not Found**: Ensure attachment file paths are correct and accessible
+   - **Permission Errors**: Check that the server has read access to attachment files
+   - **Size Limits**: Gmail has a 25MB attachment size limit per email
+   - **Download Failures**: Verify you have write permissions to the download directory
 
 ## Contributing
 
