@@ -432,6 +432,7 @@ async function main() {
                 name: "create_filter_from_template",
                 description: "Creates a filter using a pre-defined template for common scenarios",
                 inputSchema: zodToJsonSchema(CreateFilterFromTemplateSchema),
+            },
             {
                 name: "download_attachment",
                 description: "Downloads an email attachment to a specified location",
@@ -1162,6 +1163,7 @@ async function main() {
                         // Write file
                         const fullPath = path.join(savePath, filename);
                         fs.writeFileSync(fullPath, buffer);
+
                         return {
                             content: [
                                 {
