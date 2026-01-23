@@ -317,6 +317,15 @@ const DownloadAttachmentSchema = z.object({
     savePath: z.string().optional().describe("Directory path to save the attachment (defaults to current directory)"),
 });
 
+// Reply All schema - fetches original email and builds recipient list automatically
+const ReplyAllSchema = z.object({
+    messageId: z.string().describe("ID of the email message to reply to"),
+    body: z.string().describe("Reply body content (used for text/plain or when htmlBody not provided)"),
+    htmlBody: z.string().optional().describe("HTML version of the reply body"),
+    mimeType: z.enum(['text/plain', 'text/html', 'multipart/alternative']).optional().default('text/plain').describe("Email content type"),
+    attachments: z.array(z.string()).optional().describe("List of file paths to attach to the reply"),
+});
+
 
 // Main function
 async function main() {
@@ -437,6 +446,11 @@ async function main() {
                 name: "download_attachment",
                 description: "Downloads an email attachment to a specified location",
                 inputSchema: zodToJsonSchema(DownloadAttachmentSchema),
+            },
+            {
+                name: "reply_all",
+                description: "Replies to all recipients of an email. Automatically fetches the original email to build the recipient list (To, CC) and sets proper threading headers.",
+                inputSchema: zodToJsonSchema(ReplyAllSchema),
             },
         ],
     }))
@@ -1109,7 +1123,7 @@ async function main() {
                 }
                 case "download_attachment": {
                     const validatedArgs = DownloadAttachmentSchema.parse(args);
-                    
+
                     try {
                         // Get the attachment data from Gmail API
                         const attachmentResponse = await gmail.users.messages.attachments.get({
@@ -1129,7 +1143,7 @@ async function main() {
                         // Determine save path and filename
                         const savePath = validatedArgs.savePath || process.cwd();
                         let filename = validatedArgs.filename;
-                        
+
                         if (!filename) {
                             // Get original filename from message if not provided
                             const messageResponse = await gmail.users.messages.get({
@@ -1137,7 +1151,7 @@ async function main() {
                                 id: validatedArgs.messageId,
                                 format: 'full',
                             });
-                            
+
                             // Find the attachment part to get original filename
                             const findAttachment = (part: any): string | null => {
                                 if (part.body && part.body.attachmentId === validatedArgs.attachmentId) {
@@ -1151,7 +1165,7 @@ async function main() {
                                 }
                                 return null;
                             };
-                            
+
                             filename = findAttachment(messageResponse.data.payload) || `attachment-${validatedArgs.attachmentId}`;
                         }
 
@@ -1182,6 +1196,111 @@ async function main() {
                             ],
                         };
                     }
+                }
+
+                case "reply_all": {
+                    const validatedArgs = ReplyAllSchema.parse(args);
+
+                    // Fetch the original email to get headers
+                    const originalEmail = await gmail.users.messages.get({
+                        userId: 'me',
+                        id: validatedArgs.messageId,
+                        format: 'full',
+                    });
+
+                    const headers = originalEmail.data.payload?.headers || [];
+                    const threadId = originalEmail.data.threadId || '';
+
+                    // Extract relevant headers
+                    const originalFrom = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
+                    const originalTo = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
+                    const originalCc = headers.find(h => h.name?.toLowerCase() === 'cc')?.value || '';
+                    const originalSubject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '';
+                    const originalMessageId = headers.find(h => h.name?.toLowerCase() === 'message-id')?.value || '';
+                    const originalReferences = headers.find(h => h.name?.toLowerCase() === 'references')?.value || '';
+
+                    // Get authenticated user's email to exclude from recipients
+                    const profile = await gmail.users.getProfile({ userId: 'me' });
+                    const myEmail = profile.data.emailAddress?.toLowerCase() || '';
+
+                    // Helper function to parse email addresses from header value
+                    const parseEmails = (headerValue: string): string[] => {
+                        if (!headerValue) return [];
+                        // Split by comma, but handle cases like "Name <email@example.com>"
+                        const emails: string[] = [];
+                        const parts = headerValue.split(',');
+                        for (const part of parts) {
+                            const trimmed = part.trim();
+                            // Extract email from "Name <email>" format
+                            const match = trimmed.match(/<([^>]+)>/);
+                            if (match) {
+                                emails.push(match[1].trim());
+                            } else if (trimmed.includes('@')) {
+                                emails.push(trimmed);
+                            }
+                        }
+                        return emails;
+                    };
+
+                    // Helper function to filter out authenticated user's email
+                    const filterMyEmail = (emails: string[]): string[] => {
+                        return emails.filter(email => email.toLowerCase() !== myEmail);
+                    };
+
+                    // Build recipient list:
+                    // - TO: original sender (From)
+                    // - CC: original To and CC (excluding myself)
+                    const fromEmails = parseEmails(originalFrom);
+                    const toEmails = parseEmails(originalTo);
+                    const ccEmails = parseEmails(originalCc);
+
+                    // TO recipients: original From (the person who sent the email)
+                    const replyTo = filterMyEmail(fromEmails);
+
+                    // CC recipients: everyone else who was on To and CC, excluding myself
+                    const replyCc = filterMyEmail([...toEmails, ...ccEmails]);
+
+                    if (replyTo.length === 0) {
+                        throw new Error('Could not determine recipient for reply');
+                    }
+
+                    // Build subject with "Re:" prefix if not already present
+                    let replySubject = originalSubject;
+                    if (!replySubject.toLowerCase().startsWith('re:')) {
+                        replySubject = `Re: ${replySubject}`;
+                    }
+
+                    // Build References header (original References + original Message-ID)
+                    let references = originalReferences;
+                    if (originalMessageId) {
+                        references = references ? `${references} ${originalMessageId}` : originalMessageId;
+                    }
+
+                    // Prepare the email arguments for handleEmailAction
+                    const emailArgs = {
+                        to: replyTo,
+                        cc: replyCc.length > 0 ? replyCc : undefined,
+                        subject: replySubject,
+                        body: validatedArgs.body,
+                        htmlBody: validatedArgs.htmlBody,
+                        mimeType: validatedArgs.mimeType,
+                        threadId: threadId,
+                        inReplyTo: originalMessageId,
+                        attachments: validatedArgs.attachments,
+                    };
+
+                    // Use the existing handleEmailAction to send the reply
+                    const result = await handleEmailAction("send", emailArgs);
+
+                    // Enhance the response with reply-all specific info
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Reply-all sent successfully!\nTo: ${replyTo.join(', ')}${replyCc.length > 0 ? `\nCC: ${replyCc.join(', ')}` : ''}\nSubject: ${replySubject}\nThread ID: ${threadId}`,
+                            },
+                        ],
+                    };
                 }
 
                 default:
