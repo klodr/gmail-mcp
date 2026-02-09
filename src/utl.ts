@@ -51,7 +51,7 @@ export function createEmailMessage(validatedArgs: any): string {
         `Subject: ${encodedSubject}`,
         // Add thread-related headers if specified
         validatedArgs.inReplyTo ? `In-Reply-To: ${validatedArgs.inReplyTo}` : '',
-        validatedArgs.inReplyTo ? `References: ${validatedArgs.inReplyTo}` : '',
+        (validatedArgs.references || validatedArgs.inReplyTo) ? `References: ${validatedArgs.references || validatedArgs.inReplyTo}` : '',
         'MIME-Version: 1.0',
     ].filter(Boolean);
 
@@ -137,7 +137,7 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
         html: validatedArgs.htmlBody,
         attachments: attachments,
         inReplyTo: validatedArgs.inReplyTo,
-        references: validatedArgs.inReplyTo
+        references: validatedArgs.references || validatedArgs.inReplyTo
     };
 
     // Generate the raw message

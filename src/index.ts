@@ -446,8 +446,52 @@ async function main() {
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
             let message: string;
-            
+
             try {
+                // Auto-resolve threading headers when threadId is provided but inReplyTo is missing
+                if (validatedArgs.threadId && !validatedArgs.inReplyTo) {
+                    try {
+                        const threadResponse = await gmail.users.threads.get({
+                            userId: 'me',
+                            id: validatedArgs.threadId,
+                            format: 'metadata',
+                            metadataHeaders: ['Message-ID'],
+                        });
+
+                        const threadMessages = threadResponse.data.messages || [];
+                        if (threadMessages.length > 0) {
+                            // Collect all Message-ID values for the References chain
+                            const allMessageIds: string[] = [];
+                            for (const msg of threadMessages) {
+                                const msgHeaders = msg.payload?.headers || [];
+                                const messageIdHeader = msgHeaders.find(
+                                    (h) => h.name?.toLowerCase() === 'message-id'
+                                );
+                                if (messageIdHeader?.value) {
+                                    allMessageIds.push(messageIdHeader.value);
+                                }
+                            }
+
+                            // Last message's Message-ID becomes In-Reply-To
+                            const lastMessage = threadMessages[threadMessages.length - 1];
+                            const lastHeaders = lastMessage.payload?.headers || [];
+                            const lastMessageId = lastHeaders.find(
+                                (h) => h.name?.toLowerCase() === 'message-id'
+                            )?.value;
+
+                            if (lastMessageId) {
+                                validatedArgs.inReplyTo = lastMessageId;
+                            }
+                            if (allMessageIds.length > 0) {
+                                validatedArgs.references = allMessageIds.join(' ');
+                            }
+                        }
+                    } catch (threadError: any) {
+                        console.warn(`Warning: Could not fetch thread ${validatedArgs.threadId} for header resolution: ${threadError.message}`);
+                        // Continue without threading headers - degraded but not broken
+                    }
+                }
+
                 // Check if we have attachments
                 if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
                     // Use Nodemailer to create properly formatted RFC822 message
@@ -618,6 +662,7 @@ async function main() {
                     const from = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
                     const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
                     const date = headers.find(h => h.name?.toLowerCase() === 'date')?.value || '';
+                    const rfcMessageId = headers.find(h => h.name?.toLowerCase() === 'message-id')?.value || '';
                     const threadId = response.data.threadId || '';
 
                     // Extract email content using the recursive function
@@ -664,7 +709,7 @@ async function main() {
                         content: [
                             {
                                 type: "text",
-                                text: `Thread ID: ${threadId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}\n\n${contentTypeNote}${body}${attachmentInfo}`,
+                                text: `Thread ID: ${threadId}\nMessage-ID: ${rfcMessageId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}\n\n${contentTypeNote}${body}${attachmentInfo}`,
                             },
                         ],
                     };
