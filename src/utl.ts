@@ -44,7 +44,7 @@ export function createEmailMessage(validatedArgs: any): string {
 
     // Common email headers
     const emailParts = [
-        'From: me',
+        `From: ${validatedArgs.from || 'me'}`,
         `To: ${validatedArgs.to.join(', ')}`,
         validatedArgs.cc ? `Cc: ${validatedArgs.cc.join(', ')}` : '',
         validatedArgs.bcc ? `Bcc: ${validatedArgs.bcc.join(', ')}` : '',
@@ -128,7 +128,7 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
     }
 
     const mailOptions = {
-        from: 'me', // Gmail API will replace this with the authenticated user
+        from: validatedArgs.from || 'me', // Gmail API uses default send-as if 'me', or specified alias
         to: validatedArgs.to.join(', '),
         cc: validatedArgs.cc?.join(', '),
         bcc: validatedArgs.bcc?.join(', '),
