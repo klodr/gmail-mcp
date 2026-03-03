@@ -1,4 +1,19 @@
-# Gmail AutoAuth MCP Server
+# Gmail AutoAuth MCP Server (Actively Maintained Fork)
+
+> **This is an actively maintained fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server).**
+>
+> The original repository has been unmaintained since August 2025 — 7+ months with zero maintainer activity and 72+ unmerged pull requests. I use this MCP server daily as part of my Claude Code workflow and depend on it working correctly, so I picked it up.
+>
+> **Pull requests are welcome.** If you've been sitting on fixes or features with nowhere to submit them, this is the place.
+
+### What this fork adds
+
+- **Fixed reply threading** — auto-resolves `In-Reply-To` and `References` headers so email replies land in the correct thread instead of creating orphaned messages ([upstream PR #91](https://github.com/GongRzhe/Gmail-MCP-Server/pull/91), still pending)
+- **Send-as alias support** — optional `from` parameter for multi-identity email management (send from any configured Gmail alias)
+
+Both features are production-tested in daily use.
+
+---
 
 A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop with auto authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
 
