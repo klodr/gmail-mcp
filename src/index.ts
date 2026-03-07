@@ -7,8 +7,6 @@ import {
     ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { google } from 'googleapis';
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { OAuth2Client } from 'google-auth-library';
 import fs from 'fs';
 import path from 'path';
@@ -20,6 +18,8 @@ import {createEmailMessage, createEmailWithNodemailer} from "./utl.js";
 import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 import { createFilter, listFilters, getFilter, deleteFilter, filterTemplates, GmailFilterCriteria, GmailFilterAction } from "./filter-manager.js";
 import { parseEmailAddresses, filterOutEmail, addRePrefix, buildReferencesHeader, buildReplyAllRecipients } from "./reply-all-helpers.js";
+import { DEFAULT_SCOPES, scopeNamesToUrls, parseScopes, validateScopes, hasScope, getAvailableScopeNames } from "./scopes.js";
+import { toolDefinitions, toMcpTools, getToolByName, SendEmailSchema, ReadEmailSchema, SearchEmailsSchema, ModifyEmailSchema, DeleteEmailSchema, BatchModifyEmailsSchema, BatchDeleteEmailsSchema, CreateLabelSchema, UpdateLabelSchema, DeleteLabelSchema, GetOrCreateLabelSchema, CreateFilterSchema, GetFilterSchema, DeleteFilterSchema, CreateFilterFromTemplateSchema, DownloadAttachmentSchema, ReplyAllSchema } from "./tools.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -59,6 +59,7 @@ interface EmailContent {
 
 // OAuth2 configuration
 let oauth2Client: OAuth2Client;
+let authorizedScopes: string[] = DEFAULT_SCOPES;
 
 /**
  * Recursively extract email body content from MIME message parts
@@ -124,9 +125,13 @@ async function loadCredentials() {
             process.exit(1);
         }
 
-        const callback = process.argv[2] === 'auth' && process.argv[3] 
-        ? process.argv[3] 
-        : "http://localhost:3000/oauth2callback";
+        // Parse callback URL from args (must be a URL, not a flag)
+        // Supports: node index.js auth https://example.com/callback
+        // Or: node index.js auth --scopes=gmail.readonly (uses default callback)
+        const callbackArg = process.argv.find(arg =>
+            arg.startsWith('http://') || arg.startsWith('https://')
+        );
+        const callback = callbackArg || "http://localhost:3000/oauth2callback";
 
         oauth2Client = new OAuth2Client(
             keys.client_id,
@@ -136,7 +141,21 @@ async function loadCredentials() {
 
         if (fs.existsSync(CREDENTIALS_PATH)) {
             const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
-            oauth2Client.setCredentials(credentials);
+
+            // Credentials file structure (v1.2.0+):
+            //   { "tokens": { access_token, refresh_token, ... }, "scopes": ["gmail.readonly", ...] }
+            //
+            // Legacy structure (pre-v1.2.0):
+            //   { access_token, refresh_token, ... }
+            //
+            // We support both formats for backwards compatibility. Users with legacy
+            // credentials will get DEFAULT_SCOPES (full access) until they re-authenticate.
+            const tokens = credentials.tokens || credentials;
+            oauth2Client.setCredentials(tokens);
+
+            if (credentials.scopes) {
+                authorizedScopes = credentials.scopes;
+            }
         }
     } catch (error) {
         console.error('Error loading credentials:', error);
@@ -144,19 +163,20 @@ async function loadCredentials() {
     }
 }
 
-async function authenticate() {
+async function authenticate(scopes: string[]) {
     const server = http.createServer();
     server.listen(3000);
+
+    // Convert shorthand scope names (e.g., "gmail.readonly") to full Google API URLs
+    const scopeUrls = scopeNamesToUrls(scopes);
 
     return new Promise<void>((resolve, reject) => {
         const authUrl = oauth2Client.generateAuthUrl({
             access_type: 'offline',
-            scope: [
-                'https://www.googleapis.com/auth/gmail.modify',
-                'https://www.googleapis.com/auth/gmail.settings.basic'
-            ],
+            scope: scopeUrls,
         });
 
+        console.log('Requesting scopes:', scopes.join(', '));
         console.log('Please visit this URL to authenticate:', authUrl);
         open(authUrl);
 
@@ -176,10 +196,14 @@ async function authenticate() {
             try {
                 const { tokens } = await oauth2Client.getToken(code);
                 oauth2Client.setCredentials(tokens);
-                fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(tokens));
+
+                // Store both tokens and authorized scopes for runtime filtering
+                const credentials = { tokens, scopes };
+                fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2));
 
                 res.writeHead(200);
                 res.end('Authentication successful! You can close this window.');
+                console.log('Credentials saved with scopes:', scopes.join(', '));
                 server.close();
                 resolve();
             } catch (error) {
@@ -191,150 +215,35 @@ async function authenticate() {
     });
 }
 
-// Schema definitions
-const SendEmailSchema = z.object({
-    to: z.array(z.string()).describe("List of recipient email addresses"),
-    subject: z.string().describe("Email subject"),
-    body: z.string().describe("Email body content (used for text/plain or when htmlBody not provided)"),
-    from: z.string().optional().describe("Sender email address (must be a configured send-as alias in Gmail settings). Defaults to account's default send-as address if not specified."),
-    htmlBody: z.string().optional().describe("HTML version of the email body"),
-    mimeType: z.enum(['text/plain', 'text/html', 'multipart/alternative']).optional().default('text/plain').describe("Email content type"),
-    cc: z.array(z.string()).optional().describe("List of CC recipients"),
-    bcc: z.array(z.string()).optional().describe("List of BCC recipients"),
-    threadId: z.string().optional().describe("Thread ID to reply to"),
-    inReplyTo: z.string().optional().describe("Message ID being replied to"),
-    attachments: z.array(z.string()).optional().describe("List of file paths to attach to the email"),
-});
-
-const ReadEmailSchema = z.object({
-    messageId: z.string().describe("ID of the email message to retrieve"),
-});
-
-const SearchEmailsSchema = z.object({
-    query: z.string().describe("Gmail search query (e.g., 'from:example@gmail.com')"),
-    maxResults: z.number().optional().describe("Maximum number of results to return"),
-});
-
-// Updated schema to include removeLabelIds
-const ModifyEmailSchema = z.object({
-    messageId: z.string().describe("ID of the email message to modify"),
-    labelIds: z.array(z.string()).optional().describe("List of label IDs to apply"),
-    addLabelIds: z.array(z.string()).optional().describe("List of label IDs to add to the message"),
-    removeLabelIds: z.array(z.string()).optional().describe("List of label IDs to remove from the message"),
-});
-
-const DeleteEmailSchema = z.object({
-    messageId: z.string().describe("ID of the email message to delete"),
-});
-
-// New schema for listing email labels
-const ListEmailLabelsSchema = z.object({}).describe("Retrieves all available Gmail labels");
-
-// Label management schemas
-const CreateLabelSchema = z.object({
-    name: z.string().describe("Name for the new label"),
-    messageListVisibility: z.enum(['show', 'hide']).optional().describe("Whether to show or hide the label in the message list"),
-    labelListVisibility: z.enum(['labelShow', 'labelShowIfUnread', 'labelHide']).optional().describe("Visibility of the label in the label list"),
-}).describe("Creates a new Gmail label");
-
-const UpdateLabelSchema = z.object({
-    id: z.string().describe("ID of the label to update"),
-    name: z.string().optional().describe("New name for the label"),
-    messageListVisibility: z.enum(['show', 'hide']).optional().describe("Whether to show or hide the label in the message list"),
-    labelListVisibility: z.enum(['labelShow', 'labelShowIfUnread', 'labelHide']).optional().describe("Visibility of the label in the label list"),
-}).describe("Updates an existing Gmail label");
-
-const DeleteLabelSchema = z.object({
-    id: z.string().describe("ID of the label to delete"),
-}).describe("Deletes a Gmail label");
-
-const GetOrCreateLabelSchema = z.object({
-    name: z.string().describe("Name of the label to get or create"),
-    messageListVisibility: z.enum(['show', 'hide']).optional().describe("Whether to show or hide the label in the message list"),
-    labelListVisibility: z.enum(['labelShow', 'labelShowIfUnread', 'labelHide']).optional().describe("Visibility of the label in the label list"),
-}).describe("Gets an existing label by name or creates it if it doesn't exist");
-
-// Schemas for batch operations
-const BatchModifyEmailsSchema = z.object({
-    messageIds: z.array(z.string()).describe("List of message IDs to modify"),
-    addLabelIds: z.array(z.string()).optional().describe("List of label IDs to add to all messages"),
-    removeLabelIds: z.array(z.string()).optional().describe("List of label IDs to remove from all messages"),
-    batchSize: z.number().optional().default(50).describe("Number of messages to process in each batch (default: 50)"),
-});
-
-const BatchDeleteEmailsSchema = z.object({
-    messageIds: z.array(z.string()).describe("List of message IDs to delete"),
-    batchSize: z.number().optional().default(50).describe("Number of messages to process in each batch (default: 50)"),
-});
-
-// Filter management schemas
-const CreateFilterSchema = z.object({
-    criteria: z.object({
-        from: z.string().optional().describe("Sender email address to match"),
-        to: z.string().optional().describe("Recipient email address to match"),
-        subject: z.string().optional().describe("Subject text to match"),
-        query: z.string().optional().describe("Gmail search query (e.g., 'has:attachment')"),
-        negatedQuery: z.string().optional().describe("Text that must NOT be present"),
-        hasAttachment: z.boolean().optional().describe("Whether to match emails with attachments"),
-        excludeChats: z.boolean().optional().describe("Whether to exclude chat messages"),
-        size: z.number().optional().describe("Email size in bytes"),
-        sizeComparison: z.enum(['unspecified', 'smaller', 'larger']).optional().describe("Size comparison operator")
-    }).describe("Criteria for matching emails"),
-    action: z.object({
-        addLabelIds: z.array(z.string()).optional().describe("Label IDs to add to matching emails"),
-        removeLabelIds: z.array(z.string()).optional().describe("Label IDs to remove from matching emails"),
-        forward: z.string().optional().describe("Email address to forward matching emails to")
-    }).describe("Actions to perform on matching emails")
-}).describe("Creates a new Gmail filter");
-
-const ListFiltersSchema = z.object({}).describe("Retrieves all Gmail filters");
-
-const GetFilterSchema = z.object({
-    filterId: z.string().describe("ID of the filter to retrieve")
-}).describe("Gets details of a specific Gmail filter");
-
-const DeleteFilterSchema = z.object({
-    filterId: z.string().describe("ID of the filter to delete")
-}).describe("Deletes a Gmail filter");
-
-const CreateFilterFromTemplateSchema = z.object({
-    template: z.enum(['fromSender', 'withSubject', 'withAttachments', 'largeEmails', 'containingText', 'mailingList']).describe("Pre-defined filter template to use"),
-    parameters: z.object({
-        senderEmail: z.string().optional().describe("Sender email (for fromSender template)"),
-        subjectText: z.string().optional().describe("Subject text (for withSubject template)"),
-        searchText: z.string().optional().describe("Text to search for (for containingText template)"),
-        listIdentifier: z.string().optional().describe("Mailing list identifier (for mailingList template)"),
-        sizeInBytes: z.number().optional().describe("Size threshold in bytes (for largeEmails template)"),
-        labelIds: z.array(z.string()).optional().describe("Label IDs to apply"),
-        archive: z.boolean().optional().describe("Whether to archive (skip inbox)"),
-        markAsRead: z.boolean().optional().describe("Whether to mark as read"),
-        markImportant: z.boolean().optional().describe("Whether to mark as important")
-    }).describe("Template-specific parameters")
-}).describe("Creates a filter using a pre-defined template");
-
-const DownloadAttachmentSchema = z.object({
-    messageId: z.string().describe("ID of the email message containing the attachment"),
-    attachmentId: z.string().describe("ID of the attachment to download"),
-    filename: z.string().optional().describe("Filename to save the attachment as (if not provided, uses original filename)"),
-    savePath: z.string().optional().describe("Directory path to save the attachment (defaults to current directory)"),
-});
-
-// Reply All schema - fetches original email and builds recipient list automatically
-const ReplyAllSchema = z.object({
-    messageId: z.string().describe("ID of the email message to reply to"),
-    body: z.string().describe("Reply body content (used for text/plain or when htmlBody not provided)"),
-    htmlBody: z.string().optional().describe("HTML version of the reply body"),
-    mimeType: z.enum(['text/plain', 'text/html', 'multipart/alternative']).optional().default('text/plain').describe("Email content type"),
-    attachments: z.array(z.string()).optional().describe("List of file paths to attach to the reply"),
-});
-
-
 // Main function
 async function main() {
     await loadCredentials();
 
     if (process.argv[2] === 'auth') {
-        await authenticate();
+        // Parse --scopes flag from CLI arguments
+        // Usage: node dist/index.js auth --scopes=<scope1,scope2,...>
+        // Example: node dist/index.js auth --scopes=gmail.readonly
+        // Example: node dist/index.js auth --scopes=gmail.readonly,gmail.settings.basic
+        const scopesArg = process.argv.find(arg => arg.startsWith('--scopes='));
+        let scopes = DEFAULT_SCOPES;
+
+        if (scopesArg) {
+            const scopesValue = scopesArg.slice('--scopes='.length);
+            scopes = parseScopes(scopesValue);
+            const validation = validateScopes(scopes);
+
+            if (!validation.valid) {
+                console.error('Error: Invalid scope(s):', validation.invalid.join(', '));
+                console.error('Available scopes:', getAvailableScopeNames().join(', '));
+                process.exit(1);
+            }
+        } else {
+            console.log('No --scopes flag specified, using defaults:', DEFAULT_SCOPES.join(', '));
+            console.log('Tip: Use --scopes=gmail.readonly for read-only access');
+            console.log('Available scopes:', getAvailableScopeNames().join(', '));
+        }
+
+        await authenticate(scopes);
         console.log('Authentication completed successfully');
         process.exit(0);
     }
@@ -352,113 +261,28 @@ async function main() {
     });
 
     // Tool handlers
-    server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: [
-            {
-                name: "send_email",
-                description: "Sends a new email",
-                inputSchema: zodToJsonSchema(SendEmailSchema),
-            },
-            {
-                name: "draft_email",
-                description: "Draft a new email",
-                inputSchema: zodToJsonSchema(SendEmailSchema),
-            },
-            {
-                name: "read_email",
-                description: "Retrieves the content of a specific email",
-                inputSchema: zodToJsonSchema(ReadEmailSchema),
-            },
-            {
-                name: "search_emails",
-                description: "Searches for emails using Gmail search syntax",
-                inputSchema: zodToJsonSchema(SearchEmailsSchema),
-            },
-            {
-                name: "modify_email",
-                description: "Modifies email labels (move to different folders)",
-                inputSchema: zodToJsonSchema(ModifyEmailSchema),
-            },
-            {
-                name: "delete_email",
-                description: "Permanently deletes an email",
-                inputSchema: zodToJsonSchema(DeleteEmailSchema),
-            },
-            {
-                name: "list_email_labels",
-                description: "Retrieves all available Gmail labels",
-                inputSchema: zodToJsonSchema(ListEmailLabelsSchema),
-            },
-            {
-                name: "batch_modify_emails",
-                description: "Modifies labels for multiple emails in batches",
-                inputSchema: zodToJsonSchema(BatchModifyEmailsSchema),
-            },
-            {
-                name: "batch_delete_emails",
-                description: "Permanently deletes multiple emails in batches",
-                inputSchema: zodToJsonSchema(BatchDeleteEmailsSchema),
-            },
-            {
-                name: "create_label",
-                description: "Creates a new Gmail label",
-                inputSchema: zodToJsonSchema(CreateLabelSchema),
-            },
-            {
-                name: "update_label",
-                description: "Updates an existing Gmail label",
-                inputSchema: zodToJsonSchema(UpdateLabelSchema),
-            },
-            {
-                name: "delete_label",
-                description: "Deletes a Gmail label",
-                inputSchema: zodToJsonSchema(DeleteLabelSchema),
-            },
-            {
-                name: "get_or_create_label",
-                description: "Gets an existing label by name or creates it if it doesn't exist",
-                inputSchema: zodToJsonSchema(GetOrCreateLabelSchema),
-            },
-            {
-                name: "create_filter",
-                description: "Creates a new Gmail filter with custom criteria and actions",
-                inputSchema: zodToJsonSchema(CreateFilterSchema),
-            },
-            {
-                name: "list_filters",
-                description: "Retrieves all Gmail filters",
-                inputSchema: zodToJsonSchema(ListFiltersSchema),
-            },
-            {
-                name: "get_filter",
-                description: "Gets details of a specific Gmail filter",
-                inputSchema: zodToJsonSchema(GetFilterSchema),
-            },
-            {
-                name: "delete_filter",
-                description: "Deletes a Gmail filter",
-                inputSchema: zodToJsonSchema(DeleteFilterSchema),
-            },
-            {
-                name: "create_filter_from_template",
-                description: "Creates a filter using a pre-defined template for common scenarios",
-                inputSchema: zodToJsonSchema(CreateFilterFromTemplateSchema),
-            },
-            {
-                name: "download_attachment",
-                description: "Downloads an email attachment to a specified location",
-                inputSchema: zodToJsonSchema(DownloadAttachmentSchema),
-            },
-            {
-                name: "reply_all",
-                description: "Replies to all recipients of an email. Automatically fetches the original email to build the recipient list (To, CC) and sets proper threading headers.",
-                inputSchema: zodToJsonSchema(ReplyAllSchema),
-            },
-        ],
-    }))
+    // Filter available tools based on authorized scopes
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+        const availableTools = toolDefinitions.filter(tool =>
+            hasScope(authorizedScopes, tool.scopes)
+        );
+        return { tools: toMcpTools(availableTools) };
+    });
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
+
+        // Verify the tool is authorized for the current scopes
+        // This guards against direct tool calls that bypass ListTools
+        const toolDef = getToolByName(name);
+        if (!toolDef || !hasScope(authorizedScopes, toolDef.scopes)) {
+            return {
+                content: [{
+                    type: "text",
+                    text: `Error: Tool "${name}" is not available. You may need to re-authenticate with additional scopes.`,
+                }],
+            };
+        }
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
             let message: string;

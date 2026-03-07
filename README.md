@@ -194,6 +194,109 @@ npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2ca
 
 This approach allows authentication flows to work properly in environments where localhost isn't accessible, such as containerized applications or cloud servers.
 
+## OAuth Scopes
+
+You can limit the server's Gmail access by specifying OAuth scopes during authentication. This controls which tools are available to the LLM, reducing the attack surface for sensitive operations.
+
+### Available Scopes
+
+| Scope | Description |
+|-------|-------------|
+| `gmail.readonly` | Read-only access to emails (search, read, download attachments) |
+| `gmail.modify` | Full read/write access to emails (superset of `readonly` - includes sending, modifying, deleting) |
+| `gmail.compose` | Create drafts and send emails only |
+| `gmail.send` | Send emails only |
+| `gmail.labels` | Manage labels only |
+| `gmail.settings.basic` | Manage filters and settings |
+
+> **Note**: `gmail.modify` is a superset that includes all read capabilities. You don't need `gmail.readonly` if you have `gmail.modify`.
+
+### Authenticating with Specific Scopes
+
+Use the `--scopes` flag to request only the permissions you need:
+
+```bash
+# Read-only access (recommended for safe browsing)
+npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+
+# Read-only with filter management
+npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly,gmail.settings.basic
+
+# Full access (default behavior)
+npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+```
+
+If no `--scopes` flag is provided, the server defaults to `gmail.modify,gmail.settings.basic` for full functionality.
+
+### Scope-to-Tool Mapping
+
+The server automatically filters available tools based on your authorized scopes:
+
+| Tools | Required Scope (any) |
+|-------|---------------------|
+| `read_email`, `search_emails`, `download_attachment` | `gmail.readonly` or `gmail.modify` |
+| `list_email_labels` | `gmail.readonly`, `gmail.modify`, or `gmail.labels` |
+| `send_email`, `draft_email` | `gmail.modify`, `gmail.compose`, or `gmail.send` |
+| `modify_email`, `delete_email`, `batch_modify_emails`, `batch_delete_emails` | `gmail.modify` |
+| `create_label`, `update_label`, `delete_label`, `get_or_create_label` | `gmail.modify` or `gmail.labels` |
+| `list_filters`, `get_filter`, `create_filter`, `delete_filter`, `create_filter_from_template` | `gmail.settings.basic` |
+
+### Re-authenticating
+
+To change your scopes, simply run the auth command again with different scopes. This will replace your existing credentials.
+
+## Claude Code CLI Configuration
+
+To use this MCP server with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), add it to your MCP settings.
+
+### Read-Only Configuration (Recommended for Safe Browsing)
+
+First, authenticate with read-only scope:
+
+```bash
+npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+```
+
+Then add to your Claude Code MCP settings (`~/.claude/mcp_settings.json` or project-level `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "gmail": {
+      "command": "npx",
+      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
+    }
+  }
+}
+```
+
+With read-only scopes, only these 4 tools will be available to Claude:
+- `read_email` - Read email content
+- `search_emails` - Search your inbox
+- `list_email_labels` - List available labels
+- `download_attachment` - Download attachments
+
+### Full Access Configuration
+
+For full Gmail management capabilities:
+
+```bash
+npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+```
+
+```json
+{
+  "mcpServers": {
+    "gmail": {
+      "command": "npx",
+      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
+    }
+  }
+}
+```
+
+This enables all 18 tools including sending emails, managing labels, creating filters, and batch operations.
+
 ## Available Tools
 
 The server provides the following tools that can be used through Claude Desktop:
