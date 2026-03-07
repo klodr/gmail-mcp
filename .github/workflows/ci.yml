@@ -31,8 +31,8 @@ jobs:
       - name: Check README updated (push)
         if: github.event_name == 'push' && steps.skip.outputs.skip == 'false'
         run: |
-          # Check if README.md was modified in the pushed commits
-          CHANGED=$(echo '${{ toJSON(github.event.commits) }}' | jq -r '.[].added[], .[].modified[]' 2>/dev/null | grep -c '^README\.md$' || true)
+          # Check if README.md was modified in the HEAD commit
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^README\.md$' || true)
           if [ "$CHANGED" -eq 0 ]; then
             echo "::error::README.md was not updated in this push."
             echo ""
