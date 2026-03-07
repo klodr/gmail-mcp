@@ -1,5 +1,7 @@
 # Gmail AutoAuth MCP Server (Actively Maintained Fork)
 
+[![CI](https://github.com/ArtyMcLabin/Gmail-MCP-Server/actions/workflows/ci.yml/badge.svg)](https://github.com/ArtyMcLabin/Gmail-MCP-Server/actions/workflows/ci.yml)
+
 > **This is an actively maintained fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server).**
 >
 > The original repository has been unmaintained since August 2025 — 7+ months with zero maintainer activity and 72+ unmerged pull requests. I use this MCP server daily as part of my Claude Code workflow and depend on it working correctly, so I picked it up.
@@ -10,8 +12,11 @@
 
 - **Fixed reply threading** — auto-resolves `In-Reply-To` and `References` headers so email replies land in the correct thread instead of creating orphaned messages ([upstream PR #91](https://github.com/GongRzhe/Gmail-MCP-Server/pull/91), still pending)
 - **Send-as alias support** — optional `from` parameter for multi-identity email management (send from any configured Gmail alias)
+- **Reply-all tool** — `reply_all` automatically fetches the original email, builds To/CC recipient lists (excluding yourself), and sets proper threading headers ([PR #3](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/3) by [@MaxGhenis](https://github.com/MaxGhenis))
+- **Fixed `list_filters`** — was returning empty array due to wrong response property name ([PR #4](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/4) by [@nicholas-anthony-ai](https://github.com/nicholas-anthony-ai))
+- **Custom OAuth2 scoping** — `--scopes` flag to request only the permissions you need, with automatic tool filtering ([PR #6](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/6) by [@tansanDOTeth](https://github.com/tansanDOTeth))
 
-Both features are production-tested in daily use.
+All features are production-tested in daily use.
 
 ---
 
@@ -236,7 +241,7 @@ The server automatically filters available tools based on your authorized scopes
 |-------|---------------------|
 | `read_email`, `search_emails`, `download_attachment` | `gmail.readonly` or `gmail.modify` |
 | `list_email_labels` | `gmail.readonly`, `gmail.modify`, or `gmail.labels` |
-| `send_email`, `draft_email` | `gmail.modify`, `gmail.compose`, or `gmail.send` |
+| `send_email`, `draft_email`, `reply_all` | `gmail.modify`, `gmail.compose`, or `gmail.send` |
 | `modify_email`, `delete_email`, `batch_modify_emails`, `batch_delete_emails` | `gmail.modify` |
 | `create_label`, `update_label`, `delete_label`, `get_or_create_label` | `gmail.modify` or `gmail.labels` |
 | `list_filters`, `get_filter`, `create_filter`, `delete_filter`, `create_filter_from_template` | `gmail.settings.basic` |
@@ -295,7 +300,7 @@ npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.setting
 }
 ```
 
-This enables all 18 tools including sending emails, managing labels, creating filters, and batch operations.
+This enables all 20 tools including sending emails, managing labels, creating filters, reply-all, and batch operations.
 
 ## Available Tools
 
@@ -508,7 +513,7 @@ Permanently deletes multiple emails in efficient batches.
 }
 ```
 
-### 14. Create Filter (`create_filter`)
+### 15. Create Filter (`create_filter`)
 Creates a new Gmail filter with custom criteria and actions.
 
 ```json
@@ -524,14 +529,14 @@ Creates a new Gmail filter with custom criteria and actions.
 }
 ```
 
-### 15. List Filters (`list_filters`)
+### 16. List Filters (`list_filters`)
 Retrieves all Gmail filters.
 
 ```json
 {}
 ```
 
-### 16. Get Filter (`get_filter`)
+### 17. Get Filter (`get_filter`)
 Gets details of a specific Gmail filter.
 
 ```json
@@ -540,7 +545,7 @@ Gets details of a specific Gmail filter.
 }
 ```
 
-### 17. Delete Filter (`delete_filter`)
+### 18. Delete Filter (`delete_filter`)
 Deletes a Gmail filter.
 
 ```json
@@ -549,7 +554,7 @@ Deletes a Gmail filter.
 }
 ```
 
-### 18. Create Filter from Template (`create_filter_from_template`)
+### 19. Create Filter from Template (`create_filter_from_template`)
 Creates a filter using pre-defined templates for common scenarios.
 
 ```json
@@ -562,6 +567,42 @@ Creates a filter using pre-defined templates for common scenarios.
   }
 }
 ```
+
+### 20. Reply All (`reply_all`)
+Replies to all recipients of an email. Automatically fetches the original email to build the recipient list and sets proper threading headers (`In-Reply-To`, `References`, `threadId`).
+
+**How it works:**
+1. Fetches the original email by `messageId`
+2. Builds **To** from the original sender (From header)
+3. Builds **CC** from original To + CC, excluding your own email
+4. Sets threading headers so the reply lands in the correct thread
+5. Sends via the existing `send_email` pipeline (supports attachments, HTML, multipart)
+
+```json
+{
+  "messageId": "182ab45cd67ef",
+  "body": "Thanks for the update, everyone. I'll review and get back to you.",
+  "mimeType": "text/plain"
+}
+```
+
+**With HTML and attachments:**
+```json
+{
+  "messageId": "182ab45cd67ef",
+  "body": "Plain text fallback",
+  "htmlBody": "<p>Thanks for the update. See attached notes.</p>",
+  "mimeType": "multipart/alternative",
+  "attachments": ["/path/to/notes.pdf"]
+}
+```
+
+Parameters:
+- `messageId` (required): ID of the email to reply to
+- `body` (required): Reply body (plain text, or fallback when using multipart)
+- `htmlBody` (optional): HTML version of the reply body
+- `mimeType` (optional): `text/plain` (default), `text/html`, or `multipart/alternative`
+- `attachments` (optional): Array of file paths to attach
 
 ## Filter Management Features
 
@@ -844,6 +885,10 @@ The server includes efficient batch processing capabilities:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+**CI requires README updates** — every push to `main` and every PR must include a README.md change (even a version bump or changelog entry). This ensures documentation stays current as the codebase evolves.
+
+To bypass for commits that genuinely don't need a docs update (dependency bumps, CI config changes), include `[skip-readme]` or `[no-readme]` in your commit message or PR title.
 
 
 ## Running evals

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  readme-check:
+    name: README Updated
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for skip flag
+        id: skip
+        run: |
+          COMMIT_MSG=$(git log -1 --format=%s)
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          if echo "$COMMIT_MSG" | grep -qiE '\[(skip-readme|no-readme)\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif echo "$PR_TITLE" | grep -qiE '\[(skip-readme|no-readme)\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check README updated (push)
+        if: github.event_name == 'push' && steps.skip.outputs.skip == 'false'
+        run: |
+          # Check if README.md was modified in the pushed commits
+          CHANGED=$(echo '${{ toJSON(github.event.commits) }}' | jq -r '.[].added[], .[].modified[]' 2>/dev/null | grep -c '^README\.md$' || true)
+          if [ "$CHANGED" -eq 0 ]; then
+            echo "::error::README.md was not updated in this push."
+            echo ""
+            echo "Every push to main should include a README.md update."
+            echo "If this change genuinely doesn't need a docs update, add [skip-readme] or [no-readme] to your commit message."
+            exit 1
+          fi
+
+      - name: Check README updated (PR)
+        if: github.event_name == 'pull_request' && steps.skip.outputs.skip == 'false'
+        run: |
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -c '^README\.md$' || true)
+          if [ "$CHANGED" -eq 0 ]; then
+            echo "::error::README.md was not updated in this PR."
+            echo ""
+            echo "Every PR to main should include a README.md update."
+            echo "If this change genuinely doesn't need a docs update, add [skip-readme] or [no-readme] to your PR title."
+            exit 1
+          fi
+
+      - name: README check passed
+        if: steps.skip.outputs.skip == 'true'
+        run: echo "README check skipped via commit message or PR title flag."
+
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
