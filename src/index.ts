@@ -165,7 +165,7 @@ async function loadCredentials() {
 
 async function authenticate(scopes: string[]) {
     const server = http.createServer();
-    server.listen(3000);
+    server.listen(3000, '127.0.0.1');
 
     // Convert shorthand scope names (e.g., "gmail.readonly") to full Google API URLs
     const scopeUrls = scopeNamesToUrls(scopes);

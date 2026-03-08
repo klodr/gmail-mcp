@@ -21,8 +21,16 @@ export const validateEmail = (email: string): boolean => {
     return emailRegex.test(email);
 };
 
+/**
+ * Sanitize a value destined for an email header to prevent CRLF injection.
+ * Strips \r, \n, and \0 characters that could inject additional headers.
+ */
+function sanitizeHeaderValue(value: string): string {
+    return value.replace(/[\r\n\0]/g, '');
+}
+
 export function createEmailMessage(validatedArgs: any): string {
-    const encodedSubject = encodeEmailHeader(validatedArgs.subject);
+    const encodedSubject = encodeEmailHeader(sanitizeHeaderValue(validatedArgs.subject));
     // Determine content type based on available content and explicit mimeType
     let mimeType = validatedArgs.mimeType || 'text/plain';
     
@@ -42,16 +50,25 @@ export function createEmailMessage(validatedArgs: any): string {
         }
     });
 
+    // Sanitize all user-supplied header values to prevent CRLF injection
+    const from = sanitizeHeaderValue(validatedArgs.from || 'me');
+    const to = (validatedArgs.to as string[]).map(sanitizeHeaderValue).join(', ');
+    const cc = validatedArgs.cc ? (validatedArgs.cc as string[]).map(sanitizeHeaderValue).join(', ') : '';
+    const bcc = validatedArgs.bcc ? (validatedArgs.bcc as string[]).map(sanitizeHeaderValue).join(', ') : '';
+    const inReplyTo = validatedArgs.inReplyTo ? sanitizeHeaderValue(validatedArgs.inReplyTo) : '';
+    const references = validatedArgs.references
+        ? sanitizeHeaderValue(validatedArgs.references)
+        : validatedArgs.inReplyTo ? sanitizeHeaderValue(validatedArgs.inReplyTo) : '';
+
     // Common email headers
     const emailParts = [
-        `From: ${validatedArgs.from || 'me'}`,
-        `To: ${validatedArgs.to.join(', ')}`,
-        validatedArgs.cc ? `Cc: ${validatedArgs.cc.join(', ')}` : '',
-        validatedArgs.bcc ? `Bcc: ${validatedArgs.bcc.join(', ')}` : '',
+        `From: ${from}`,
+        `To: ${to}`,
+        cc ? `Cc: ${cc}` : '',
+        bcc ? `Bcc: ${bcc}` : '',
         `Subject: ${encodedSubject}`,
-        // Add thread-related headers if specified
-        validatedArgs.inReplyTo ? `In-Reply-To: ${validatedArgs.inReplyTo}` : '',
-        (validatedArgs.references || validatedArgs.inReplyTo) ? `References: ${validatedArgs.references || validatedArgs.inReplyTo}` : '',
+        inReplyTo ? `In-Reply-To: ${inReplyTo}` : '',
+        references ? `References: ${references}` : '',
         'MIME-Version: 1.0',
     ].filter(Boolean);
 
