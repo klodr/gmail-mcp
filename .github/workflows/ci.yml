@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   readme-check:
     name: README Updated
@@ -17,9 +20,10 @@ jobs:
 
       - name: Check for skip flag
         id: skip
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           COMMIT_MSG=$(git log -1 --format=%s)
-          PR_TITLE="${{ github.event.pull_request.title }}"
           if echo "$COMMIT_MSG" | grep -qiE '\[(skip-readme|no-readme)\]'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           elif echo "$PR_TITLE" | grep -qiE '\[(skip-readme|no-readme)\]'; then
