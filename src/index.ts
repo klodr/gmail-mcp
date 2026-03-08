@@ -98,8 +98,8 @@ function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
 async function loadCredentials() {
     try {
         // Create config directory if it doesn't exist
-        if (!process.env.GMAIL_OAUTH_PATH && !CREDENTIALS_PATH &&!fs.existsSync(CONFIG_DIR)) {
-            fs.mkdirSync(CONFIG_DIR, { recursive: true });
+        if (!process.env.GMAIL_OAUTH_PATH && !process.env.GMAIL_CREDENTIALS_PATH && !fs.existsSync(CONFIG_DIR)) {
+            fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
         }
 
         // Check for OAuth keys in current directory first, then in config directory
@@ -199,7 +199,7 @@ async function authenticate(scopes: string[]) {
 
                 // Store both tokens and authorized scopes for runtime filtering
                 const credentials = { tokens, scopes };
-                fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2));
+                fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2), { mode: 0o600 });
 
                 res.writeHead(200);
                 res.end('Authentication successful! You can close this window.');
@@ -252,13 +252,17 @@ async function main() {
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
     // Server implementation
-    const server = new Server({
-        name: "gmail",
-        version: "1.0.0",
-        capabilities: {
-            tools: {},
+    const server = new Server(
+        {
+            name: "gmail",
+            version: "1.0.0",
         },
-    });
+        {
+            capabilities: {
+                tools: {},
+            },
+        },
+    );
 
     // Tool handlers
     // Filter available tools based on authorized scopes
@@ -1040,13 +1044,20 @@ async function main() {
                             filename = findAttachment(messageResponse.data.payload) || `attachment-${validatedArgs.attachmentId}`;
                         }
 
+                        // Sanitize filename to prevent path traversal
+                        filename = path.basename(filename);
+
                         // Ensure save directory exists
                         if (!fs.existsSync(savePath)) {
                             fs.mkdirSync(savePath, { recursive: true });
                         }
 
-                        // Write file
-                        const fullPath = path.join(savePath, filename);
+                        // Resolve and validate final path stays within savePath
+                        const resolvedSavePath = path.resolve(savePath);
+                        const fullPath = path.resolve(resolvedSavePath, filename);
+                        if (!fullPath.startsWith(resolvedSavePath + path.sep) && fullPath !== resolvedSavePath) {
+                            throw new Error('Invalid filename: path traversal detected');
+                        }
                         fs.writeFileSync(fullPath, buffer);
 
                         return {
