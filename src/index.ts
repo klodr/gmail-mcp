@@ -19,7 +19,7 @@ import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, get
 import { createFilter, listFilters, getFilter, deleteFilter, filterTemplates, GmailFilterCriteria, GmailFilterAction } from "./filter-manager.js";
 import { parseEmailAddresses, filterOutEmail, addRePrefix, buildReferencesHeader, buildReplyAllRecipients } from "./reply-all-helpers.js";
 import { DEFAULT_SCOPES, scopeNamesToUrls, parseScopes, validateScopes, hasScope, getAvailableScopeNames } from "./scopes.js";
-import { toolDefinitions, toMcpTools, getToolByName, SendEmailSchema, ReadEmailSchema, SearchEmailsSchema, ModifyEmailSchema, DeleteEmailSchema, BatchModifyEmailsSchema, BatchDeleteEmailsSchema, CreateLabelSchema, UpdateLabelSchema, DeleteLabelSchema, GetOrCreateLabelSchema, CreateFilterSchema, GetFilterSchema, DeleteFilterSchema, CreateFilterFromTemplateSchema, DownloadAttachmentSchema, ReplyAllSchema } from "./tools.js";
+import { toolDefinitions, toMcpTools, getToolByName, SendEmailSchema, ReadEmailSchema, SearchEmailsSchema, ModifyEmailSchema, DeleteEmailSchema, BatchModifyEmailsSchema, BatchDeleteEmailsSchema, CreateLabelSchema, UpdateLabelSchema, DeleteLabelSchema, GetOrCreateLabelSchema, CreateFilterSchema, GetFilterSchema, DeleteFilterSchema, CreateFilterFromTemplateSchema, DownloadAttachmentSchema, ReplyAllSchema, GetThreadSchema, ListInboxThreadsSchema, GetInboxWithThreadsSchema } from "./tools.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1078,6 +1078,272 @@ async function main() {
                             ],
                         };
                     }
+                }
+
+                case "get_thread": {
+                    const validatedArgs = GetThreadSchema.parse(args);
+                    const threadResponse = await gmail.users.threads.get({
+                        userId: 'me',
+                        id: validatedArgs.threadId,
+                        format: validatedArgs.format || 'full',
+                    });
+
+                    const threadMessages = threadResponse.data.messages || [];
+
+                    // Process each message in the thread (already chronological from API)
+                    const messagesOutput = threadMessages.map((msg) => {
+                        const headers = msg.payload?.headers || [];
+                        const subject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '';
+                        const from = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
+                        const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
+                        const cc = headers.find(h => h.name?.toLowerCase() === 'cc')?.value || '';
+                        const bcc = headers.find(h => h.name?.toLowerCase() === 'bcc')?.value || '';
+                        const date = headers.find(h => h.name?.toLowerCase() === 'date')?.value || '';
+
+                        // Extract body content
+                        let body = '';
+                        if (validatedArgs.format !== 'minimal') {
+                            const { text, html } = extractEmailContent(msg.payload as GmailMessagePart || {});
+                            body = text || html || '';
+                        }
+
+                        // Extract attachment metadata
+                        const attachments: EmailAttachment[] = [];
+                        const processAttachmentParts = (part: GmailMessagePart) => {
+                            if (part.body && part.body.attachmentId) {
+                                const filename = part.filename || `attachment-${part.body.attachmentId}`;
+                                attachments.push({
+                                    id: part.body.attachmentId,
+                                    filename: filename,
+                                    mimeType: part.mimeType || 'application/octet-stream',
+                                    size: part.body.size || 0,
+                                });
+                            }
+                            if (part.parts) {
+                                part.parts.forEach((subpart: GmailMessagePart) => processAttachmentParts(subpart));
+                            }
+                        };
+                        if (msg.payload) {
+                            processAttachmentParts(msg.payload as GmailMessagePart);
+                        }
+
+                        return {
+                            messageId: msg.id || '',
+                            threadId: msg.threadId || '',
+                            from,
+                            to,
+                            cc,
+                            bcc,
+                            subject,
+                            date,
+                            body,
+                            labelIds: msg.labelIds || [],
+                            attachments: attachments.map(a => ({
+                                filename: a.filename,
+                                mimeType: a.mimeType,
+                                size: a.size,
+                            })),
+                        };
+                    });
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: JSON.stringify({
+                                    threadId: validatedArgs.threadId,
+                                    messageCount: messagesOutput.length,
+                                    messages: messagesOutput,
+                                }, null, 2),
+                            },
+                        ],
+                    };
+                }
+
+                case "list_inbox_threads": {
+                    const validatedArgs = ListInboxThreadsSchema.parse(args);
+                    const threadsResponse = await gmail.users.threads.list({
+                        userId: 'me',
+                        q: validatedArgs.query || 'in:inbox',
+                        maxResults: validatedArgs.maxResults || 50,
+                    });
+
+                    const threads = threadsResponse.data.threads || [];
+
+                    // Fetch metadata for each thread to get message count and latest message info
+                    const threadDetails = await Promise.all(
+                        threads.map(async (thread) => {
+                            const detail = await gmail.users.threads.get({
+                                userId: 'me',
+                                id: thread.id!,
+                                format: 'metadata',
+                                metadataHeaders: ['Subject', 'From', 'Date'],
+                            });
+
+                            const messages = detail.data.messages || [];
+                            const latestMessage = messages[messages.length - 1];
+                            const latestHeaders = latestMessage?.payload?.headers || [];
+
+                            return {
+                                threadId: thread.id || '',
+                                snippet: thread.snippet || '',
+                                historyId: thread.historyId || '',
+                                messageCount: messages.length,
+                                latestMessage: {
+                                    from: latestHeaders.find(h => h.name === 'From')?.value || '',
+                                    subject: latestHeaders.find(h => h.name === 'Subject')?.value || '',
+                                    date: latestHeaders.find(h => h.name === 'Date')?.value || '',
+                                },
+                            };
+                        })
+                    );
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: JSON.stringify({
+                                    resultCount: threadDetails.length,
+                                    threads: threadDetails,
+                                }, null, 2),
+                            },
+                        ],
+                    };
+                }
+
+                case "get_inbox_with_threads": {
+                    const validatedArgs = GetInboxWithThreadsSchema.parse(args);
+                    const threadsResponse = await gmail.users.threads.list({
+                        userId: 'me',
+                        q: validatedArgs.query || 'in:inbox',
+                        maxResults: validatedArgs.maxResults || 50,
+                    });
+
+                    const threads = threadsResponse.data.threads || [];
+
+                    if (!validatedArgs.expandThreads) {
+                        // Return basic thread list without expansion (same as list_inbox_threads)
+                        const threadSummaries = await Promise.all(
+                            threads.map(async (thread) => {
+                                const detail = await gmail.users.threads.get({
+                                    userId: 'me',
+                                    id: thread.id!,
+                                    format: 'metadata',
+                                    metadataHeaders: ['Subject', 'From', 'Date'],
+                                });
+
+                                const messages = detail.data.messages || [];
+                                const latestMessage = messages[messages.length - 1];
+                                const latestHeaders = latestMessage?.payload?.headers || [];
+
+                                return {
+                                    threadId: thread.id || '',
+                                    snippet: thread.snippet || '',
+                                    historyId: thread.historyId || '',
+                                    messageCount: messages.length,
+                                    latestMessage: {
+                                        from: latestHeaders.find(h => h.name === 'From')?.value || '',
+                                        subject: latestHeaders.find(h => h.name === 'Subject')?.value || '',
+                                        date: latestHeaders.find(h => h.name === 'Date')?.value || '',
+                                    },
+                                };
+                            })
+                        );
+
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: JSON.stringify({
+                                        resultCount: threadSummaries.length,
+                                        threads: threadSummaries,
+                                    }, null, 2),
+                                },
+                            ],
+                        };
+                    }
+
+                    // Expand each thread with full message content (parallel fetch)
+                    const expandedThreads = await Promise.all(
+                        threads.map(async (thread) => {
+                            const threadDetail = await gmail.users.threads.get({
+                                userId: 'me',
+                                id: thread.id!,
+                                format: 'full',
+                            });
+
+                            const threadMessages = threadDetail.data.messages || [];
+
+                            const messages = threadMessages.map((msg) => {
+                                const headers = msg.payload?.headers || [];
+                                const subject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '';
+                                const from = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
+                                const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
+                                const cc = headers.find(h => h.name?.toLowerCase() === 'cc')?.value || '';
+                                const bcc = headers.find(h => h.name?.toLowerCase() === 'bcc')?.value || '';
+                                const date = headers.find(h => h.name?.toLowerCase() === 'date')?.value || '';
+
+                                const { text, html } = extractEmailContent(msg.payload as GmailMessagePart || {});
+                                const body = text || html || '';
+
+                                // Extract attachment metadata
+                                const attachments: EmailAttachment[] = [];
+                                const processAttachmentParts = (part: GmailMessagePart) => {
+                                    if (part.body && part.body.attachmentId) {
+                                        const filename = part.filename || `attachment-${part.body.attachmentId}`;
+                                        attachments.push({
+                                            id: part.body.attachmentId,
+                                            filename: filename,
+                                            mimeType: part.mimeType || 'application/octet-stream',
+                                            size: part.body.size || 0,
+                                        });
+                                    }
+                                    if (part.parts) {
+                                        part.parts.forEach((subpart: GmailMessagePart) => processAttachmentParts(subpart));
+                                    }
+                                };
+                                if (msg.payload) {
+                                    processAttachmentParts(msg.payload as GmailMessagePart);
+                                }
+
+                                return {
+                                    messageId: msg.id || '',
+                                    threadId: msg.threadId || '',
+                                    from,
+                                    to,
+                                    cc,
+                                    bcc,
+                                    subject,
+                                    date,
+                                    body,
+                                    labelIds: msg.labelIds || [],
+                                    attachments: attachments.map(a => ({
+                                        filename: a.filename,
+                                        mimeType: a.mimeType,
+                                        size: a.size,
+                                    })),
+                                };
+                            });
+
+                            return {
+                                threadId: thread.id || '',
+                                messageCount: messages.length,
+                                messages,
+                            };
+                        })
+                    );
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: JSON.stringify({
+                                    resultCount: expandedThreads.length,
+                                    threads: expandedThreads,
+                                }, null, 2),
+                            },
+                        ],
+                    };
                 }
 
                 case "reply_all": {

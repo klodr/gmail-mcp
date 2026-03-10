@@ -124,6 +124,23 @@ export const DownloadAttachmentSchema = z.object({
   savePath: z.string().optional().describe("Directory path to save the attachment (defaults to current directory)"),
 });
 
+// Thread-level schemas
+export const GetThreadSchema = z.object({
+  threadId: z.string().describe("ID of the email thread to retrieve"),
+  format: z.enum(['full', 'metadata', 'minimal']).optional().default('full').describe("Format of the email messages returned (default: full)"),
+});
+
+export const ListInboxThreadsSchema = z.object({
+  query: z.string().optional().default('in:inbox').describe("Gmail search query (default: 'in:inbox')"),
+  maxResults: z.number().optional().default(50).describe("Maximum number of threads to return (default: 50)"),
+});
+
+export const GetInboxWithThreadsSchema = z.object({
+  query: z.string().optional().default('in:inbox').describe("Gmail search query (default: 'in:inbox')"),
+  maxResults: z.number().optional().default(50).describe("Maximum number of threads to return (default: 50)"),
+  expandThreads: z.boolean().optional().default(true).describe("Whether to fetch full thread content for each thread (default: true)"),
+});
+
 // Reply All schema - fetches original email and builds recipient list automatically
 export const ReplyAllSchema = z.object({
   messageId: z.string().describe("ID of the email message to reply to"),
@@ -160,6 +177,26 @@ export const toolDefinitions: ToolDefinition[] = [
     name: "download_attachment",
     description: "Downloads an email attachment to a specified location",
     schema: DownloadAttachmentSchema,
+    scopes: ["gmail.readonly", "gmail.modify"],
+  },
+
+  // Thread-level operations
+  {
+    name: "get_thread",
+    description: "Retrieves all messages in an email thread in one call. Returns messages ordered chronologically (oldest first) with full content, headers, labels, and attachment metadata.",
+    schema: GetThreadSchema,
+    scopes: ["gmail.readonly", "gmail.modify"],
+  },
+  {
+    name: "list_inbox_threads",
+    description: "Lists email threads matching a query (default: inbox). Returns thread-level view with snippet, message count, and latest message metadata.",
+    schema: ListInboxThreadsSchema,
+    scopes: ["gmail.readonly", "gmail.modify"],
+  },
+  {
+    name: "get_inbox_with_threads",
+    description: "Convenience tool that lists threads and optionally expands each with full message content. One call returns the full inbox with complete thread bodies.",
+    schema: GetInboxWithThreadsSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
   },
 
