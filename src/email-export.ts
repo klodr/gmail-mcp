@@ -2,6 +2,8 @@
  * Email export utilities for converting Gmail messages to various formats
  */
 
+import emailAddresses from "email-addresses";
+
 // Types
 export interface ParsedAddress {
 	name: string;
@@ -36,20 +38,16 @@ export interface EmailJson {
 
 /**
  * Parse email address string into name and email components
- * Handles formats like:
- * - "John Doe" <john@example.com>
- * - John Doe <john@example.com>
- * - john@example.com
+ * Uses RFC 5322 compliant parser (email-addresses package)
  */
 export function parseEmailAddress(address: string): ParsedAddress {
 	if (!address) return { name: "", email: "" };
 
-	// Try to match "Name" <email> or Name <email> pattern
-	const match = address.match(/^(?:"?([^"<]*)"?\s*)?<?([^>]+@[^>]+)>?$/);
-	if (match) {
+	const parsed = emailAddresses.parseOneAddress(address);
+	if (parsed && parsed.type === "mailbox") {
 		return {
-			name: (match[1] || "").trim(),
-			email: match[2].trim(),
+			name: parsed.name || "",
+			email: parsed.address || "",
 		};
 	}
 	return { name: "", email: address.trim() };
@@ -57,12 +55,20 @@ export function parseEmailAddress(address: string): ParsedAddress {
 
 /**
  * Parse comma-separated list of email addresses
+ * Uses RFC 5322 compliant parser (email-addresses package)
  */
 export function parseEmailAddresses(addresses: string | undefined): ParsedAddress[] {
 	if (!addresses) return [];
-	// Split on comma but not inside quotes
-	const parts = addresses.match(/(?:[^,"]|"[^"]*")+/g) || [];
-	return parts.map((part) => parseEmailAddress(part.trim())).filter((a) => a.email);
+
+	const parsed = emailAddresses.parseAddressList(addresses);
+	if (!parsed) return [];
+
+	return parsed
+		.filter((entry): entry is emailAddresses.ParsedMailbox => entry.type === "mailbox")
+		.map((entry) => ({
+			name: entry.name || "",
+			email: entry.address || "",
+		}));
 }
 
 /**
