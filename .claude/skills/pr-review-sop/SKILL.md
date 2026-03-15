@@ -93,7 +93,7 @@ After every push (to any branch), check CI status: `gh run list --branch {branch
 - If CI fails: investigate and fix before moving on. Do NOT leave broken CI.
 - **README check:** CI requires README.md to be updated on every push to `main`. If the change doesn't need docs, add `[skip-readme]` to the commit message.
 - **Build & Test:** Must pass. If it fails, fix the code.
-- CI only triggers on `main` pushes and PRs targeting `main`. Experimental branch does NOT trigger CI, but must be CI-clean before promoting to main.
+- CI triggers on both `main` and `experimental` pushes, and PRs targeting either branch.
 
 ## Session Hygiene
 
