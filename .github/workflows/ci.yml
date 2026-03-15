@@ -38,13 +38,21 @@ jobs:
 
       - name: Check README updated (push)
         if: github.event_name == 'push' && steps.skip.outputs.skip == 'false'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          # Check if README.md was modified in the HEAD commit
-          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^README\.md$' || true)
+          # Check if README.md was modified in any commit in this push
+          # (not just HEAD — a push may contain multiple commits)
+          if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            # New branch — check HEAD commit only
+            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^README\.md$' || true)
+          else
+            CHANGED=$(git diff --name-only "$BEFORE_SHA" HEAD | grep -c '^README\.md$' || true)
+          fi
           if [ "$CHANGED" -eq 0 ]; then
             echo "::error::README.md was not updated in this push."
             echo ""
-            echo "Every push to main should include a README.md update."
+            echo "Every push should include a README.md update when features change."
             echo "If this change genuinely doesn't need a docs update, add [skip-readme] or [no-readme] to your commit message."
             exit 1
           fi
