@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, experimental]
   pull_request:
-    branches: [main]
+    branches: [main, experimental]
 
 permissions:
   contents: read
@@ -24,9 +24,13 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           COMMIT_MSG=$(git log -1 --format=%s)
+          # Skip on explicit flag
           if echo "$COMMIT_MSG" | grep -qiE '\[(skip-readme|no-readme)\]'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           elif echo "$PR_TITLE" | grep -qiE '\[(skip-readme|no-readme)\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          # Skip on merge commits (experimental → main promotions already checked on experimental)
+          elif echo "$COMMIT_MSG" | grep -qiE '^Merge branch'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
