@@ -84,3 +84,16 @@ Established hardening from commits `95071e7` and `208ce00`:
 - Filename injection (same reasoning)
 - Local XSS in exported files (user opens their own files)
 - Symlink following (local user's filesystem)
+
+## CI Verification (Mandatory)
+
+After every push (to any branch), check CI status: `gh run list --branch {branch} --limit 1`
+- If CI fails: investigate and fix before moving on. Do NOT leave broken CI.
+- **README check:** CI requires README.md to be updated on every push to `main`. If the change doesn't need docs, add `[skip-readme]` to the commit message.
+- **Build & Test:** Must pass. If it fails, fix the code.
+- CI only triggers on `main` pushes and PRs targeting `main`. Experimental branch does NOT trigger CI, but must be CI-clean before promoting to main.
+
+## Session Hygiene
+
+- **Always end on `experimental` branch.** Before finishing a session, verify: `git branch --show-current` = `experimental`. If not, `git checkout experimental`.
+- Local working copy should always track `experimental` since that's the active development branch.
