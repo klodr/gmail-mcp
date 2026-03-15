@@ -13,6 +13,7 @@ user-invocable: false
 1. Before starting a new batch of PR reviews/changes: merge `experimental` → `main` IF the experiment is confirmed successful. If no evidence, ask the user.
 2. PR merges and own changes go into `experimental` first. Never merge PRs directly into `main`.
 3. After a batch is complete on `experimental`: wait for user confirmation, then merge `experimental` → `main`.
+4. **After every push to any branch:** run `gh run list --branch {branch} --limit 1` and verify CI passes. If CI fails, fix immediately — do NOT leave broken CI for the user to discover. This applies to every `git push` in the session, not just merges.
 
 ## PR Review Checklist (All Steps Mandatory)
 
@@ -50,7 +51,8 @@ user-invocable: false
    a. Fetch and fix locally on experimental, push — the PR diff updates automatically.
    b. Or: merge first via GitHub, then commit fixes on top.
 3. `gh pr merge {N} --merge` (merge via GitHub — shows purple "merged" badge, credits the contributor)
-4. Comment on PR explaining security audit result + any post-merge fixes applied.
+4. **Verify CI:** `gh run list --branch experimental --limit 1` — wait for result. If CI fails, fix before proceeding.
+5. Comment on PR explaining security audit result + any post-merge fixes applied.
 
 **Why not manual close:** "Closed" (red) looks like rejection to contributors and doesn't credit their work on their GitHub profile. Always use `gh pr merge` for accepted PRs.
 
