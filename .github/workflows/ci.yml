@@ -41,18 +41,24 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
         run: |
-          # Check if README.md was modified in any commit in this push
-          # (not just HEAD — a push may contain multiple commits)
           if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            # New branch — check HEAD commit only
-            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^README\.md$' || true)
+            DIFF_RANGE="HEAD~1..HEAD"
           else
-            CHANGED=$(git diff --name-only "$BEFORE_SHA" HEAD | grep -c '^README\.md$' || true)
+            DIFF_RANGE="$BEFORE_SHA..HEAD"
           fi
-          if [ "$CHANGED" -eq 0 ]; then
-            echo "::error::README.md was not updated in this push."
+
+          # Only require README update if source code was modified
+          SRC_CHANGED=$(git diff --name-only $DIFF_RANGE | grep -c '^src/' || true)
+          if [ "$SRC_CHANGED" -eq 0 ]; then
+            echo "No source code changes — README check skipped."
+            exit 0
+          fi
+
+          README_CHANGED=$(git diff --name-only $DIFF_RANGE | grep -c '^README\.md$' || true)
+          if [ "$README_CHANGED" -eq 0 ]; then
+            echo "::error::Source code changed but README.md was not updated."
             echo ""
-            echo "Every push should include a README.md update when features change."
+            echo "Every push with source changes should include a README.md update."
             echo "If this change genuinely doesn't need a docs update, add [skip-readme] or [no-readme] to your commit message."
             exit 1
           fi
@@ -60,11 +66,19 @@ jobs:
       - name: Check README updated (PR)
         if: github.event_name == 'pull_request' && steps.skip.outputs.skip == 'false'
         run: |
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -c '^README\.md$' || true)
-          if [ "$CHANGED" -eq 0 ]; then
-            echo "::error::README.md was not updated in this PR."
+          DIFF_RANGE="origin/${{ github.base_ref }}...HEAD"
+
+          SRC_CHANGED=$(git diff --name-only $DIFF_RANGE | grep -c '^src/' || true)
+          if [ "$SRC_CHANGED" -eq 0 ]; then
+            echo "No source code changes — README check skipped."
+            exit 0
+          fi
+
+          README_CHANGED=$(git diff --name-only $DIFF_RANGE | grep -c '^README\.md$' || true)
+          if [ "$README_CHANGED" -eq 0 ]; then
+            echo "::error::Source code changed but README.md was not updated in this PR."
             echo ""
-            echo "Every PR to main should include a README.md update."
+            echo "Every PR with source changes should include a README.md update."
             echo "If this change genuinely doesn't need a docs update, add [skip-readme] or [no-readme] to your PR title."
             exit 1
           fi
