@@ -13,7 +13,7 @@ permissions:
 jobs:
   readme-check:
     name: README Updated
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -158,7 +158,7 @@ jobs:
 
   build-and-test:
     name: Build & Test
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v4
 
