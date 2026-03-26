@@ -18,6 +18,9 @@
 - **CI/CD hardening** — fixed shell injection vector in GitHub Actions workflow, added least-privilege permissions scope ([PR #9](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/9) by [@JF10R](https://github.com/JF10R))
 - **Security hardening** — fixed path traversal in attachment download, restricted OAuth credential file permissions ([PR #10](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/10) by [@JF10R](https://github.com/JF10R))
 - **Dependency security** — upgraded MCP SDK to v1.27.1 (3 CVE fixes), upgraded nodemailer (DoS + routing fix), moved dev-only packages out of production deps ([PR #11](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/11) by [@JF10R](https://github.com/JF10R))
+- **Thread-level tools** — `get_thread`, `list_inbox_threads`, `get_inbox_with_threads` for efficient thread-based email reading in a single call
+- **Tool annotations** — MCP spec annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) on all tools for safer LLM tool execution ([PR #14](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/14) by [@bryankthompson](https://github.com/bryankthompson))
+- **Download email tool** — `download_email` saves emails to disk in json/eml/txt/html formats without consuming LLM context ([PR #13](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/13) by [@icanhasjonas](https://github.com/icanhasjonas))
 
 All features are production-tested in daily use.
 
@@ -33,6 +36,8 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
 - Send emails with subject, content, **attachments**, and recipients
 - **Full attachment support** - send and receive file attachments
 - **Download email attachments** to local filesystem
+- **Download full emails** to files in json/eml/txt/html formats
+- **Thread-level operations** — get full threads, list inbox threads, batch-expand threads
 - Support for HTML emails and multipart messages with both HTML and plain text versions
 - Full support for international characters in subject lines and email content
 - Read email messages by ID with advanced MIME structure handling
@@ -892,6 +897,10 @@ The evals package loads an mcp client that then runs the index.ts file, so there
 ```bash
 OPENAI_API_KEY=your-key  npx mcp-eval src/evals/evals.ts src/index.ts
 ```
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ArtyMcLabin/Gmail-MCP-Server&type=Date)](https://star-history.com/#ArtyMcLabin/Gmail-MCP-Server&Date)
 
 ## License
 
