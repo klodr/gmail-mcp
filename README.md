@@ -898,6 +898,10 @@ The evals package loads an mcp client that then runs the index.ts file, so there
 OPENAI_API_KEY=your-key  npx mcp-eval src/evals/evals.ts src/index.ts
 ```
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ArtyMcLabin/Gmail-MCP-Server&type=Date)](https://star-history.com/#ArtyMcLabin/Gmail-MCP-Server&Date)
+
 ## License
 
 MIT
