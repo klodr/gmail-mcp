@@ -131,6 +131,12 @@ export const DownloadEmailSchema = z.object({
     .describe("Output format: json (structured data), eml (raw RFC822), txt (plain text), html (formatted HTML)"),
 });
 
+export const ModifyThreadSchema = z.object({
+  threadId: z.string().describe("ID of the Gmail thread to modify"),
+  addLabelIds: z.array(z.string()).optional().describe("List of label IDs to add to all messages in the thread"),
+  removeLabelIds: z.array(z.string()).optional().describe("List of label IDs to remove from all messages in the thread"),
+});
+
 // Thread-level schemas
 export const GetThreadSchema = z.object({
   threadId: z.string().describe("ID of the email thread to retrieve"),
@@ -220,6 +226,13 @@ export const toolDefinitions: ToolDefinition[] = [
     schema: GetInboxWithThreadsSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
     annotations: { title: "Get Inbox with Threads", readOnlyHint: true },
+  },
+  {
+    name: "modify_thread",
+    description: "Modifies labels on ALL messages in a thread atomically using the Gmail threads.modify endpoint. Use this instead of modify_email when you want to apply label changes (e.g., archive, mark as read) to an entire thread at once.",
+    schema: ModifyThreadSchema,
+    scopes: ["gmail.modify"],
+    annotations: { title: "Modify Thread", destructiveHint: true, idempotentHint: true },
   },
   {
     name: "download_email",

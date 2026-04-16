@@ -3,6 +3,7 @@ import {
     GetThreadSchema,
     ListInboxThreadsSchema,
     GetInboxWithThreadsSchema,
+    ModifyThreadSchema,
     toolDefinitions,
     getToolByName,
 } from './tools.js';
@@ -82,6 +83,57 @@ describe('GetInboxWithThreadsSchema', () => {
     });
 });
 
+describe('ModifyThreadSchema', () => {
+    it('parses with required threadId only', () => {
+        const result = ModifyThreadSchema.parse({ threadId: '18abc123' });
+        expect(result.threadId).toBe('18abc123');
+        expect(result.addLabelIds).toBeUndefined();
+        expect(result.removeLabelIds).toBeUndefined();
+    });
+
+    it('accepts addLabelIds', () => {
+        const result = ModifyThreadSchema.parse({
+            threadId: '18abc123',
+            addLabelIds: ['Label_1', 'Label_2'],
+        });
+        expect(result.addLabelIds).toEqual(['Label_1', 'Label_2']);
+    });
+
+    it('accepts removeLabelIds', () => {
+        const result = ModifyThreadSchema.parse({
+            threadId: '18abc123',
+            removeLabelIds: ['INBOX', 'UNREAD'],
+        });
+        expect(result.removeLabelIds).toEqual(['INBOX', 'UNREAD']);
+    });
+
+    it('accepts both addLabelIds and removeLabelIds', () => {
+        const result = ModifyThreadSchema.parse({
+            threadId: '18abc123',
+            addLabelIds: ['Label_1'],
+            removeLabelIds: ['INBOX'],
+        });
+        expect(result.addLabelIds).toEqual(['Label_1']);
+        expect(result.removeLabelIds).toEqual(['INBOX']);
+    });
+
+    it('rejects missing threadId', () => {
+        expect(() => ModifyThreadSchema.parse({})).toThrow();
+    });
+
+    it('rejects non-string threadId', () => {
+        expect(() => ModifyThreadSchema.parse({ threadId: 12345 })).toThrow();
+    });
+
+    it('rejects non-array addLabelIds', () => {
+        expect(() => ModifyThreadSchema.parse({ threadId: '18abc123', addLabelIds: 'INBOX' })).toThrow();
+    });
+
+    it('rejects non-array removeLabelIds', () => {
+        expect(() => ModifyThreadSchema.parse({ threadId: '18abc123', removeLabelIds: 'INBOX' })).toThrow();
+    });
+});
+
 describe('Thread tool definitions', () => {
     it('registers get_thread in toolDefinitions', () => {
         const tool = getToolByName('get_thread');
@@ -107,8 +159,23 @@ describe('Thread tool definitions', () => {
         expect(tool!.scopes).toContain('gmail.modify');
     });
 
+    it('registers modify_thread in toolDefinitions', () => {
+        const tool = getToolByName('modify_thread');
+        expect(tool).toBeDefined();
+        expect(tool!.name).toBe('modify_thread');
+        expect(tool!.scopes).toContain('gmail.modify');
+        expect(tool!.annotations.destructiveHint).toBe(true);
+        expect(tool!.annotations.idempotentHint).toBe(true);
+    });
+
+    it('modify_thread description mentions atomic thread-level operation', () => {
+        const tool = getToolByName('modify_thread');
+        expect(tool!.description).toContain('ALL messages');
+        expect(tool!.description).toContain('atomically');
+    });
+
     it('has descriptions for all thread tools', () => {
-        const threadTools = ['get_thread', 'list_inbox_threads', 'get_inbox_with_threads'];
+        const threadTools = ['get_thread', 'list_inbox_threads', 'get_inbox_with_threads', 'modify_thread'];
         for (const toolName of threadTools) {
             const tool = getToolByName(toolName);
             expect(tool!.description).toBeTruthy();
@@ -116,9 +183,9 @@ describe('Thread tool definitions', () => {
         }
     });
 
-    it('total tool count includes the 3 new thread tools', () => {
-        const threadToolNames = ['get_thread', 'list_inbox_threads', 'get_inbox_with_threads'];
+    it('total tool count includes the 4 thread tools', () => {
+        const threadToolNames = ['get_thread', 'list_inbox_threads', 'get_inbox_with_threads', 'modify_thread'];
         const threadTools = toolDefinitions.filter(t => threadToolNames.includes(t.name));
-        expect(threadTools).toHaveLength(3);
+        expect(threadTools).toHaveLength(4);
     });
 });
