@@ -108,7 +108,52 @@ A Model Context Protocol (MCP) server for Gmail integration with auto authentica
    > - Both Desktop app and Web application credentials are supported
    > - For Web application credentials, make sure to add `http://localhost:3000/oauth2callback` to your authorized redirect URIs
 
-3. Add the server to your MCP client configuration (see "Claude Code CLI Configuration" below).
+3. Add the server to your MCP client configuration. Generic MCP server entry (works with any client that supports stdio transport):
+
+```json
+{
+  "mcpServers": {
+    "gmail": {
+      "command": "npx",
+      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
+    }
+  }
+}
+```
+
+Drop this into the `mcpServers` map of your MCP client config (e.g. `~/.claude.json` for Claude Code, `claude_desktop_config.json` for Claude Desktop, `~/.cursor/mcp.json` for Cursor, etc.).
+
+### Docker Support
+
+If you prefer using Docker (works with any MCP client that can spawn `docker run`):
+
+1. Authentication:
+```bash
+docker run -i --rm \
+  --mount type=bind,source=/path/to/gcp-oauth.keys.json,target=/gcp-oauth.keys.json \
+  -v mcp-gmail:/gmail-server \
+  -e GMAIL_OAUTH_PATH=/gcp-oauth.keys.json \
+  -e "GMAIL_CREDENTIALS_PATH=/gmail-server/credentials.json" \
+  -p 3000:3000 \
+  mcp/gmail auth
+```
+
+2. Usage (generic MCP client entry):
+```json
+{
+  "mcpServers": {
+    "gmail": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "mcp-gmail:/gmail-server",
+        "-e", "GMAIL_CREDENTIALS_PATH=/gmail-server/credentials.json",
+        "mcp/gmail"
+      ]
+    }
+  }
+}
+```
 
 ### Cloud Server Authentication
 
@@ -202,57 +247,37 @@ The server automatically filters available tools based on your authorized scopes
 
 To change your scopes, simply run the auth command again with different scopes. This will replace your existing credentials.
 
-## Claude Code CLI Configuration
+## Scope-Based Configuration Recipes
 
-To use this MCP server with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), add it to your MCP settings.
+The same MCP server entry (see "Installing Manually" above) works in any MCP client. What changes between use cases is **which OAuth scopes you grant at auth time** — the server then auto-filters the tool list to match.
 
-### Read-Only Configuration (Recommended for Safe Browsing)
-
-First, authenticate with read-only scope:
+### Read-Only (Recommended for safe browsing)
 
 ```bash
 npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
 ```
 
-Then add to your Claude Code MCP settings (`~/.claude/mcp_settings.json` or project-level `.mcp.json`):
+With read-only scopes, only these 4 tools are exposed to the LLM:
+- `read_email` — read email content
+- `search_emails` — search the inbox
+- `list_email_labels` — list available labels
+- `download_attachment` — download attachments
 
-```json
-{
-  "mcpServers": {
-    "gmail": {
-      "command": "npx",
-      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
-    }
-  }
-}
+### Send-Only (Minimal write surface)
+
+```bash
+npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.send
 ```
 
-With read-only scopes, only these 4 tools will be available to Claude:
-- `read_email` - Read email content
-- `search_emails` - Search your inbox
-- `list_email_labels` - List available labels
-- `download_attachment` - Download attachments
+Only `send_email`, `draft_email`, and `reply_all` are exposed. Useful for automation that needs to deliver outbound mail (e.g. forwarding receipts) without ever reading the inbox.
 
-### Full Access Configuration
-
-For full Gmail management capabilities:
+### Full Access
 
 ```bash
 npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
 ```
 
-```json
-{
-  "mcpServers": {
-    "gmail": {
-      "command": "npx",
-      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
-    }
-  }
-}
-```
-
-This enables all 20 tools including sending emails, managing labels, creating filters, reply-all, and batch operations.
+Enables all 20 tools including sending, managing labels, creating filters, reply-all, and batch operations.
 
 ## Available Tools
 
