@@ -28,7 +28,7 @@ All features are production-tested in daily use.
 
 ---
 
-A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop with auto authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
+A Model Context Protocol (MCP) server for Gmail integration with auto authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
 
 ![](https://badge.mcpx.dev?type=server 'MCP Server')
 
@@ -108,56 +108,7 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
    > - Both Desktop app and Web application credentials are supported
    > - For Web application credentials, make sure to add `http://localhost:3000/oauth2callback` to your authorized redirect URIs
 
-3. Configure in Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "gmail": {
-      "command": "npx",
-      "args": [
-        "@gongrzhe/server-gmail-autoauth-mcp"
-      ]
-    }
-  }
-}
-```
-
-### Docker Support
-
-If you prefer using Docker:
-
-1. Authentication:
-```bash
-docker run -i --rm \
-  --mount type=bind,source=/path/to/gcp-oauth.keys.json,target=/gcp-oauth.keys.json \
-  -v mcp-gmail:/gmail-server \
-  -e GMAIL_OAUTH_PATH=/gcp-oauth.keys.json \
-  -e "GMAIL_CREDENTIALS_PATH=/gmail-server/credentials.json" \
-  -p 3000:3000 \
-  mcp/gmail auth
-```
-
-2. Usage:
-```json
-{
-  "mcpServers": {
-    "gmail": {
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "-v",
-        "mcp-gmail:/gmail-server",
-        "-e",
-        "GMAIL_CREDENTIALS_PATH=/gmail-server/credentials.json",
-        "mcp/gmail"
-      ]
-    }
-  }
-}
-```
+3. Add the server to your MCP client configuration (see "Claude Code CLI Configuration" below).
 
 ### Cloud Server Authentication
 
@@ -305,7 +256,7 @@ This enables all 20 tools including sending emails, managing labels, creating fi
 
 ## Available Tools
 
-The server provides the following tools that can be used through Claude Desktop:
+The server provides the following tools that can be used through any MCP client:
 
 ### 1. Send Email (`send_email`)
 
