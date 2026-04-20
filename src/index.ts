@@ -143,7 +143,7 @@ async function loadCredentials() {
         if (fs.existsSync(localOAuthPath)) {
             // If found in current directory, copy to config directory
             fs.copyFileSync(localOAuthPath, OAUTH_PATH);
-            console.log('OAuth keys found in current directory, copied to global config.');
+            console.error('OAuth keys found in current directory, copied to global config.');
         }
 
         if (!fs.existsSync(OAUTH_PATH)) {
@@ -210,8 +210,8 @@ async function authenticate(scopes: string[]) {
             scope: scopeUrls,
         });
 
-        console.log('Requesting scopes:', scopes.join(', '));
-        console.log('Please visit this URL to authenticate:', authUrl);
+        console.error('Requesting scopes:', scopes.join(', '));
+        console.error('Please visit this URL to authenticate:', authUrl);
         open(authUrl);
 
         server.on('request', async (req, res) => {
@@ -237,7 +237,7 @@ async function authenticate(scopes: string[]) {
 
                 res.writeHead(200);
                 res.end('Authentication successful! You can close this window.');
-                console.log('Credentials saved with scopes:', scopes.join(', '));
+                console.error('Credentials saved with scopes:', scopes.join(', '));
                 server.close();
                 resolve();
             } catch (error) {
@@ -272,13 +272,13 @@ async function main() {
                 process.exit(1);
             }
         } else {
-            console.log('No --scopes flag specified, using defaults:', DEFAULT_SCOPES.join(', '));
-            console.log('Tip: Use --scopes=gmail.readonly for read-only access');
-            console.log('Available scopes:', getAvailableScopeNames().join(', '));
+            console.error('No --scopes flag specified, using defaults:', DEFAULT_SCOPES.join(', '));
+            console.error('Tip: Use --scopes=gmail.readonly for read-only access');
+            console.error('Available scopes:', getAvailableScopeNames().join(', '));
         }
 
         await authenticate(scopes);
-        console.log('Authentication completed successfully');
+        console.error('Authentication completed successfully');
         process.exit(0);
     }
 
