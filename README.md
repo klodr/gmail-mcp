@@ -9,7 +9,7 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/klodr/gmail-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/klodr/gmail-mcp)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12613/badge)](https://www.bestpractices.dev/projects/12613)
 [![Socket Security](https://socket.dev/api/badge/npm/package/@klodr/gmail-mcp)](https://socket.dev/npm/package/@klodr/gmail-mcp)
-[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/klodr/gmail-mcp?utm_source=oss&utm_medium=github&utm_campaign=klodr%2Fgmail-mcp&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/klodr/gmail-mcp?labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 [![npm version](https://img.shields.io/npm/v/@klodr/gmail-mcp.svg)](https://www.npmjs.com/package/@klodr/gmail-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/@klodr/gmail-mcp.svg)](https://www.npmjs.com/package/@klodr/gmail-mcp)
