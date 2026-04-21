@@ -203,6 +203,17 @@ async function loadCredentials() {
 
 async function authenticate(scopes: string[]) {
     const parsed = new URL(oauthCallbackUrl);
+
+    // The built-in callback listener is plain http.createServer(). If the
+    // caller passes an https:// URL, OAuth would redirect to a TLS target
+    // that nothing on this process is listening on — silent failure.
+    if (parsed.protocol !== 'http:') {
+        throw new Error(
+            `Callback protocol '${parsed.protocol}' is not supported. ` +
+            `The built-in auth server only accepts loopback HTTP callbacks (http://localhost...).`
+        );
+    }
+
     const hostname = parsed.hostname;
     const isLoopback =
         hostname === 'localhost' ||
@@ -218,11 +229,7 @@ async function authenticate(scopes: string[]) {
         );
     }
 
-    const port = parsed.port
-        ? Number(parsed.port)
-        : parsed.protocol === 'https:'
-            ? 443
-            : 80;
+    const port = parsed.port ? Number(parsed.port) : 80;
     const callbackPath = parsed.pathname || '/oauth2callback';
 
     const server = http.createServer();
