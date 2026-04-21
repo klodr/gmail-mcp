@@ -31,7 +31,7 @@ All features are production-tested in daily use.
 
 ---
 
-A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop with auto authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
+A Model Context Protocol (MCP) server for Gmail integration with auto-authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
 
 ![](https://badge.mcpx.dev?type=server 'MCP Server')
 
@@ -90,14 +90,14 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
    mv gcp-oauth.keys.json ~/.gmail-mcp/
 
    # Run authentication from anywhere
-   npx @gongrzhe/server-gmail-autoauth-mcp auth
+   npx @klodr/gmail-mcp auth
    ```
 
    b. Local Authentication:
    ```bash
    # Place gcp-oauth.keys.json in your current directory
    # The file will be automatically copied to global config
-   npx @gongrzhe/server-gmail-autoauth-mcp auth
+   npx @klodr/gmail-mcp auth
    ```
 
    The authentication process will:
@@ -111,24 +111,24 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
    > - Both Desktop app and Web application credentials are supported
    > - For Web application credentials, make sure to add `http://localhost:3000/oauth2callback` to your authorized redirect URIs
 
-3. Configure in Claude Desktop:
+3. Add the server to your MCP client configuration. Generic MCP server entry (works with any client that supports stdio transport):
 
 ```json
 {
   "mcpServers": {
     "gmail": {
       "command": "npx",
-      "args": [
-        "@gongrzhe/server-gmail-autoauth-mcp"
-      ]
+      "args": ["@klodr/gmail-mcp"]
     }
   }
 }
 ```
 
+Drop this into the `mcpServers` map of your MCP client config (e.g. `~/.claude.json` for Claude Code, `claude_desktop_config.json` for Claude Desktop, `~/.cursor/mcp.json` for Cursor, etc.).
+
 ### Docker Support
 
-If you prefer using Docker:
+If you prefer using Docker (works with any MCP client that can spawn `docker run`):
 
 1. Authentication:
 ```bash
@@ -141,20 +141,17 @@ docker run -i --rm \
   mcp/gmail auth
 ```
 
-2. Usage:
-```json
+1. Usage (generic MCP client entry):
+
+   ```json
 {
   "mcpServers": {
     "gmail": {
       "command": "docker",
       "args": [
-        "run",
-        "-i",
-        "--rm",
-        "-v",
-        "mcp-gmail:/gmail-server",
-        "-e",
-        "GMAIL_CREDENTIALS_PATH=/gmail-server/credentials.json",
+        "run", "-i", "--rm",
+        "-v", "mcp-gmail:/gmail-server",
+        "-e", "GMAIL_CREDENTIALS_PATH=/gmail-server/credentials.json",
         "mcp/gmail"
       ]
     }
@@ -167,7 +164,7 @@ docker run -i --rm \
 For cloud server environments (like n8n), you can specify a custom callback URL during authentication:
 
 ```bash
-npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2callback
+npx @klodr/gmail-mcp auth https://gmail.gongrzhe.com/oauth2callback
 ```
 
 #### Setup Instructions for Cloud Environment
@@ -184,7 +181,7 @@ npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2ca
 
 4. **Run Authentication:**
    ```bash
-   npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2callback
+   npx @klodr/gmail-mcp auth https://gmail.gongrzhe.com/oauth2callback
    ```
 
 5. **Configure in your application:**
@@ -194,7 +191,7 @@ npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2ca
        "gmail": {
          "command": "npx",
          "args": [
-           "@gongrzhe/server-gmail-autoauth-mcp"
+           "@klodr/gmail-mcp"
          ]
        }
      }
@@ -226,13 +223,13 @@ Use the `--scopes` flag to request only the permissions you need:
 
 ```bash
 # Read-only access (recommended for safe browsing)
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly
 
 # Read-only with filter management
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly,gmail.settings.basic
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly,gmail.settings.basic
 
 # Full access (default behavior)
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
 ```
 
 If no `--scopes` flag is provided, the server defaults to `gmail.modify,gmail.settings.basic` for full functionality.
@@ -254,61 +251,45 @@ The server automatically filters available tools based on your authorized scopes
 
 To change your scopes, simply run the auth command again with different scopes. This will replace your existing credentials.
 
-## Claude Code CLI Configuration
+## Scope-Based Configuration Recipes
 
-To use this MCP server with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), add it to your MCP settings.
+The same MCP server entry (see "Installing Manually" above) works in any MCP client. What changes between use cases is **which OAuth scopes you grant at auth time** — the server then auto-filters the tool list to match.
 
-### Read-Only Configuration (Recommended for Safe Browsing)
-
-First, authenticate with read-only scope:
+### Read-Only (Recommended for safe browsing)
 
 ```bash
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly
 ```
 
-Then add to your Claude Code MCP settings (`~/.claude/mcp_settings.json` or project-level `.mcp.json`):
+With read-only scopes, these 8 tools are exposed to the LLM:
+- `read_email` — read email content
+- `search_emails` — search the inbox
+- `list_email_labels` — list available labels
+- `download_attachment` — download attachments
+- `download_email` — save an email to disk (json/eml/txt/html)
+- `get_thread` — retrieve a full thread
+- `list_inbox_threads` — list threads (summary)
+- `get_inbox_with_threads` — list threads with message bodies expanded
 
-```json
-{
-  "mcpServers": {
-    "gmail": {
-      "command": "npx",
-      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
-    }
-  }
-}
-```
-
-With read-only scopes, only these 4 tools will be available to Claude:
-- `read_email` - Read email content
-- `search_emails` - Search your inbox
-- `list_email_labels` - List available labels
-- `download_attachment` - Download attachments
-
-### Full Access Configuration
-
-For full Gmail management capabilities:
+### Send-Only (Minimal write surface)
 
 ```bash
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+npx @klodr/gmail-mcp auth --scopes=gmail.send
 ```
 
-```json
-{
-  "mcpServers": {
-    "gmail": {
-      "command": "npx",
-      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
-    }
-  }
-}
+Only `send_email` and `reply_all` are exposed. Useful for automation that needs to deliver outbound mail (e.g. forwarding receipts) without ever reading the inbox. (`draft_email` is excluded because it requires `gmail.compose`, not just `gmail.send`.)
+
+### Full Access
+
+```bash
+npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
 ```
 
-This enables all 20 tools including sending emails, managing labels, creating filters, reply-all, and batch operations.
+Enables all 25 tools including sending, managing labels, creating filters, reply-all, and batch operations.
 
 ## Available Tools
 
-The server provides the following tools that can be used through Claude Desktop:
+The server provides the following tools that can be used through any MCP client:
 
 ### 1. Send Email (`send_email`)
 
