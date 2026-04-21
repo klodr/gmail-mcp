@@ -1,9 +1,9 @@
 /**
- * Tests for security hardening added in the feat/security-hardening branch:
+ * Tests for the security-hardening surface:
  *
  * - Cryptographic multipart boundary (crypto.randomBytes, not Math.random)
  * - Attachment path jail (assertAttachmentPathAllowed via createEmailWithNodemailer)
- * - Download path jail (resolveDownloadSavePath)
+ * - Download path jail (resolveDownloadSavePath + safeWriteFile O_NOFOLLOW)
  * - Zod schema bounds (maxResults, batchSize, messageIds length)
  *
  * All fs operations use tmpdir with per-test mkdtemp to avoid cross-test pollution.
@@ -19,8 +19,7 @@ import {
   resolveDownloadSavePath,
   getDownloadDir,
   safeWriteFile,
-  resetAttachmentDirCache,
-  resetDownloadDirCache,
+  resetJailDirCache,
 } from "./utl.js";
 import {
   SearchEmailsSchema,
@@ -68,12 +67,12 @@ describe("Attachment path jail", () => {
     jailDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmail-attach-jail-"));
     outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmail-attach-outside-"));
     process.env.GMAIL_MCP_ATTACHMENT_DIR = jailDir;
-    resetAttachmentDirCache();
+    resetJailDirCache();
   });
 
   afterEach(() => {
     delete process.env.GMAIL_MCP_ATTACHMENT_DIR;
-    resetAttachmentDirCache();
+    resetJailDirCache();
     fs.rmSync(jailDir, { recursive: true, force: true });
     fs.rmSync(outsideDir, { recursive: true, force: true });
   });
@@ -133,12 +132,12 @@ describe("Download path jail", () => {
     jailDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmail-download-jail-"));
     outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmail-download-outside-"));
     process.env.GMAIL_MCP_DOWNLOAD_DIR = jailDir;
-    resetDownloadDirCache();
+    resetJailDirCache();
   });
 
   afterEach(() => {
     delete process.env.GMAIL_MCP_DOWNLOAD_DIR;
-    resetDownloadDirCache();
+    resetJailDirCache();
     fs.rmSync(jailDir, { recursive: true, force: true });
     fs.rmSync(outsideDir, { recursive: true, force: true });
   });
@@ -196,7 +195,7 @@ describe("Download path jail", () => {
     // user would see immediately after setting the env var.
     const fresh = path.join(jailDir, "first-boot");
     process.env.GMAIL_MCP_DOWNLOAD_DIR = fresh;
-    resetDownloadDirCache();
+    resetJailDirCache();
     const dir = getDownloadDir();
     expect(fs.existsSync(dir)).toBe(true);
     expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
