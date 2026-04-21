@@ -8,7 +8,12 @@
  * Handles formats like:
  * - "email@example.com"
  * - "Name <email@example.com>"
+ * - '"Doe, John" <john@example.com>' (quoted display-name containing a comma)
  * - Multiple addresses separated by commas
+ *
+ * Splits on commas only outside of double-quoted display names so a
+ * header like `"Doe, Jane" <jane@e.com>, bob@e.com` returns two
+ * addresses rather than three garbage tokens.
  *
  * @param headerValue - The raw header value (e.g., From, To, CC)
  * @returns Array of extracted email addresses
@@ -16,9 +21,25 @@
 export function parseEmailAddresses(headerValue: string): string[] {
   if (!headerValue) return [];
 
-  const emails: string[] = [];
-  const parts = headerValue.split(",");
+  // Tokenize on commas that are not inside double quotes.
+  const parts: string[] = [];
+  let buf = "";
+  let inQuotes = false;
+  for (let i = 0; i < headerValue.length; i++) {
+    const ch = headerValue[i];
+    if (ch === '"' && headerValue[i - 1] !== "\\") {
+      inQuotes = !inQuotes;
+      buf += ch;
+    } else if (ch === "," && !inQuotes) {
+      parts.push(buf);
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf.length > 0) parts.push(buf);
 
+  const emails: string[] = [];
   for (const part of parts) {
     const trimmed = part.trim();
     // Extract email from "Name <email>" format
@@ -26,7 +47,8 @@ export function parseEmailAddresses(headerValue: string): string[] {
     if (match) {
       emails.push(match[1].trim());
     } else if (trimmed.includes("@")) {
-      emails.push(trimmed);
+      // Strip any surrounding quotes / whitespace from a bare address
+      emails.push(trimmed.replace(/^["']|["']$/g, "").trim());
     }
   }
 
@@ -102,13 +124,33 @@ export function buildReplyAllRecipients(
   const ccEmails = parseEmailAddresses(originalCc);
 
   // TO recipients: original From (the person who sent the email), excluding myself
-  const replyTo = filterOutEmail(fromEmails, myEmail);
+  const replyTo = dedupeAddresses(filterOutEmail(fromEmails, myEmail));
 
   // CC recipients: everyone else who was on To and CC, excluding myself
-  const replyCc = filterOutEmail([...toEmails, ...ccEmails], myEmail);
+  // and excluding any address already landing in `To` (no To/CC overlap).
+  const toSetLower = new Set(replyTo.map((e) => e.toLowerCase()));
+  const replyCc = dedupeAddresses(filterOutEmail([...toEmails, ...ccEmails], myEmail)).filter(
+    (email) => !toSetLower.has(email.toLowerCase()),
+  );
 
   return {
     to: replyTo,
     cc: replyCc,
   };
+}
+
+/**
+ * Case-insensitive dedupe that preserves the first occurrence's original casing.
+ */
+function dedupeAddresses(emails: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const email of emails) {
+    const key = email.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(email);
+    }
+  }
+  return out;
 }

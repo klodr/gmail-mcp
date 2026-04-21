@@ -98,10 +98,20 @@ export function safeWriteFile(fullPath: string, content: string | Buffer): void 
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
   const fd = fs.openSync(fullPath, flags, 0o600);
   try {
-    if (typeof content === "string") {
-      fs.writeSync(fd, content, 0, "utf-8");
-    } else {
-      fs.writeSync(fd, content);
+    // fs.writeSync returns the byte count actually written, which may be
+    // less than the buffer length on short writes (large payloads, slow
+    // storage). Loop until the whole buffer has been flushed or a zero
+    // write signals we cannot make progress.
+    const buffer = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
+    let offset = 0;
+    while (offset < buffer.length) {
+      const written = fs.writeSync(fd, buffer, offset, buffer.length - offset);
+      if (written === 0) {
+        throw new Error(
+          `safeWriteFile: zero-byte write at offset ${offset}/${buffer.length} for ${fullPath}`,
+        );
+      }
+      offset += written;
     }
   } finally {
     fs.closeSync(fd);
