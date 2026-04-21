@@ -45,7 +45,11 @@ export function parseEmailAddresses(headerValue: string): string[] {
     // Extract email from "Name <email>" format
     const match = trimmed.match(/<([^>]+)>/);
     if (match?.[1]) {
-      emails.push(match[1].trim());
+      // Only accept the extracted angle-bracket content if it is
+      // actually an address shape (contains '@'). Fast-check found
+      // '< >' — empty inside the brackets — silently pushing as "".
+      const inside = match[1].trim();
+      if (inside.includes("@")) emails.push(inside);
     } else if (trimmed.includes("@")) {
       // Strip any surrounding quotes / whitespace from a bare address
       emails.push(trimmed.replace(/^["']|["']$/g, "").trim());
