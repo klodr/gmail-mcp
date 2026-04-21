@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a new tool, option, or behaviour for the MCP server.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature proposals should map to the Gmail API surface or to the
+        MCP safeguards (jails, scope filtering, rate limits, audit log).
+        For broader direction questions, check `ROADMAP.md` first — the
+        item may already be scheduled or explicitly out-of-scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The user / agent need, not the proposed solution.
+      placeholder: "e.g. an agent needs to programmatically enable/disable Gmail's auto-responder."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed tool / behaviour
+      description: If this introduces a new MCP tool, sketch the input/output Zod schema + required OAuth scope. Link the matching Gmail API reference.
+      placeholder: |
+        Tool name: `get_vacation_responder`
+        Scope: gmail.settings.basic
+        Gmail API: users.settings.getVacation (https://…)
+        Input: {}
+        Output: { enabled: boolean, subject?: string, bodyPlainText?: string, ... }
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: "e.g. could this already be done with an existing tool + extra prompt context?"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: destructive
+    attributes:
+      label: Is this destructive?
+      description: Does the proposed tool send mail, delete data, or modify Gmail settings?
+      options:
+        - No — read only
+        - Yes — but idempotent (e.g. apply a label)
+        - Yes — non-idempotent (e.g. send_email, delete_message)
+    validations:
+      required: true
