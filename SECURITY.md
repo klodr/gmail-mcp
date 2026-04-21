@@ -34,13 +34,13 @@ Response target: **acknowledgment within 48 hours**, fix or mitigation plan with
 
 ## Verifying releases (once v1 is out)
 
-Every published release of `gmail-mcp` will be cryptographically signed via Sigstore (keyless, via GitHub OIDC → Fulcio → Rekor). Three independent ways to verify:
+Every published release of `@klodr/gmail-mcp` will be cryptographically signed via Sigstore (keyless, via GitHub OIDC → Fulcio → Rekor). Three independent ways to verify:
 
 ### 1. npm — npm CLI
 
 ```bash
-npm view @gongrzhe/server-gmail-autoauth-mcp@<version> --json | jq .dist.attestations
-npm install --ignore-scripts @gongrzhe/server-gmail-autoauth-mcp@<version>
+npm view @klodr/gmail-mcp@<version> --json | jq .dist.attestations
+npm install --ignore-scripts @klodr/gmail-mcp@<version>
 npm audit signatures
 ```
 
