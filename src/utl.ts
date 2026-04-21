@@ -238,8 +238,8 @@ export interface ValidatedEmailArgs {
   cc?: string[];
   bcc?: string[];
   from?: string;
-  text?: string;
-  html?: string;
+  body: string;
+  htmlBody?: string;
   mimeType?: string;
   attachments?: string[];
   inReplyTo?: string;
@@ -356,8 +356,8 @@ export async function createEmailWithNodemailer(
   // realpath-resolved target to nodemailer (not the possibly-symlink
   // original). Closes a TOCTOU where the link could be repointed at a
   // secret file between validation and the actual read at send time.
-  const attachments = [];
-  for (const filePath of validatedArgs.attachments) {
+  const attachments: Array<{ filename: string; path: string }> = [];
+  for (const filePath of validatedArgs.attachments ?? []) {
     const resolvedPath = assertAttachmentPathAllowed(filePath);
     attachments.push({
       filename: path.basename(filePath),

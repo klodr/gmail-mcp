@@ -4,7 +4,7 @@ This guide will help you install and configure the Gmail AutoAuth MCP server for
 
 ## Requirements
 
-- Node.js and npm installed
+- **Node.js ≥ 20.11** (check with `node --version`; `npx` ships with Node)
 - Access to create a Google Cloud Project
 - Local directory for configuration storage
 - Web browser for OAuth authentication
@@ -25,10 +25,12 @@ This guide will help you install and configure the Gmail AutoAuth MCP server for
       - Rename it to gcp-oauth.keys.json
    ```
 
-2. Set up the configuration directory:
+2. Set up the configuration directory with owner-only permissions:
+
    ```bash
-   mkdir -p ~/.gmail-mcp
+   mkdir -p -m 700 ~/.gmail-mcp
    mv gcp-oauth.keys.json ~/.gmail-mcp/
+   chmod 600 ~/.gmail-mcp/gcp-oauth.keys.json
    ```
 
 3. Run authentication:

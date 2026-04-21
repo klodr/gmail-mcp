@@ -27,7 +27,7 @@ jobs:
       contents: read # gh release download
       attestations: read # gh attestation verify
     env:
-      PKG: faxdrop-mcp
+      PKG: "@klodr/gmail-mcp"
       TAG: ${{ github.event.workflow_run.head_branch }}
     steps:
       - name: Validate TAG format (semver, no shell metacharacters)
