@@ -194,7 +194,8 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment):
 
 ### Near-term (next release cycle)
 
-- **v1.0.0 on npm** — cut the first tagged release of `@klodr/gmail-mcp` once the security-hardening PR lands on `main`; every release is signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance.
+- **Complete code audit** — this fork inherits code from two upstream chains (GongRzhe → ArtyMcLabin) and still carries patterns, dead branches, and duplicated helpers from both. A single pass through every file in `src/`, with the security-hardening posture as the baseline, to remove what is not used, consolidate what is duplicated, and document what remains non-obvious. Not a rewrite — a cleanup. Blocks v1.0.0.
+- **v1.0.0 on npm** — cut the first tagged release of `@klodr/gmail-mcp` once the audit lands on `main`; every release is signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance.
 - **Recipient pairing gate** — add a `pair_recipient` tool and a `~/.gmail-mcp/paired.json` allowlist so `send_email` / `reply_all` / `draft_email` refuse to email an address the human has never approved, capping the blast radius of a prompt-injected `send_email` call.
 - **Optional audit log** — `GMAIL_MCP_AUDIT_LOG=/abs/path` for a redacted JSONL trail (mode `0o600`) of every tool call, with sensitive fields (OAuth tokens, message bodies, attachment bytes) stripped before write.
 
