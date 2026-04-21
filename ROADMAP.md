@@ -26,7 +26,6 @@ The MCP currently covers ~25 tools across messages, threads, labels, and filters
 
 ### Compliance / governance
 
-- **OpenSSF Best Practices Silver** — close the remaining gaps (code of conduct, DCO enforcement, this roadmap) and push the badge to Silver.
-- **Second maintainer** — actively welcome co-maintainership via `.github/CODEOWNERS` once a contributor has several merged PRs; Gold-level requirements (≥2 active maintainers) are the longer-term motivator.
+- **Second maintainer → OpenSSF Gold** — actively welcome co-maintainership via `.github/CODEOWNERS` once a contributor has several merged PRs. Gold requires ≥2 active maintainers; that's the gating constraint.
 - **MCP SDK majors** — follow the `@modelcontextprotocol/sdk` major-version train; migrate to Zod v4-only idioms once the SDK floor allows.
 
