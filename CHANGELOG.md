@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cryptographic MIME boundary**: `createEmailMessage` uses `crypto.randomBytes(16).toString('hex')` instead of `Math.random().toString(36)`. A crafted body cannot collide with the boundary and inject synthetic headers.
 - **`llms-install.md`**: generic, client-agnostic install guide meant to be read by an AI assistant installing this MCP on a user's behalf.
 - **OpenSSF Scorecard**, **Socket Security**, **CodeRabbit** reviews wired into CI.
-- `CHANGELOG.md` (this file), `SECURITY.md`, `CONTRIBUTING.md`.
+- `CHANGELOG.md` (this file), `SECURITY.md`, `CONTRIBUTING.md`, `CONTINUITY.md`, `ASSURANCE_CASE.md`.
 - `.github/FUNDING.yml` (GitHub Sponsors, Patreon, Ko-fi) and matching badges in the README.
 
 ### Changed (BREAKING)

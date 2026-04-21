@@ -194,7 +194,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the test / build / lint checklist a
 
 ## Security
 
-See [SECURITY.md](./SECURITY.md) for the vulnerability-reporting process and the current security model.
+See [SECURITY.md](./SECURITY.md) for the vulnerability-reporting process and the current security model, and [ASSURANCE_CASE.md](./ASSURANCE_CASE.md) for the threat model, trust boundaries, and CWE/OWASP mitigation table.
+
+## Project continuity
+
+See [CONTINUITY.md](./CONTINUITY.md) for the handover plan if the maintainer becomes unavailable.
 
 ## License
 
