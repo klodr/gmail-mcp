@@ -53,6 +53,7 @@ interface EmailContent {
 
 // OAuth2 configuration
 let oauth2Client: OAuth2Client;
+let oauthCallbackUrl: string;
 let authorizedScopes: string[] = DEFAULT_SCOPES;
 
 /**
@@ -143,7 +144,7 @@ async function loadCredentials() {
         if (fs.existsSync(localOAuthPath)) {
             // If found in current directory, copy to config directory
             fs.copyFileSync(localOAuthPath, OAUTH_PATH);
-            console.log('OAuth keys found in current directory, copied to global config.');
+            console.error('OAuth keys found in current directory, copied to global config.');
         }
 
         if (!fs.existsSync(OAUTH_PATH)) {
@@ -159,18 +160,21 @@ async function loadCredentials() {
             process.exit(1);
         }
 
-        // Parse callback URL from args (must be a URL, not a flag)
-        // Supports: node index.js auth https://example.com/callback
+        // Parse callback URL from args (must be a URL, not a flag).
+        // Only loopback callbacks are supported (hostname must resolve to
+        // localhost / 127.0.0.1 / ::1); non-loopback targets would require
+        // an externally reachable endpoint, which this flow does not set up.
+        // Supports: node index.js auth http://localhost:8080/oauth2callback
         // Or: node index.js auth --scopes=gmail.readonly (uses default callback)
         const callbackArg = process.argv.find(arg =>
             arg.startsWith('http://') || arg.startsWith('https://')
         );
-        const callback = callbackArg || "http://localhost:3000/oauth2callback";
+        oauthCallbackUrl = callbackArg || 'http://localhost:3000/oauth2callback';
 
         oauth2Client = new OAuth2Client(
             keys.client_id,
             keys.client_secret,
-            callback
+            oauthCallbackUrl
         );
 
         if (fs.existsSync(CREDENTIALS_PATH)) {
@@ -198,8 +202,38 @@ async function loadCredentials() {
 }
 
 async function authenticate(scopes: string[]) {
+    const parsed = new URL(oauthCallbackUrl);
+
+    // The built-in callback listener is plain http.createServer(). If the
+    // caller passes an https:// URL, OAuth would redirect to a TLS target
+    // that nothing on this process is listening on — silent failure.
+    if (parsed.protocol !== 'http:') {
+        throw new Error(
+            `Callback protocol '${parsed.protocol}' is not supported. ` +
+            `The built-in auth server only accepts loopback HTTP callbacks (http://localhost...).`
+        );
+    }
+
+    const hostname = parsed.hostname;
+    const isLoopback =
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1';
+
+    if (!isLoopback) {
+        throw new Error(
+            `Callback hostname '${hostname}' is not loopback. ` +
+            `Only http://localhost / 127.0.0.1 / [::1] are supported by the built-in ` +
+            `auth flow. Either (a) rerun 'auth' without a positional callback URL, ` +
+            `or (b) point your Web OAuth client at a loopback URL.`
+        );
+    }
+
+    const port = parsed.port ? Number(parsed.port) : 80;
+    const callbackPath = parsed.pathname || '/oauth2callback';
+
     const server = http.createServer();
-    server.listen(3000, '127.0.0.1');
+    server.listen(port, hostname);
 
     // Convert shorthand scope names (e.g., "gmail.readonly") to full Google API URLs
     const scopeUrls = scopeNamesToUrls(scopes);
@@ -210,14 +244,22 @@ async function authenticate(scopes: string[]) {
             scope: scopeUrls,
         });
 
-        console.log('Requesting scopes:', scopes.join(', '));
-        console.log('Please visit this URL to authenticate:', authUrl);
+        console.error('Requesting scopes:', scopes.join(', '));
+        console.error('Please visit this URL to authenticate:', authUrl);
         open(authUrl);
 
-        server.on('request', async (req, res) => {
-            if (!req.url?.startsWith('/oauth2callback')) return;
+        // Wrap bare IPv6 hostnames in brackets so `new URL()` accepts the base.
+        const hostForUrl = hostname.includes(':') ? `[${hostname}]` : hostname;
+        const baseUrl = `http://${hostForUrl}:${port}`;
 
-            const url = new URL(req.url, 'http://localhost:3000');
+        server.on('request', async (req, res) => {
+            if (!req.url) return;
+
+            const url = new URL(req.url, baseUrl);
+            // Exact pathname match — startsWith would let `/oauth2callback-evil`
+            // (or any extension) slip through on the loopback server.
+            if (url.pathname !== callbackPath) return;
+
             const code = url.searchParams.get('code');
 
             if (!code) {
@@ -237,7 +279,7 @@ async function authenticate(scopes: string[]) {
 
                 res.writeHead(200);
                 res.end('Authentication successful! You can close this window.');
-                console.log('Credentials saved with scopes:', scopes.join(', '));
+                console.error('Credentials saved with scopes:', scopes.join(', '));
                 server.close();
                 resolve();
             } catch (error) {
@@ -272,13 +314,13 @@ async function main() {
                 process.exit(1);
             }
         } else {
-            console.log('No --scopes flag specified, using defaults:', DEFAULT_SCOPES.join(', '));
-            console.log('Tip: Use --scopes=gmail.readonly for read-only access');
-            console.log('Available scopes:', getAvailableScopeNames().join(', '));
+            console.error('No --scopes flag specified, using defaults:', DEFAULT_SCOPES.join(', '));
+            console.error('Tip: Use --scopes=gmail.readonly for read-only access');
+            console.error('Available scopes:', getAvailableScopeNames().join(', '));
         }
 
         await authenticate(scopes);
-        console.log('Authentication completed successfully');
+        console.error('Authentication completed successfully');
         process.exit(0);
     }
 
