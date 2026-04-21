@@ -306,11 +306,19 @@ async function authenticate(scopes: string[]) {
     console.error("Please visit this URL to authenticate:", authUrl);
     void open(authUrl);
 
+    // Wrap bare IPv6 hostnames in brackets so `new URL()` accepts the base.
+    const hostForUrl = hostname.includes(":") ? `[${hostname}]` : hostname;
+    const baseUrl = `http://${hostForUrl}:${port}`;
+
     server.on("request", (req, res) => {
       void (async () => {
-        if (!req.url?.startsWith(callbackPath)) return;
+        if (!req.url) return;
 
-        const url = new URL(req.url, `http://${hostname}:${port}`);
+        const url = new URL(req.url, baseUrl);
+        // Exact pathname match — startsWith would let `/oauth2callback-evil`
+        // (or any extension) slip through on the loopback server.
+        if (url.pathname !== callbackPath) return;
+
         const code = url.searchParams.get("code");
 
         if (!code) {
