@@ -5,7 +5,7 @@ language: en-US
 early_access: false
 
 reviews:
-  profile: chill              # lighter feedback (vs "assertive")
+  profile: assertive          # stricter feedback (vs "chill")
   request_changes_workflow: true
   high_level_summary: true
   high_level_summary_in_walkthrough: true
