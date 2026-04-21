@@ -18,7 +18,7 @@ import {
   parseEmailAddress,
   parseEmailAddresses,
 } from "./email-export.js";
-import { toolDefinitions, getToolByName, DownloadEmailSchema } from "./tools.js";
+import { getToolByName, DownloadEmailSchema } from "./tools.js";
 import { hasScope } from "./scopes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
