@@ -127,8 +127,7 @@ jobs:
       # lockfile + node_modules and produces SPDX (json) + CycloneDX
       # (json) — both shipped so downstream consumers can pick whichever
       # their scanner speaks. Generated after the build so the tree is
-      # frozen to what actually ships. Not signed separately: the
-      # GitHub Release already lives under the Sigstore-attested tag.
+      # frozen to what actually ships.
       - name: Generate SPDX SBOM (SPDX 2.3 JSON)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
@@ -146,6 +145,24 @@ jobs:
           output-file: dist/sbom.cdx.json
           upload-artifact: false
           upload-release-assets: false
+
+      # Sign both SBOMs with Sigstore (keyless, via GitHub OIDC) so
+      # downstream consumers can prove the SBOM was produced by THIS
+      # release-on-this-repo, not a trojaned copy. Each call produces
+      # its own .sigstore bundle + Rekor transparency-log entry.
+      - name: Sign SPDX SBOM attestation
+        id: attest_spdx
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: dist/index.js
+          sbom-path: dist/sbom.spdx.json
+
+      - name: Sign CycloneDX SBOM attestation
+        id: attest_cdx
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: dist/index.js
+          sbom-path: dist/sbom.cdx.json
 
       - name: Attach signed artifacts + SBOMs to the GitHub Release
         env:
