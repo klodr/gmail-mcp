@@ -6,20 +6,10 @@
 import type { gmail_v1 } from "googleapis";
 import { asGmailApiError } from "./gmail-errors.js";
 
-// Type definitions for Gmail API labels
-export interface GmailLabel {
-  id: string;
-  name: string;
-  type?: string;
-  messageListVisibility?: string;
-  labelListVisibility?: string;
-  messagesTotal?: number;
-  messagesUnread?: number;
-  color?: {
-    textColor?: string;
-    backgroundColor?: string;
-  };
-}
+// Re-export googleapis' Schema$Label under our historical name so call
+// sites can keep using `GmailLabel` unchanged while benefiting from the
+// canonical (nullable) typing the SDK actually returns.
+export type GmailLabel = gmail_v1.Schema$Label;
 
 /**
  * Creates a new Gmail label

@@ -49,6 +49,24 @@ describe("parseEmailAddresses", () => {
   it("ignores entries without @ symbol", () => {
     expect(parseEmailAddresses("invalid, user@example.com")).toEqual(["user@example.com"]);
   });
+
+  it("does not split on commas inside quoted display names", () => {
+    // Regression: a naive split(",") would produce three garbage tokens
+    // for '"Doe, John" <john@example.com>, jane@example.com'. The
+    // quote-aware tokenizer must return two recipients.
+    expect(parseEmailAddresses('"Doe, John" <john@example.com>, jane@example.com')).toEqual([
+      "john@example.com",
+      "jane@example.com",
+    ]);
+  });
+
+  it("handles multiple quoted display names with commas", () => {
+    expect(
+      parseEmailAddresses(
+        '"Smith, Alice" <alice@example.com>, "Jones, Bob" <bob@example.com>, "Brown, Carol" <carol@example.com>',
+      ),
+    ).toEqual(["alice@example.com", "bob@example.com", "carol@example.com"]);
+  });
 });
 
 describe("filterOutEmail", () => {

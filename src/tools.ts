@@ -343,6 +343,9 @@ export interface ToolAnnotations {
 export interface ToolDefinition {
   name: string;
   description: string;
+  // zod-to-json-schema@3's public signature widens to `z.ZodType<any>`;
+  // using a tighter generic here causes a structural mismatch at the
+  // consumer call site. The `any` is fenced inside ToolDefinition only.
   schema: z.ZodType<unknown>;
   scopes: string[]; // Any of these scopes grants access
   annotations: ToolAnnotations;
@@ -544,12 +547,17 @@ export const toolDefinitions: ToolDefinition[] = [
   },
 ];
 
-// Convert tool definitions to MCP tool format
+// Convert tool definitions to MCP tool format.
+// The cast bridges a generics mismatch between Zod v4's `ZodType` shape
+// and zod-to-json-schema@3's expected `ZodType<any, ZodTypeDef, any>`.
+// Runtime behaviour is unaffected — both APIs consume the same schema
+// instance, only the TS generic signatures differ.
 export function toMcpTools(tools: ToolDefinition[]) {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    inputSchema: zodToJsonSchema(tool.schema),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    inputSchema: zodToJsonSchema(tool.schema as any),
     annotations: tool.annotations,
   }));
 }

@@ -145,7 +145,7 @@ and scope filtering all live at that boundary.
 | **Fail closed** | Missing `~/.gmail-mcp/gcp-oauth.keys.json` → exit at startup with a clear error. Attachment path outside the jail → refuse before any write. Non-loopback OAuth callback hostname → reject at `authenticate()`. Invalid Zod input → refuse before the Gmail API call. |
 | **Minimise attack surface** | Single-file ESM bundle via `tsup` (no sourcemaps in the published tarball); only `dist/`, `README.md`, `LICENSE` in the npm files allowlist. No HTTP transport (stdio only) outside of the one-shot OAuth callback server. Tool list gated by OAuth scope. |
 | **Secrets are env-only / local-only** | OAuth refresh token at `~/.gmail-mcp/credentials.json` (mode `0o600`); client keys at `~/.gmail-mcp/gcp-oauth.keys.json` (user-provided). No secret ever travels over MCP stdout or MCP tool results. |
-| **Auditable & reproducible** | Every release is Sigstore-signed and SLSA-attested. Every commit triggers CI on Node 20/22/24 + CodeQL + Scorecard + Socket + CodeRabbit. |
+| **Auditable & reproducible** | Every release is Sigstore-signed and SLSA-attested. Every commit triggers CI on Node 20/22/24 + CodeQL + Socket + CodeRabbit. OpenSSF Scorecard runs on push to `main`, weekly on Monday, and on branch-protection rule changes (not on every PR commit). |
 | **Open source, MIT** | Anyone can audit. Project continuity documented in [CONTINUITY.md](./CONTINUITY.md). |
 
 ## 4. Common implementation weaknesses countered
@@ -158,7 +158,7 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 | **CWE-59** Symlink following | Countered | Every leaf file write uses `fs.openSync` with `O_NOFOLLOW`; a pre-existing symlink at the destination causes the open to fail. |
 | **CWE-78 / CWE-94** Command / code injection | N/A | No `child_process`, no `eval`, no dynamic `require`. |
 | **CWE-89** SQL injection | N/A | No database. |
-| **CWE-79** XSS | N/A | No HTML output. |
+| **CWE-79** XSS | Out-of-scope for this process (MCP never renders HTML) — downstream responsibility | The `download_email` tool writes HTML bodies (via `emailToHtml()`) verbatim to `GMAIL_MCP_DOWNLOAD_DIR` and the `read_email` tool returns HTML string content to the MCP client. This MCP does not render HTML itself. If the consuming agent forwards that HTML to a browser, PDF pipeline, or any other HTML-executing surface, the agent must sanitise before rendering. Flagged transparently rather than claimed N/A. |
 | **CWE-88 / CWE-93 / CWE-113** CRLF / header injection | Countered | `sanitizeHeaderValue` strips `\r`, `\n`, `\0` from every user-supplied RFC-822 header value (`From`, `To`, `Cc`, `Bcc`, `Subject`, `In-Reply-To`, `References`). |
 | **CWE-117** Log injection | N/A | MCP emits no log file of its own (tracked as a future audit-log feature in [SECURITY.md](./SECURITY.md)). |
 | **CWE-200 / CWE-209** Information exposure / verbose errors | Countered | Error messages never include the OAuth refresh token or the Google OAuth client secret. |

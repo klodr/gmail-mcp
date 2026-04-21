@@ -144,7 +144,7 @@ See [llms-install.md](./llms-install.md) for an LLM-readable install guide.
 
 | Scope shorthand | Full Gmail scope | What it grants |
 |---|---|---|
-| `gmail.readonly` | `…/auth/gmail.readonly` | Read messages, threads, labels, filters |
+| `gmail.readonly` | `…/auth/gmail.readonly` | Read messages, threads, labels (filter tools require `gmail.settings.basic`) |
 | `gmail.modify` | `…/auth/gmail.modify` | Readonly + apply/remove labels, delete messages |
 | `gmail.compose` | `…/auth/gmail.compose` | Create drafts |
 | `gmail.send` | `…/auth/gmail.send` | Send messages |

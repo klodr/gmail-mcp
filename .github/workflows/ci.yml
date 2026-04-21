@@ -59,13 +59,18 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test with coverage
+      - name: Test
+        if: matrix.node != '20'
+        run: npm test
+
+      - name: Test with coverage (Node 20 only)
+        if: matrix.node == '20'
         run: npm run test:coverage
 
       - name: Upload coverage to Codecov
         if: matrix.node == '20'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           slug: klodr/gmail-mcp
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -84,22 +84,11 @@ const OAUTH_PATH = process.env.GMAIL_OAUTH_PATH || path.join(CONFIG_DIR, "gcp-oa
 const CREDENTIALS_PATH =
   process.env.GMAIL_CREDENTIALS_PATH || path.join(CONFIG_DIR, "credentials.json");
 
-// Type definitions for Gmail API responses
-interface GmailMessagePart {
-  partId?: string;
-  mimeType?: string;
-  filename?: string;
-  headers?: Array<{
-    name: string;
-    value: string;
-  }>;
-  body?: {
-    attachmentId?: string;
-    size?: number;
-    data?: string;
-  };
-  parts?: GmailMessagePart[];
-}
+// Type definitions for Gmail API responses.
+// Accepts both our canonical shape and googleapis' `Schema$MessagePart`,
+// which differs only by widening every optional `string` to `string | null`.
+import type { gmail_v1 as gmail_v1_types } from "googleapis";
+type GmailMessagePart = gmail_v1_types.Schema$MessagePart;
 
 interface EmailContent {
   text: string;
@@ -478,8 +467,9 @@ async function main() {
               }
             }
           } catch (threadError: unknown) {
+            const msg = threadError instanceof Error ? threadError.message : String(threadError);
             console.warn(
-              `Warning: Could not fetch thread ${validatedArgs.threadId} for header resolution: ${threadError.message}`,
+              `Warning: Could not fetch thread ${validatedArgs.threadId} for header resolution: ${msg}`,
             );
             // Continue without threading headers - degraded but not broken
           }
@@ -599,9 +589,10 @@ async function main() {
       } catch (error: unknown) {
         // Log attachment-related errors for debugging
         if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
+          const msg = error instanceof Error ? error.message : String(error);
           console.error(
             `Failed to send email with ${validatedArgs.attachments.length} attachments:`,
-            error.message,
+            msg,
           );
         }
         throw error;
@@ -812,11 +803,12 @@ async function main() {
               ],
             };
           } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
             return {
               content: [
                 {
                   type: "text",
-                  text: `Failed to download email: ${error.message}`,
+                  text: `Failed to download email: ${msg}`,
                 },
               ],
             };
@@ -1320,8 +1312,9 @@ async function main() {
               };
 
               filename =
-                findAttachment(messageResponse.data.payload) ||
-                `attachment-${validatedArgs.attachmentId}`;
+                (messageResponse.data.payload
+                  ? findAttachment(messageResponse.data.payload)
+                  : null) || `attachment-${validatedArgs.attachmentId}`;
             }
 
             // Sanitize filename to prevent path traversal
@@ -1348,11 +1341,12 @@ async function main() {
               ],
             };
           } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : String(error);
             return {
               content: [
                 {
                   type: "text",
-                  text: `Failed to download attachment: ${error.message}`,
+                  text: `Failed to download attachment: ${msg}`,
                 },
               ],
             };
@@ -1403,7 +1397,7 @@ async function main() {
               }
             };
             if (msg.payload) {
-              processAttachmentParts(msg.payload as GmailMessagePart);
+              processAttachmentParts(msg.payload);
             }
 
             return {
@@ -1597,7 +1591,7 @@ async function main() {
                   }
                 };
                 if (msg.payload) {
-                  processAttachmentParts(msg.payload as GmailMessagePart);
+                  processAttachmentParts(msg.payload);
                 }
 
                 return {
@@ -1752,11 +1746,12 @@ async function main() {
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
       return {
         content: [
           {
             type: "text",
-            text: `Error: ${error.message}`,
+            text: `Error: ${msg}`,
           },
         ],
       };
