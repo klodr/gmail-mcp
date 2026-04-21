@@ -59,11 +59,11 @@
     "zod-to-json-schema": "^3.22.1"
   },
   "devDependencies": {
-    "@types/mime-types": "^2.1.4",
+    "@types/mime-types": "^3.0.1",
     "@types/node": "^20.10.5",
     "@types/nodemailer": "^8.0.0",
-    "mcp-evals": "^1.0.18",
-    "typescript": "^5.3.3",
+    "mcp-evals": "^2.0.1",
+    "typescript": "^6.0.3",
     "vitest": "^4.0.18"
   }
 }
