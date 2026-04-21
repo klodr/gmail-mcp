@@ -37,14 +37,25 @@ reviews:
     ignore_title_keywords:
       - "WIP"
       - "DO NOT MERGE"
-    base_branches:
-      - main
 
   pre_merge_checks:
     docstrings:
       # The codebase deliberately keeps comments to non-obvious WHY only.
       # MCP tool descriptions live in Zod .describe() calls, not JSDoc.
       mode: off
+    title:
+      # Enforce conventional-commit format + 72-char cap (matches the
+      # auto_title_instructions above — this is the gate that actually
+      # blocks non-conforming titles from merging).
+      mode: error
+      requirements: |
+        Conventional commit format: type(scope): description.
+        Allowed types: feat, fix, docs, ci, chore, refactor, test, perf, build, style, revert.
+        Scope is optional. Total length ≤ 72 chars.
+    # Do not let CodeRabbit's own review satisfy a pending human-reviewer
+    # request. If a human is explicitly asked to review, only that human's
+    # review counts — the bot cannot auto-approve around them.
+    override_requested_reviewers_only: true
 
   path_instructions:
     - path: "src/tools.ts"
