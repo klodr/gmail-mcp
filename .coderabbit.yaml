@@ -1,0 +1,91 @@
+# CodeRabbit configuration
+# Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive          # stricter feedback (vs "chill")
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false                 # no decorative poetry
+  review_status: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: true
+  abort_on_close: true
+
+  auto_title_instructions: |
+    Use conventional commit format: type(scope): description.
+    Types: feat, fix, docs, ci, chore, refactor, test, perf, build, style, revert.
+    Keep under 72 chars.
+
+  high_level_summary_instructions: |
+    Concise bullet-point list of user-facing changes.
+    Focus on security, OAuth scopes, and tool behavior.
+    Skip internal refactors.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+
+  pre_merge_checks:
+    docstrings:
+      # The codebase deliberately keeps comments to non-obvious WHY only.
+      # MCP tool descriptions live in Zod .describe() calls, not JSDoc.
+      mode: off
+    title:
+      # Enforce conventional-commit format + 72-char cap (matches the
+      # auto_title_instructions above — this is the gate that actually
+      # blocks non-conforming titles from merging).
+      mode: error
+      requirements: |
+        Conventional commit format: type(scope): description.
+        Allowed types: feat, fix, docs, ci, chore, refactor, test, perf, build, style, revert.
+        Scope is optional. Total length ≤ 72 chars.
+    # Do not let CodeRabbit's own review satisfy a pending human-reviewer
+    # request. If a human is explicitly asked to review, only that human's
+    # review counts — the bot cannot auto-approve around them.
+    override_requested_reviewers_only: true
+
+  path_instructions:
+    - path: "src/tools.ts"
+      instructions: |
+        MCP tool registry and Zod schemas. Verify:
+        - Zod schemas enforce bounds (maxResults, batchSize have .max())
+        - File-path inputs (attachments, savePath) are constrained
+        - Tool `scopes` field matches the Gmail API scope actually required
+        - destructiveHint / readOnlyHint annotations reflect real behavior
+    - path: "src/scopes.ts"
+      instructions: |
+        OAuth scope mapping. Flag any change that:
+        - Widens the default scope list (DEFAULT_SCOPES)
+        - Loosens scope validation
+        - Breaks shorthand↔URL round-trip
+    - path: "src/utl.ts"
+      instructions: |
+        Security-sensitive email construction.
+        Flag any regression on CRLF sanitization, attachment path validation,
+        or cryptographic boundary generation.
+    - path: "src/index.ts"
+      instructions: |
+        Main entry point with OAuth flow and tool handlers.
+        Verify savePath / filePath inputs are validated before fs operations.
+        Once the StdioServerTransport is connected (search for
+        `new StdioServerTransport()`), stdout is reserved for JSON-RPC
+        framing — any code path reached after that point must use
+        `console.error` (or a MCP log notification), never `console.log`.
+        OAuth setup paths (run before transport connect) may use
+        `console.log` freely.
+
+chat:
+  auto_reply: true
