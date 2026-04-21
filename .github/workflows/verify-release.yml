@@ -58,12 +58,10 @@ jobs:
         # being absent when Path 1 runs. Wait for all three.
         run: |
           VERSION="${TAG#v}"
-          # Exponential-ish backoff: try for ~5 min total instead of the
-          # original 100s sliding window. npm attestation / signature
-          # propagation can lag behind the version record by 1-2 min on
-          # busy days — 100s produced flaky verifications.
-          ATTEMPTS=15
-          SLEEP=10
+          # Allow ~5 min total. Attestation / signature propagation can
+          # trail the version record by 1-2 min on busy days.
+          ATTEMPTS=17
+          SLEEP=20
           for i in $(seq 1 $ATTEMPTS); do
             META=$(npm view "${PKG}@${VERSION}" --json 2>/dev/null || echo '{}')
             VER_OK=$(printf '%s' "$META" | jq -r '.version // ""')
@@ -75,11 +73,8 @@ jobs:
             fi
             echo "Waiting for ${PKG}@${VERSION} (version=$VER_OK, att=${ATT_OK:-<missing>}, sigs=${SIG_OK:-0}) — $i/$ATTEMPTS"
             sleep $SLEEP
-            # After the first 5 attempts (50s) double the window to 20s
-            # so we keep polling for ~5 min without hammering npm.
-            if [ "$i" -eq 5 ]; then SLEEP=20; fi
           done
-          echo "Timeout waiting for ${PKG}@${VERSION} (version+attestations+signatures) after ${ATTEMPTS} attempts" >&2
+          echo "Timeout waiting for ${PKG}@${VERSION} after ${ATTEMPTS} attempts" >&2
           exit 1
 
       - name: Path 1 — npm provenance via npm CLI

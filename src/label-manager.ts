@@ -12,14 +12,26 @@ import { asGmailApiError } from "./gmail-errors.js";
 export type GmailLabel = gmail_v1.Schema$Label;
 
 /**
- * Dedicated sentinel so the TOCTOU recovery in getOrCreateLabel can
- * detect a racing duplicate without keying off the user-facing message
- * text of a wrapped Error (which would break silently on a copy change).
+ * Sentinel thrown by createLabel() when the Gmail API reports a
+ * duplicate, so the TOCTOU recovery in getOrCreateLabel() can detect
+ * the race via `instanceof` instead of grep-ing a user-facing message.
  */
 export class DuplicateLabelError extends Error {
   constructor(labelName: string, options?: { cause?: unknown }) {
     super(`Label "${labelName}" already exists. Please use a different name.`, options);
     this.name = "DuplicateLabelError";
+  }
+}
+
+/**
+ * Sentinel thrown by deleteLabel() when the target is a Gmail system
+ * label, so the generic catch can re-throw the specific message
+ * unchanged instead of swallowing it under a Gaxios-error wrapper.
+ */
+export class SystemLabelProtectionError extends Error {
+  constructor(labelId: string) {
+    super(`Cannot delete system label with ID "${labelId}".`);
+    this.name = "SystemLabelProtectionError";
   }
 }
 
@@ -55,12 +67,10 @@ export async function createLabel(
     return response.data;
   } catch (err: unknown) {
     const error = asGmailApiError(err);
-    // Duplicate-label detection: Gmail API returns HTTP 409 Conflict
-    // unambiguously for an existing name, so that's a Met-signal on
-    // its own. 400 Bad Request is generic (also fires on invalid
-    // names, missing fields, etc.) — require a corroborating message
-    // match. For network-layer errors with no status at all, fall
-    // back to message matching alone.
+    // 409 = unambiguous duplicate. 400 is generic (also invalid names /
+    // missing fields) so require a corroborating message match. For
+    // network-layer errors with no status at all, fall back to the
+    // message alone.
     const messageIndicatesDuplicate = error.message.includes("already exists");
     const isDuplicate =
       error.code === 409 ||
@@ -91,10 +101,6 @@ export async function updateLabel(
   },
 ) {
   try {
-    // Skip the preflight `labels.get()` — labels.update() is the source of
-    // truth. The preflight added an extra Gmail round-trip without closing
-    // any race (the label can still vanish between the get and the update),
-    // and the 404 path in the catch already surfaces the missing-label case.
     const response = await gmail.users.labels.update({
       userId: "me",
       id: labelId,
@@ -118,15 +124,6 @@ export async function updateLabel(
  * @param labelId - ID of the label to delete
  * @returns Success message
  */
-// Sentinel so the generic catch can tell our own pre-flight rejection
-// apart from a Gaxios error and re-throw the specific message unchanged.
-class SystemLabelProtectionError extends Error {
-  constructor(labelId: string) {
-    super(`Cannot delete system label with ID "${labelId}".`);
-    this.name = "SystemLabelProtectionError";
-  }
-}
-
 export async function deleteLabel(gmail: gmail_v1.Gmail, labelId: string) {
   try {
     // Ensure we're not trying to delete system labels
@@ -238,17 +235,8 @@ export async function getOrCreateLabel(
       return existingLabel;
     }
 
-    // If not found, create a new one. There is an inherent TOCTOU
-    // window between the findLabelByName() above and this create:
-    // another caller (or another agent session) can win the race and
-    // create the same label first, which makes createLabel throw a
-    // DuplicateLabelError. Recover by re-scanning and returning
-    // whatever landed — honours the "get or create" contract under
-    // concurrency rather than surfacing the duplicate error.
-    //
-    // Detecting the race via the sentinel class (not a substring match
-    // on the user-facing message) keeps the recovery robust against
-    // future copy changes in createLabel's error message.
+    // TOCTOU: another caller can create the label between the
+    // findLabelByName above and this create. Recover by rescanning.
     try {
       return await createLabel(gmail, labelName, options);
     } catch (createErr: unknown) {

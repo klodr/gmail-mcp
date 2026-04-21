@@ -14,15 +14,10 @@ coverage:
         target: 95%
         threshold: 1.5%
         only_pulls: false
-        # Strict patch gate (95% target, 1.5% threshold) — new code must
-        # be ≥93.5% covered. The 1.5% threshold (vs an absolute 95%
-        # requirement) exists for two narrow exceptions, not a blanket
-        # relaxation:
-        # - Defensive code paths (e.g. TOCTOU re-checks, OS-level error
-        #   branches) are intentionally hard to exercise in unit tests.
-        # - Pure-formatting PRs (Prettier reflows, ESLint cleanups)
-        #   surface as "new" lines but add no logic to test.
-        # A missing upload still fails by default so broken CI surfaces.
+        # New code must be ≥93.5% covered (95% target − 1.5% threshold).
+        # The threshold covers two exceptions: defensive paths (TOCTOU
+        # re-checks, OS-level error branches) hard to exercise in unit
+        # tests, and pure-formatting PRs that add no logic to test.
   ignore:
     # Doc-only / config-only PRs never touch these paths, so Codecov
     # has no reason to demand coverage for them even though their file
