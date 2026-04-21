@@ -181,6 +181,10 @@ The exact set depends on the OAuth scopes granted at `auth` time. Full catalog:
 
 Every write tool is annotated with `destructiveHint` / `readOnlyHint` / `idempotentHint` per the MCP spec so policy-aware clients can gate on HITL confirmation.
 
+### `search_emails` query syntax
+
+`search_emails` accepts Gmail's native search operators — `from:`, `to:`, `subject:`, `has:attachment`, `after:YYYY/MM/DD`, `before:YYYY/MM/DD`, `is:unread`, `label:<name>`, etc. They combine freely: `from:alice@example.com after:2026/01/01 has:attachment`. Full reference: [Google's Gmail search operators cheat sheet](https://support.google.com/mail/answer/7190).
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the test / build / lint checklist and release process.

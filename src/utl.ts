@@ -29,9 +29,7 @@ function resolveJailDir(envVar: string, defaultName: string): string {
   if (cached) return cached;
   const envPath = process.env[envVar];
   const target =
-    envPath && envPath.trim() !== ""
-      ? path.resolve(envPath)
-      : path.join(os.homedir(), defaultName);
+    envPath && envPath.trim() !== "" ? path.resolve(envPath) : path.join(os.homedir(), defaultName);
   // `recursive: true` is idempotent on an existing dir, so no existsSync
   // gate — one syscall instead of two, no TOCTOU between the stat and
   // the create.
