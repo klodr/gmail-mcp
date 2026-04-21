@@ -67,6 +67,15 @@ describe("parseEmailAddresses", () => {
       ),
     ).toEqual(["alice@example.com", "bob@example.com", "carol@example.com"]);
   });
+
+  it("handles escaped quotes inside quoted display names", () => {
+    // Regression: backslash-escaped quotes inside a quoted display name
+    // must not flip the in-quotes state — otherwise the comma after
+    // "JD", would be mis-read as an address separator.
+    expect(
+      parseEmailAddresses('"Doe \\"JD\\", John" <john@example.com>, jane@example.com'),
+    ).toEqual(["john@example.com", "jane@example.com"]);
+  });
 });
 
 describe("filterOutEmail", () => {

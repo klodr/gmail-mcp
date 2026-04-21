@@ -44,7 +44,7 @@ export function parseEmailAddresses(headerValue: string): string[] {
     const trimmed = part.trim();
     // Extract email from "Name <email>" format
     const match = trimmed.match(/<([^>]+)>/);
-    if (match) {
+    if (match?.[1]) {
       emails.push(match[1].trim());
     } else if (trimmed.includes("@")) {
       // Strip any surrounding quotes / whitespace from a bare address

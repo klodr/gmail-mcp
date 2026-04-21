@@ -452,9 +452,11 @@ async function main() {
                 }
               }
 
-              // Last message's Message-ID becomes In-Reply-To
+              // Last message's Message-ID becomes In-Reply-To.
+              // threadMessages.length > 0 is guaranteed by the outer if;
+              // the `?.` keeps the compiler happy under noUncheckedIndexedAccess.
               const lastMessage = threadMessages[threadMessages.length - 1];
-              const lastHeaders = lastMessage.payload?.headers || [];
+              const lastHeaders = lastMessage?.payload?.headers || [];
               const lastMessageId = lastHeaders.find(
                 (h) => h.name?.toLowerCase() === "message-id",
               )?.value;
