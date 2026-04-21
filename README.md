@@ -31,7 +31,7 @@ All features are production-tested in daily use.
 
 ---
 
-A Model Context Protocol (MCP) server for Gmail integration with auto authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
+A Model Context Protocol (MCP) server for Gmail integration with auto-authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
 
 ![](https://badge.mcpx.dev?type=server 'MCP Server')
 
@@ -141,8 +141,9 @@ docker run -i --rm \
   mcp/gmail auth
 ```
 
-2. Usage (generic MCP client entry):
-```json
+1. Usage (generic MCP client entry):
+
+   ```json
 {
   "mcpServers": {
     "gmail": {

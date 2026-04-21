@@ -16,6 +16,7 @@ client that can launch a stdio child process can use this server.
 ## Setup steps
 
 1. Place the OAuth keys file at `~/.gmail-mcp/gcp-oauth.keys.json`:
+
    ```bash
    mkdir -p ~/.gmail-mcp
    mv /path/to/downloaded/gcp-oauth.keys.json ~/.gmail-mcp/
@@ -23,6 +24,7 @@ client that can launch a stdio child process can use this server.
 
 2. Run the OAuth flow with the **minimal scope** required for the user's
    stated use case (do not over-request):
+
    ```bash
    # Send-only (e.g. forwarding receipts, status notifications)
    npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.send
@@ -39,6 +41,7 @@ client that can launch a stdio child process can use this server.
 
 3. Add the server to the MCP client's configuration. The entry below is
    **client-agnostic**; place it inside the client's `mcpServers` map:
+
    ```json
    {
      "mcpServers": {
