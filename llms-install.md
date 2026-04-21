@@ -35,6 +35,7 @@ client that can launch a stdio child process can use this server.
    # Full read + write (only if the user explicitly needs it)
    npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
    ```
+
    The command opens the user's browser to complete the consent screen and
    writes the resulting refresh token to `~/.gmail-mcp/credentials.json`
    (mode `0600`).
