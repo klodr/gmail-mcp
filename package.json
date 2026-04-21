@@ -13,6 +13,7 @@
     "auth": "node dist/index.js auth",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
