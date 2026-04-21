@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
       types:
         patterns:
@@ -15,9 +15,11 @@ updates:
       production-dependencies:
         dependency-type: "production"
     commit-message:
+      # No `include: "scope"` — it would duplicate the type in the
+      # prefix ("deps(deps): …" / "deps-dev(deps-dev): …") since we
+      # already encode prod vs dev in `prefix` / `prefix-development`.
       prefix: "deps"
       prefix-development: "deps-dev"
-      include: "scope"
 
   - package-ecosystem: "github-actions"
     directory: "/"
