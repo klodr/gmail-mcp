@@ -5,65 +5,80 @@ import { randomBytes } from "crypto";
 import { lookup as mimeLookup } from "mime-types";
 import nodemailer from "nodemailer";
 
+// Env-var names for the two jails. Hoisted to constants so a future
+// rename is a single-line change and the names cannot drift between
+// the resolver, the error messages, and the tests.
+const ENV_ATTACHMENT_DIR = "GMAIL_MCP_ATTACHMENT_DIR";
+const ENV_DOWNLOAD_DIR = "GMAIL_MCP_DOWNLOAD_DIR";
+
 /**
- * Resolve the directory that attachment file paths MUST live under,
- * canonicalized via realpath. The MCP refuses to attach files outside
- * this jail — without it, a prompt-injected agent could attach
- * ~/.ssh/id_rsa or ~/.gmail-mcp/credentials.json to an outgoing email.
+ * Resolve a jail root from an env var (or fall back to `~/<defaultName>/`),
+ * materialize it at mode `0o700` on first use, canonicalize via realpath,
+ * and cache the result for the life of the process.
  *
- * Override with GMAIL_MCP_ATTACHMENT_DIR; default is ~/GmailAttachments
- * (auto-created with mode 0o700 on first use). The returned path is
- * always absolute and realpath-resolved, so the caller's startsWith
- * check against a realpath-resolved candidate is sound.
+ * The returned path is always absolute and realpath-resolved, so a caller's
+ * `startsWith` check against a realpath-resolved candidate is sound.
+ *
+ * Shared by the attachment jail (source files we're willing to read for
+ * outgoing email) and the download jail (destinations we're willing to
+ * write to for incoming messages/attachments).
  */
-let cachedAttachmentDir: string | null = null;
+const jailDirCache = new Map<string, string>();
+function resolveJailDir(envVar: string, defaultName: string): string {
+  const cached = jailDirCache.get(envVar);
+  if (cached) return cached;
+  const envPath = process.env[envVar];
+  const target =
+    envPath && envPath.trim() !== ""
+      ? path.resolve(envPath)
+      : path.join(os.homedir(), defaultName);
+  // `recursive: true` is idempotent on an existing dir, so no existsSync
+  // gate — one syscall instead of two, no TOCTOU between the stat and
+  // the create.
+  fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+  const resolved = fs.realpathSync(target);
+  jailDirCache.set(envVar, resolved);
+  return resolved;
+}
+
 function getAttachmentDir(): string {
-  if (cachedAttachmentDir) return cachedAttachmentDir;
-  const envPath = process.env.GMAIL_MCP_ATTACHMENT_DIR;
-  const target =
-    envPath && envPath.trim() !== ""
-      ? path.resolve(envPath)
-      : path.join(os.homedir(), "GmailAttachments");
-  if (!fs.existsSync(target)) {
-    fs.mkdirSync(target, { recursive: true, mode: 0o700 });
-  }
-  cachedAttachmentDir = fs.realpathSync(target);
-  return cachedAttachmentDir;
+  return resolveJailDir(ENV_ATTACHMENT_DIR, "GmailAttachments");
 }
 
-/** Exposed for tests. Clears the cached attachment-dir so a new env can take effect. */
-export function resetAttachmentDirCache(): void {
-  cachedAttachmentDir = null;
+export function getDownloadDir(): string {
+  return resolveJailDir(ENV_DOWNLOAD_DIR, "GmailDownloads");
 }
 
 /**
- * Resolve the directory that download destinations (both `download_email`
- * and `download_attachment`) must live under. Without this, a prompt-
- * injected agent could instruct the MCP to write attachments into
- * /etc/cron.d/, the user's login-shell startup file, or another sensitive
- * path and achieve code execution.
- *
- * Override with GMAIL_MCP_DOWNLOAD_DIR; default is ~/GmailDownloads
- * (auto-created with mode 0o700 on first use).
+ * Exposed for tests. Clears the in-process jail-root cache so a test
+ * can flip `GMAIL_MCP_ATTACHMENT_DIR` / `GMAIL_MCP_DOWNLOAD_DIR`
+ * between cases and see the new root take effect.
  */
-let cachedDownloadDir: string | null = null;
-export function getDownloadDir(): string {
-  if (cachedDownloadDir) return cachedDownloadDir;
-  const envPath = process.env.GMAIL_MCP_DOWNLOAD_DIR;
-  const target =
-    envPath && envPath.trim() !== ""
-      ? path.resolve(envPath)
-      : path.join(os.homedir(), "GmailDownloads");
-  if (!fs.existsSync(target)) {
-    fs.mkdirSync(target, { recursive: true, mode: 0o700 });
-  }
-  cachedDownloadDir = fs.realpathSync(target);
-  return cachedDownloadDir;
+export function resetJailDirCache(): void {
+  jailDirCache.clear();
 }
 
-/** Exposed for tests. Clears the cached download-dir so a new env can take effect. */
-export function resetDownloadDirCache(): void {
-  cachedDownloadDir = null;
+/**
+ * Verify that `resolved` (an already realpath-canonicalized absolute
+ * path) sits inside `jail` (itself realpath-canonicalized). Throws
+ * with a message that names the env var to override if the caller
+ * wants a different root. `kind` distinguishes the attachment side
+ * ("attachment") from the download side ("savePath") in the error.
+ */
+function assertInsideJail(
+  resolved: string,
+  jail: string,
+  opts: { envVar: string; kind: "attachment" | "savePath"; original: string },
+): void {
+  if (resolved === jail || resolved.startsWith(jail + path.sep)) return;
+  const label = opts.kind === "attachment" ? "Attachment path" : "savePath";
+  const jailLabel = opts.kind === "attachment" ? "directory" : "download directory";
+  throw new Error(
+    `${label} is outside the allowed ${jailLabel}. ` +
+      `Got: ${resolved} (resolved from ${opts.original}). ` +
+      `Allowed: ${jail}. ` +
+      `Override with ${opts.envVar}=/abs/path if you need a different jail.`,
+  );
 }
 
 /**
@@ -106,15 +121,15 @@ export function resolveDownloadSavePath(savePath: string): string {
     throw new Error(
       `savePath must be absolute: "${savePath}". ` +
         `Place the download under ${getDownloadDir()} and use the absolute path, ` +
-        `or set GMAIL_MCP_DOWNLOAD_DIR to change the allowed root.`,
+        `or set ${ENV_DOWNLOAD_DIR} to change the allowed root.`,
     );
   }
-  // Validate containment BEFORE creating the directory. Otherwise a
-  // path like /etc/rogue would be materialised on disk with mode
-  // 0o700, then rejected — we'd fail with a side effect. Walk up to
-  // the first ancestor that exists, realpath it (blocks symlink
-  // escapes on an existing parent), then confirm the full resolved
-  // path sits inside the jail before any mkdirSync.
+  // Validate containment BEFORE creating the directory, otherwise a
+  // path like /etc/rogue would be materialised on disk at 0o700 and
+  // only then rejected — a side-effect on invalid input. Walk up to
+  // the first existing ancestor, realpath it (that blocks symlink
+  // escape on an existing parent), compose the still-missing tail,
+  // then check.
   const jail = getDownloadDir();
   const resolvedTarget = path.resolve(savePath);
   let probe = resolvedTarget;
@@ -122,63 +137,57 @@ export function resolveDownloadSavePath(savePath: string): string {
     probe = path.dirname(probe);
   }
   const probeReal = fs.realpathSync(probe);
-  // Diff computed against the *original* (non-realpathed) probe so
-  // the "still-missing leaf" portion is preserved verbatim. On macOS
-  // /var/folders/... is a symlink to /private/var/folders/..., so
-  // computing `relative(probeReal, resolvedTarget)` would produce
-  // `../../../var/folders/...` and falsely escape the jail.
+  // Diff computed against the *non-realpathed* probe so the
+  // still-missing leaf is preserved verbatim. On macOS /var/folders/…
+  // is a symlink to /private/var/folders/…; computing relative from
+  // probeReal would produce `../../../var/folders/…` and falsely
+  // escape the jail.
   const relative = path.relative(probe, resolvedTarget);
   const effectivePath = relative === "" ? probeReal : path.resolve(probeReal, relative);
-  if (effectivePath !== jail && !effectivePath.startsWith(jail + path.sep)) {
-    throw new Error(
-      `savePath is outside the allowed download directory. ` +
-        `Got: ${effectivePath} (resolved from ${savePath}). ` +
-        `Allowed: ${jail}. ` +
-        `Override with GMAIL_MCP_DOWNLOAD_DIR=/abs/path if you need a different jail.`,
-    );
-  }
-  if (!fs.existsSync(resolvedTarget)) {
-    fs.mkdirSync(resolvedTarget, { recursive: true, mode: 0o700 });
-  }
+  assertInsideJail(effectivePath, jail, {
+    envVar: ENV_DOWNLOAD_DIR,
+    kind: "savePath",
+    original: savePath,
+  });
+  // `recursive: true` is idempotent on existing dirs.
+  fs.mkdirSync(resolvedTarget, { recursive: true, mode: 0o700 });
   // Re-realpath after mkdir. If a missing component was swapped to a
-  // symlink in the window between the pre-check and the mkdir, the
-  // leaf would now live outside the jail — catch that here.
+  // symlink between the pre-check and the mkdir, the materialised leaf
+  // lives outside the jail — catch that here.
   const finalPath = fs.realpathSync(resolvedTarget);
-  if (finalPath !== jail && !finalPath.startsWith(jail + path.sep)) {
-    throw new Error(
-      `savePath resolved outside the allowed download directory after mkdir. ` +
-        `Got: ${finalPath} (resolved from ${savePath}). Allowed: ${jail}.`,
-    );
-  }
+  assertInsideJail(finalPath, jail, {
+    envVar: ENV_DOWNLOAD_DIR,
+    kind: "savePath",
+    original: savePath,
+  });
   return finalPath;
 }
 
 /**
  * Validate that a user-supplied attachment path is inside the attachment
- * jail after realpath canonicalization. Throws with a clear error that
- * names the allowed directory so the user can reconfigure if needed.
- * Symlinks pointing outside the jail are rejected.
+ * jail after realpath canonicalization. Returns the realpath-resolved
+ * path so the caller can pass the canonical target (not the original
+ * possibly-symlink string) to nodemailer — eliminating a TOCTOU where
+ * the symlink could be repointed at a secret file between validation
+ * and the actual read at send time.
  */
-function assertAttachmentPathAllowed(filePath: string): void {
+function assertAttachmentPathAllowed(filePath: string): string {
   if (!path.isAbsolute(filePath)) {
     throw new Error(
       `Attachment path must be absolute: "${filePath}". ` +
-        `Place files inside ${getAttachmentDir()} (or set GMAIL_MCP_ATTACHMENT_DIR) and use the absolute path.`,
+        `Place files inside ${getAttachmentDir()} (or set ${ENV_ATTACHMENT_DIR}) and use the absolute path.`,
     );
   }
   if (!fs.existsSync(filePath)) {
     throw new Error(`File does not exist: ${filePath}`);
   }
   const resolved = fs.realpathSync(filePath);
-  const jail = getAttachmentDir();
-  if (resolved !== jail && !resolved.startsWith(jail + path.sep)) {
-    throw new Error(
-      `Attachment path is outside the allowed directory. ` +
-        `Got: ${resolved} (resolved from ${filePath}). ` +
-        `Allowed: ${jail}. ` +
-        `Override with GMAIL_MCP_ATTACHMENT_DIR=/abs/path if you need a different jail.`,
-    );
-  }
+  assertInsideJail(resolved, getAttachmentDir(), {
+    envVar: ENV_ATTACHMENT_DIR,
+    kind: "attachment",
+    original: filePath,
+  });
+  return resolved;
 }
 
 /**
@@ -314,26 +323,15 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
     buffer: true,
   });
 
-  // Prepare attachments for nodemailer.
-  // Every candidate path is validated against the attachment jail (see
-  // assertAttachmentPathAllowed) so a prompt-injected agent cannot attach
-  // ~/.ssh/id_rsa, OAuth credentials, or other secrets to outgoing email.
+  // Validate each attachment against the jail and push the
+  // realpath-resolved target to nodemailer (not the possibly-symlink
+  // original). Closes a TOCTOU where the link could be repointed at a
+  // secret file between validation and the actual read at send time.
   const attachments = [];
   for (const filePath of validatedArgs.attachments) {
-    assertAttachmentPathAllowed(filePath);
-
-    // Resolve to realpath right after validation and push the
-    // resolved path to nodemailer. Closes a TOCTOU where a
-    // validated symlink could be repointed at a secret file
-    // between assertAttachmentPathAllowed() and the actual
-    // transporter.sendMail() read. nodemailer reads `path` at
-    // send time, so locking in the real target here bounds the
-    // race window to validation-against-itself.
-    const resolvedPath = fs.realpathSync(filePath);
-    const fileName = path.basename(filePath);
-
+    const resolvedPath = assertAttachmentPathAllowed(filePath);
     attachments.push({
-      filename: fileName,
+      filename: path.basename(filePath),
       path: resolvedPath,
     });
   }
