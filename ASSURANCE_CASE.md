@@ -145,7 +145,7 @@ and scope filtering all live at that boundary.
 | **Fail closed** | Missing `~/.gmail-mcp/gcp-oauth.keys.json` → exit at startup with a clear error. Attachment path outside the jail → refuse before any write. Non-loopback OAuth callback hostname → reject at `authenticate()`. Invalid Zod input → refuse before the Gmail API call. |
 | **Minimise attack surface** | Single-file ESM bundle via `tsup` (no sourcemaps in the published tarball); only `dist/`, `README.md`, `LICENSE` in the npm files allowlist. No HTTP transport (stdio only) outside of the one-shot OAuth callback server. Tool list gated by OAuth scope. |
 | **Secrets are env-only / local-only** | OAuth refresh token at `~/.gmail-mcp/credentials.json` (mode `0o600`); client keys at `~/.gmail-mcp/gcp-oauth.keys.json` (user-provided). No secret ever travels over MCP stdout or MCP tool results. |
-| **Auditable & reproducible** | Every release is Sigstore-signed and SLSA-attested. Every commit triggers CI on Node 20/22/24 + CodeQL + Socket + CodeRabbit. OpenSSF Scorecard runs on push to `main` and weekly. |
+| **Auditable & reproducible** | Every release is Sigstore-signed and SLSA-attested. Every commit triggers CI on Node 20/22/24 + CodeQL + Socket + CodeRabbit. OpenSSF Scorecard is wired in too. |
 | **Open source, MIT** | Anyone can audit. Project continuity documented in [CONTINUITY.md](./CONTINUITY.md). |
 
 ## 4. Common implementation weaknesses countered
