@@ -4,21 +4,7 @@
  */
 
 import type { gmail_v1 } from "googleapis";
-import type { GaxiosError } from "gaxios";
-
-type GmailApiError = Error & { code?: number };
-
-function asGmailApiError(err: unknown): GmailApiError {
-  if (err instanceof Error) {
-    const e = err as GmailApiError;
-    const maybe = err as unknown as GaxiosError;
-    if (typeof e.code !== "number" && maybe.response?.status !== undefined) {
-      e.code = maybe.response.status;
-    }
-    return e;
-  }
-  return Object.assign(new Error(String(err)), { code: undefined });
-}
+import { asGmailApiError } from "./gmail-errors.js";
 
 // Type definitions for Gmail API labels
 export interface GmailLabel {
