@@ -261,11 +261,15 @@ The same MCP server entry (see "Installing Manually" above) works in any MCP cli
 npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
 ```
 
-With read-only scopes, only these 4 tools are exposed to the LLM:
+With read-only scopes, these 8 tools are exposed to the LLM:
 - `read_email` — read email content
 - `search_emails` — search the inbox
 - `list_email_labels` — list available labels
 - `download_attachment` — download attachments
+- `download_email` — save an email to disk (json/eml/txt/html)
+- `get_thread` — retrieve a full thread
+- `list_inbox_threads` — list threads (summary)
+- `get_inbox_with_threads` — list threads with message bodies expanded
 
 ### Send-Only (Minimal write surface)
 
@@ -273,7 +277,7 @@ With read-only scopes, only these 4 tools are exposed to the LLM:
 npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.send
 ```
 
-Only `send_email`, `draft_email`, and `reply_all` are exposed. Useful for automation that needs to deliver outbound mail (e.g. forwarding receipts) without ever reading the inbox.
+Only `send_email` and `reply_all` are exposed. Useful for automation that needs to deliver outbound mail (e.g. forwarding receipts) without ever reading the inbox. (`draft_email` is excluded because it requires `gmail.compose`, not just `gmail.send`.)
 
 ### Full Access
 
@@ -281,7 +285,7 @@ Only `send_email`, `draft_email`, and `reply_all` are exposed. Useful for automa
 npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
 ```
 
-Enables all 20 tools including sending, managing labels, creating filters, reply-all, and batch operations.
+Enables all 25 tools including sending, managing labels, creating filters, reply-all, and batch operations.
 
 ## Available Tools
 
