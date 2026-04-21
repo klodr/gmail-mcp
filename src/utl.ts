@@ -1,7 +1,126 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { randomBytes } from 'crypto';
 import { lookup as mimeLookup } from 'mime-types';
 import nodemailer from 'nodemailer';
+
+/**
+ * Resolve the directory that attachment file paths MUST live under,
+ * canonicalized via realpath. The MCP refuses to attach files outside
+ * this jail — without it, a prompt-injected agent could attach
+ * ~/.ssh/id_rsa or ~/.gmail-mcp/credentials.json to an outgoing email.
+ *
+ * Override with GMAIL_MCP_ATTACHMENT_DIR; default is ~/GmailAttachments
+ * (auto-created with mode 0o700 on first use). The returned path is
+ * always absolute and realpath-resolved, so the caller's startsWith
+ * check against a realpath-resolved candidate is sound.
+ */
+let cachedAttachmentDir: string | null = null;
+function getAttachmentDir(): string {
+    if (cachedAttachmentDir) return cachedAttachmentDir;
+    const envPath = process.env.GMAIL_MCP_ATTACHMENT_DIR;
+    const target = envPath && envPath.trim() !== ''
+        ? path.resolve(envPath)
+        : path.join(os.homedir(), 'GmailAttachments');
+    if (!fs.existsSync(target)) {
+        fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+    }
+    cachedAttachmentDir = fs.realpathSync(target);
+    return cachedAttachmentDir;
+}
+
+/** Exposed for tests. Clears the cached attachment-dir so a new env can take effect. */
+export function resetAttachmentDirCache(): void {
+    cachedAttachmentDir = null;
+}
+
+/**
+ * Resolve the directory that download destinations (both `download_email`
+ * and `download_attachment`) must live under. Without this, a prompt-
+ * injected agent could instruct the MCP to write attachments into
+ * /etc/cron.d/, the user's login-shell startup file, or another sensitive
+ * path and achieve code execution.
+ *
+ * Override with GMAIL_MCP_DOWNLOAD_DIR; default is ~/GmailDownloads
+ * (auto-created with mode 0o700 on first use).
+ */
+let cachedDownloadDir: string | null = null;
+export function getDownloadDir(): string {
+    if (cachedDownloadDir) return cachedDownloadDir;
+    const envPath = process.env.GMAIL_MCP_DOWNLOAD_DIR;
+    const target = envPath && envPath.trim() !== ''
+        ? path.resolve(envPath)
+        : path.join(os.homedir(), 'GmailDownloads');
+    if (!fs.existsSync(target)) {
+        fs.mkdirSync(target, { recursive: true, mode: 0o700 });
+    }
+    cachedDownloadDir = fs.realpathSync(target);
+    return cachedDownloadDir;
+}
+
+/** Exposed for tests. Clears the cached download-dir so a new env can take effect. */
+export function resetDownloadDirCache(): void {
+    cachedDownloadDir = null;
+}
+
+/**
+ * Validate and canonicalize a user-supplied savePath for downloads.
+ * Creates the directory (mode 0o700) if it does not exist yet, then
+ * enforces that it resolves inside the download jail. Returns the
+ * realpath-canonicalized savePath for the caller to use.
+ */
+export function resolveDownloadSavePath(savePath: string): string {
+    if (!path.isAbsolute(savePath)) {
+        throw new Error(
+            `savePath must be absolute: "${savePath}". ` +
+            `Place the download under ${getDownloadDir()} and use the absolute path, ` +
+            `or set GMAIL_MCP_DOWNLOAD_DIR to change the allowed root.`,
+        );
+    }
+    if (!fs.existsSync(savePath)) {
+        fs.mkdirSync(savePath, { recursive: true, mode: 0o700 });
+    }
+    const resolved = fs.realpathSync(savePath);
+    const jail = getDownloadDir();
+    if (resolved !== jail && !resolved.startsWith(jail + path.sep)) {
+        throw new Error(
+            `savePath is outside the allowed download directory. ` +
+            `Got: ${resolved} (resolved from ${savePath}). ` +
+            `Allowed: ${jail}. ` +
+            `Override with GMAIL_MCP_DOWNLOAD_DIR=/abs/path if you need a different jail.`,
+        );
+    }
+    return resolved;
+}
+
+/**
+ * Validate that a user-supplied attachment path is inside the attachment
+ * jail after realpath canonicalization. Throws with a clear error that
+ * names the allowed directory so the user can reconfigure if needed.
+ * Symlinks pointing outside the jail are rejected.
+ */
+function assertAttachmentPathAllowed(filePath: string): void {
+    if (!path.isAbsolute(filePath)) {
+        throw new Error(
+            `Attachment path must be absolute: "${filePath}". ` +
+            `Place files inside ${getAttachmentDir()} (or set GMAIL_MCP_ATTACHMENT_DIR) and use the absolute path.`,
+        );
+    }
+    if (!fs.existsSync(filePath)) {
+        throw new Error(`File does not exist: ${filePath}`);
+    }
+    const resolved = fs.realpathSync(filePath);
+    const jail = getAttachmentDir();
+    if (resolved !== jail && !resolved.startsWith(jail + path.sep)) {
+        throw new Error(
+            `Attachment path is outside the allowed directory. ` +
+            `Got: ${resolved} (resolved from ${filePath}). ` +
+            `Allowed: ${jail}. ` +
+            `Override with GMAIL_MCP_ATTACHMENT_DIR=/abs/path if you need a different jail.`,
+        );
+    }
+}
 
 /**
  * Helper function to encode email headers containing non-ASCII characters
@@ -40,8 +159,10 @@ export function createEmailMessage(validatedArgs: any): string {
         mimeType = 'multipart/alternative';
     }
 
-    // Generate a random boundary string for multipart messages
-    const boundary = `----=_NextPart_${Math.random().toString(36).substring(2)}`;
+    // Generate a cryptographically random boundary string for multipart
+    // messages. Math.random() is predictable enough that a crafted body
+    // could in theory collide with the boundary and inject headers.
+    const boundary = `----=_NextPart_${randomBytes(16).toString('hex')}`;
 
     // Validate email addresses
     (validatedArgs.to as string[]).forEach(email => {
@@ -129,15 +250,16 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
         buffer: true
     });
 
-    // Prepare attachments for nodemailer
+    // Prepare attachments for nodemailer.
+    // Every candidate path is validated against the attachment jail (see
+    // assertAttachmentPathAllowed) so a prompt-injected agent cannot attach
+    // ~/.ssh/id_rsa, OAuth credentials, or other secrets to outgoing email.
     const attachments = [];
     for (const filePath of validatedArgs.attachments) {
-        if (!fs.existsSync(filePath)) {
-            throw new Error(`File does not exist: ${filePath}`);
-        }
-        
+        assertAttachmentPathAllowed(filePath);
+
         const fileName = path.basename(filePath);
-        
+
         attachments.push({
             filename: fileName,
             path: filePath

@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import open from 'open';
 import os from 'os';
-import {createEmailMessage, createEmailWithNodemailer} from "./utl.js";
+import {createEmailMessage, createEmailWithNodemailer, resolveDownloadSavePath} from "./utl.js";
 import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 import { createFilter, listFilters, getFilter, deleteFilter, filterTemplates, GmailFilterCriteria, GmailFilterAction } from "./filter-manager.js";
 import { parseEmailAddresses, filterOutEmail, addRePrefix, buildReferencesHeader, buildReplyAllRecipients } from "./reply-all-helpers.js";
@@ -601,13 +601,14 @@ async function main() {
 
                 case "download_email": {
                     const validatedArgs = DownloadEmailSchema.parse(args);
-                    const { messageId, savePath, format } = validatedArgs;
+                    const { messageId, format } = validatedArgs;
 
                     try {
-                        // Ensure save directory exists
-                        if (!fs.existsSync(savePath)) {
-                            fs.mkdirSync(savePath, { recursive: true });
-                        }
+                        // Jail the savePath inside GMAIL_MCP_DOWNLOAD_DIR
+                        // (default ~/GmailDownloads). Prevents a prompt-
+                        // injected agent from writing downloaded emails into
+                        // /etc/cron.d/, the user's shell rc file, etc.
+                        const savePath = resolveDownloadSavePath(validatedArgs.savePath);
 
                         // Always fetch full message for metadata (needed for attachments list)
                         const fullResponse = await gmail.users.messages.get({
@@ -1099,8 +1100,15 @@ async function main() {
                         const data = attachmentResponse.data.data;
                         const buffer = Buffer.from(data, 'base64url');
 
-                        // Determine save path and filename
-                        const savePath = validatedArgs.savePath || process.cwd();
+                        // Jail the savePath inside GMAIL_MCP_DOWNLOAD_DIR
+                        // (default ~/GmailDownloads). The previous behavior
+                        // (fall back to process.cwd()) wrote attachments to
+                        // the MCP server's working directory, which could be
+                        // anywhere — including directories containing the
+                        // user's source code or config files.
+                        const savePath = resolveDownloadSavePath(
+                            validatedArgs.savePath ?? path.join(os.homedir(), 'GmailDownloads'),
+                        );
                         let filename = validatedArgs.filename;
 
                         if (!filename) {
@@ -1131,15 +1139,11 @@ async function main() {
                         // Sanitize filename to prevent path traversal
                         filename = path.basename(filename);
 
-                        // Ensure save directory exists
-                        if (!fs.existsSync(savePath)) {
-                            fs.mkdirSync(savePath, { recursive: true });
-                        }
-
-                        // Resolve and validate final path stays within savePath
-                        const resolvedSavePath = path.resolve(savePath);
-                        const fullPath = path.resolve(resolvedSavePath, filename);
-                        if (!fullPath.startsWith(resolvedSavePath + path.sep) && fullPath !== resolvedSavePath) {
+                        // savePath is already realpath-resolved inside the
+                        // download jail by resolveDownloadSavePath above.
+                        // Defense-in-depth: re-check the final path.
+                        const fullPath = path.resolve(savePath, filename);
+                        if (!fullPath.startsWith(savePath + path.sep) && fullPath !== savePath) {
                             throw new Error('Invalid filename: path traversal detected');
                         }
                         fs.writeFileSync(fullPath, buffer);
