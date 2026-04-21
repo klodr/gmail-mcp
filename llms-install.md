@@ -27,13 +27,13 @@ client that can launch a stdio child process can use this server.
 
    ```bash
    # Send-only (e.g. forwarding receipts, status notifications)
-   npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.send
+   npx @klodr/gmail-mcp auth --scopes=gmail.send
 
    # Read-only (e.g. inbox search, summarisation)
-   npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+   npx @klodr/gmail-mcp auth --scopes=gmail.readonly
 
    # Full read + write (only if the user explicitly needs it)
-   npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+   npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
    ```
 
    The command opens the user's browser to complete the consent screen and
@@ -48,7 +48,7 @@ client that can launch a stdio child process can use this server.
      "mcpServers": {
        "gmail": {
          "command": "npx",
-         "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
+         "args": ["@klodr/gmail-mcp"]
        }
      }
    }

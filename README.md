@@ -90,14 +90,14 @@ A Model Context Protocol (MCP) server for Gmail integration with auto-authentica
    mv gcp-oauth.keys.json ~/.gmail-mcp/
 
    # Run authentication from anywhere
-   npx @gongrzhe/server-gmail-autoauth-mcp auth
+   npx @klodr/gmail-mcp auth
    ```
 
    b. Local Authentication:
    ```bash
    # Place gcp-oauth.keys.json in your current directory
    # The file will be automatically copied to global config
-   npx @gongrzhe/server-gmail-autoauth-mcp auth
+   npx @klodr/gmail-mcp auth
    ```
 
    The authentication process will:
@@ -118,7 +118,7 @@ A Model Context Protocol (MCP) server for Gmail integration with auto-authentica
   "mcpServers": {
     "gmail": {
       "command": "npx",
-      "args": ["@gongrzhe/server-gmail-autoauth-mcp"]
+      "args": ["@klodr/gmail-mcp"]
     }
   }
 }
@@ -164,7 +164,7 @@ docker run -i --rm \
 For cloud server environments (like n8n), you can specify a custom callback URL during authentication:
 
 ```bash
-npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2callback
+npx @klodr/gmail-mcp auth https://gmail.gongrzhe.com/oauth2callback
 ```
 
 #### Setup Instructions for Cloud Environment
@@ -181,7 +181,7 @@ npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2ca
 
 4. **Run Authentication:**
    ```bash
-   npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2callback
+   npx @klodr/gmail-mcp auth https://gmail.gongrzhe.com/oauth2callback
    ```
 
 5. **Configure in your application:**
@@ -191,7 +191,7 @@ npx @gongrzhe/server-gmail-autoauth-mcp auth https://gmail.gongrzhe.com/oauth2ca
        "gmail": {
          "command": "npx",
          "args": [
-           "@gongrzhe/server-gmail-autoauth-mcp"
+           "@klodr/gmail-mcp"
          ]
        }
      }
@@ -223,13 +223,13 @@ Use the `--scopes` flag to request only the permissions you need:
 
 ```bash
 # Read-only access (recommended for safe browsing)
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly
 
 # Read-only with filter management
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly,gmail.settings.basic
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly,gmail.settings.basic
 
 # Full access (default behavior)
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
 ```
 
 If no `--scopes` flag is provided, the server defaults to `gmail.modify,gmail.settings.basic` for full functionality.
@@ -258,7 +258,7 @@ The same MCP server entry (see "Installing Manually" above) works in any MCP cli
 ### Read-Only (Recommended for safe browsing)
 
 ```bash
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly
 ```
 
 With read-only scopes, these 8 tools are exposed to the LLM:
@@ -274,7 +274,7 @@ With read-only scopes, these 8 tools are exposed to the LLM:
 ### Send-Only (Minimal write surface)
 
 ```bash
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.send
+npx @klodr/gmail-mcp auth --scopes=gmail.send
 ```
 
 Only `send_email` and `reply_all` are exposed. Useful for automation that needs to deliver outbound mail (e.g. forwarding receipts) without ever reading the inbox. (`draft_email` is excluded because it requires `gmail.compose`, not just `gmail.send`.)
@@ -282,7 +282,7 @@ Only `send_email` and `reply_all` are exposed. Useful for automation that needs 
 ### Full Access
 
 ```bash
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
 ```
 
 Enables all 25 tools including sending, managing labels, creating filters, reply-all, and batch operations.
