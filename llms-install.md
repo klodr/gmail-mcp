@@ -19,10 +19,17 @@ client that can launch a stdio child process can use this server.
    forcing owner-only permissions on both the directory and the file:
 
    ```bash
-   mkdir -p -m 700 ~/.gmail-mcp
+   mkdir -p ~/.gmail-mcp
+   chmod 700 ~/.gmail-mcp
    mv /path/to/downloaded/gcp-oauth.keys.json ~/.gmail-mcp/
    chmod 600 ~/.gmail-mcp/gcp-oauth.keys.json
    ```
+
+   The explicit `chmod 700` step is load-bearing: `mkdir -p -m 700`
+   only applies the mode when **creating** a new directory. If
+   `~/.gmail-mcp` already exists with a more permissive mode (e.g.
+   `755` from an earlier install), `mkdir -p` silently succeeds
+   without tightening it — the extra `chmod 700` forces owner-only.
 
 2. Run the OAuth flow with the **minimal scope** required for the user's
    stated use case (do not over-request):

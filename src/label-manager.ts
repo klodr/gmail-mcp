@@ -53,8 +53,15 @@ export async function createLabel(
     return response.data;
   } catch (err: unknown) {
     const error = asGmailApiError(err);
-    // Handle duplicate labels more gracefully
-    if (error.message && error.message.includes("already exists")) {
+    // Prefer HTTP-status detection of the duplicate: Gmail returns 409
+    // Conflict (and occasionally 400 Bad Request) for an existing name.
+    // Fall back to the message substring only if the status is missing,
+    // which can happen on network-layer errors.
+    const isDuplicate =
+      error.code === 409 ||
+      error.code === 400 ||
+      (error.code === undefined && error.message.includes("already exists"));
+    if (isDuplicate) {
       throw new Error(`Label "${labelName}" already exists. Please use a different name.`, {
         cause: err,
       });
