@@ -82,9 +82,5 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.2",
     "vitest": "^4.1.4"
-  },
-  "overrides": {
-    "//": "test-exclude is pinned to ^8.0.0 for compatibility with the vitest 4.x + @vitest/coverage-v8 pipeline. The 9.x line of test-exclude ships an ESM-only rewrite that breaks the istanbul-style globs our coverage reporter consumes. Revisit when vitest bumps its own floor.",
-    "test-exclude": "^8.0.0"
   }
 }
