@@ -33,7 +33,7 @@ This guide will help you install and configure the Gmail AutoAuth MCP server for
 
 3. Run authentication:
    ```bash
-   npx @gongrzhe/server-gmail-autoauth-mcp auth
+   npx @klodr/gmail-mcp auth
    ```
    This will:
    - Look for gcp-oauth.keys.json in current directory or ~/.gmail-mcp/
@@ -48,7 +48,7 @@ This guide will help you install and configure the Gmail AutoAuth MCP server for
        "gmail": {
          "command": "npx",
          "args": [
-           "@gongrzhe/server-gmail-autoauth-mcp"
+           "@klodr/gmail-mcp"
          ]
        }
      }

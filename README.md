@@ -5,12 +5,18 @@
 [![CI](https://github.com/klodr/gmail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/klodr/gmail-mcp/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/klodr/gmail-mcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/klodr/gmail-mcp/actions/workflows/codeql.yml)
 [![Tested with Vitest](https://img.shields.io/badge/tested%20with-vitest-yellow?logo=vitest&labelColor=black)](https://vitest.dev)
+[![codecov](https://codecov.io/gh/klodr/gmail-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/klodr/gmail-mcp)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/klodr/gmail-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/klodr/gmail-mcp)
-[![Socket Security](https://socket.dev/api/badge/npm/package/@gongrzhe/server-gmail-autoauth-mcp)](https://socket.dev/npm/package/@gongrzhe/server-gmail-autoauth-mcp)
+<!-- TODO: replace <PROJECT_ID> once the OpenSSF Best Practices
+     submission for klodr/gmail-mcp is filed at bestpractices.dev.
+     faxdrop is 12578, mercury is 12575 for reference. -->
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/PROJECT_ID/badge)](https://www.bestpractices.dev/projects)
+[![Socket Security](https://socket.dev/api/badge/npm/package/@klodr/gmail-mcp)](https://socket.dev/npm/package/@klodr/gmail-mcp)
 [![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/klodr/gmail-mcp?utm_source=oss&utm_medium=github&utm_campaign=klodr%2Fgmail-mcp&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
-[![npm version](https://img.shields.io/npm/v/@gongrzhe/server-gmail-autoauth-mcp.svg)](https://www.npmjs.com/package/@gongrzhe/server-gmail-autoauth-mcp)
-[![Node.js Version](https://img.shields.io/node/v/@gongrzhe/server-gmail-autoauth-mcp.svg)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@klodr/gmail-mcp.svg)](https://www.npmjs.com/package/@klodr/gmail-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/@klodr/gmail-mcp.svg)](https://www.npmjs.com/package/@klodr/gmail-mcp)
+[![Node.js Version](https://img.shields.io/node/v/@klodr/gmail-mcp.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-1.27-blue)](https://modelcontextprotocol.io)
 [![MCP Server](https://badge.mcpx.dev?type=server 'MCP Server')](https://modelcontextprotocol.io)
@@ -60,7 +66,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Tool annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) | ❌ | ✅ | ✅ |
 | `llms-install.md` (LLM-readable install guide) | ❌ | ❌ | ✅ |
 | **Publishing / discoverability** | | | |
-| Published on npm | ✅ [@gongrzhe/server-gmail-autoauth-mcp](https://www.npmjs.com/package/@gongrzhe/server-gmail-autoauth-mcp) (stale — no release since the fork diverged) | ❌ (consumed as a GitHub install) | ✅ via [@gongrzhe/server-gmail-autoauth-mcp](https://www.npmjs.com/package/@gongrzhe/server-gmail-autoauth-mcp) channel once the upstream name is handed over — see SECURITY.md for the transition plan |
+| Published on npm | ✅ [@gongrzhe/server-gmail-autoauth-mcp](https://www.npmjs.com/package/@gongrzhe/server-gmail-autoauth-mcp) (stale — no release since the fork diverged) | ❌ (consumed as a GitHub install from the intermediate fork) | ✅ [@klodr/gmail-mcp](https://www.npmjs.com/package/@klodr/gmail-mcp) (dedicated scoped package, signed releases) |
 | GitHub repo | [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) | [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) | [klodr/gmail-mcp](https://github.com/klodr/gmail-mcp) |
 | Active maintenance (last 30 d) | ❌ (dormant since Aug 2025) | ⚠️ sporadic | ✅ daily review cycle (CodeRabbit + human) |
 | **Supply-chain integrity** | | | |
@@ -87,13 +93,13 @@ The klodr fork is the only one of the three with **(a)** source-path jails that 
 ## Installation
 
 ```bash
-npm install -g @gongrzhe/server-gmail-autoauth-mcp
+npm install -g @klodr/gmail-mcp
 ```
 
 Or directly via `npx`:
 
 ```bash
-npx -y @gongrzhe/server-gmail-autoauth-mcp
+npx -y @klodr/gmail-mcp
 ```
 
 Requires **Node.js 20.11+**.
@@ -110,7 +116,7 @@ Requires **Node.js 20.11+**.
 ### 2. Authenticate (once)
 
 ```bash
-npx -y @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+npx -y @klodr/gmail-mcp auth --scopes=gmail.readonly
 ```
 
 Always pass `--scopes` with the minimum you actually need — the MCP filters the tool list at startup based on the granted scopes, so a read-only token doesn't expose write tools to the LLM. A browser opens for Google's consent flow; tokens are written to `~/.gmail-mcp/credentials.json` (mode `0o600`).
@@ -122,7 +128,7 @@ Always pass `--scopes` with the minimum you actually need — the MCP filters th
   "mcpServers": {
     "gmail": {
       "command": "npx",
-      "args": ["-y", "@gongrzhe/server-gmail-autoauth-mcp"]
+      "args": ["-y", "@klodr/gmail-mcp"]
     }
   }
 }
@@ -152,13 +158,13 @@ Recipes:
 
 ```bash
 # Read-only browsing
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly
 
 # Read + send (mailing-list bot)
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.readonly,gmail.send
+npx @klodr/gmail-mcp auth --scopes=gmail.readonly,gmail.send
 
 # Everything (default; explicit)
-npx @gongrzhe/server-gmail-autoauth-mcp auth --scopes=gmail.modify,gmail.settings.basic
+npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
 ```
 
 ## Safeguards

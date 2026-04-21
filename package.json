@@ -1,7 +1,7 @@
 {
-  "name": "@gongrzhe/server-gmail-autoauth-mcp",
-  "version": "1.1.11",
-  "description": "Gmail MCP server with auto authentication support",
+  "name": "@klodr/gmail-mcp",
+  "version": "0.1.0",
+  "description": "Gmail MCP server — scope-gated tools + attachment/download path jails + supply-chain hardening. Fork of GongRzhe/Gmail-MCP-Server via ArtyMcLabin's intermediate fork.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -21,29 +21,34 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "gmail",
     "mcp",
-    "cursor",
-    "ai",
-    "oauth",
     "model-context-protocol",
+    "mcp-server",
+    "ai",
+    "llm",
+    "agent-tools",
+    "oauth",
     "google-gmail",
     "claude",
-    "auto-auth"
+    "cursor",
+    "typescript",
+    "nodejs"
   ],
-  "author": "gongrzhe",
-  "license": "ISC",
+  "author": "klodr",
+  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ArtyMcLabin/Gmail-MCP-Server.git"
+    "url": "git+https://github.com/klodr/gmail-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/ArtyMcLabin/Gmail-MCP-Server/issues"
+    "url": "https://github.com/klodr/gmail-mcp/issues"
   },
-  "homepage": "https://github.com/ArtyMcLabin/Gmail-MCP-Server#readme",
+  "homepage": "https://github.com/klodr/gmail-mcp#readme",
   "publishConfig": {
     "access": "public"
   },
