@@ -202,7 +202,10 @@ function assertAttachmentPathAllowed(filePath: string): string {
  * according to RFC 2047 MIME specification
  */
 function encodeEmailHeader(text: string): string {
-  // Only encode if the text contains non-ASCII characters
+  // Only encode if the text contains non-ASCII characters.
+  // The range [^\x00-\x7F] is the canonical test for non-ASCII and is
+  // the intended use of \x00 here — not a control-char regex smell.
+  // eslint-disable-next-line no-control-regex -- intentional: detect non-ASCII range
   if (/[^\x00-\x7F]/.test(text)) {
     // Use MIME Words encoding (RFC 2047)
     return "=?UTF-8?B?" + Buffer.from(text).toString("base64") + "?=";
@@ -223,7 +226,28 @@ function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n\0]/g, "");
 }
 
-export function createEmailMessage(validatedArgs: any): string {
+/**
+ * Shape of every validated tool-input that reaches the MIME builders.
+ * Matches the subset of fields from SendEmailSchema / ReplyAllSchema /
+ * DraftEmailSchema that createEmailMessage + createEmailWithNodemailer
+ * both touch.
+ */
+export interface ValidatedEmailArgs {
+  subject: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  from?: string;
+  text?: string;
+  html?: string;
+  mimeType?: string;
+  attachments?: string[];
+  inReplyTo?: string;
+  references?: string;
+  threadId?: string;
+}
+
+export function createEmailMessage(validatedArgs: ValidatedEmailArgs): string {
   const encodedSubject = encodeEmailHeader(sanitizeHeaderValue(validatedArgs.subject));
   // Determine content type based on available content and explicit mimeType
   let mimeType = validatedArgs.mimeType || "text/plain";
@@ -240,7 +264,7 @@ export function createEmailMessage(validatedArgs: any): string {
   const boundary = `----=_NextPart_${randomBytes(16).toString("hex")}`;
 
   // Validate email addresses
-  (validatedArgs.to as string[]).forEach((email) => {
+  validatedArgs.to.forEach((email) => {
     if (!validateEmail(email)) {
       throw new Error(`Recipient email address is invalid: ${email}`);
     }
@@ -248,13 +272,9 @@ export function createEmailMessage(validatedArgs: any): string {
 
   // Sanitize all user-supplied header values to prevent CRLF injection
   const from = sanitizeHeaderValue(validatedArgs.from || "me");
-  const to = (validatedArgs.to as string[]).map(sanitizeHeaderValue).join(", ");
-  const cc = validatedArgs.cc
-    ? (validatedArgs.cc as string[]).map(sanitizeHeaderValue).join(", ")
-    : "";
-  const bcc = validatedArgs.bcc
-    ? (validatedArgs.bcc as string[]).map(sanitizeHeaderValue).join(", ")
-    : "";
+  const to = validatedArgs.to.map(sanitizeHeaderValue).join(", ");
+  const cc = validatedArgs.cc ? validatedArgs.cc.map(sanitizeHeaderValue).join(", ") : "";
+  const bcc = validatedArgs.bcc ? validatedArgs.bcc.map(sanitizeHeaderValue).join(", ") : "";
   const inReplyTo = validatedArgs.inReplyTo ? sanitizeHeaderValue(validatedArgs.inReplyTo) : "";
   const references = validatedArgs.references
     ? sanitizeHeaderValue(validatedArgs.references)
@@ -315,9 +335,11 @@ export function createEmailMessage(validatedArgs: any): string {
   return emailParts.join("\r\n");
 }
 
-export async function createEmailWithNodemailer(validatedArgs: any): Promise<string> {
+export async function createEmailWithNodemailer(
+  validatedArgs: ValidatedEmailArgs,
+): Promise<string> {
   // Validate email addresses
-  (validatedArgs.to as string[]).forEach((email) => {
+  validatedArgs.to.forEach((email) => {
     if (!validateEmail(email)) {
       throw new Error(`Recipient email address is invalid: ${email}`);
     }
@@ -356,9 +378,11 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
     references: validatedArgs.references || validatedArgs.inReplyTo,
   };
 
-  // Generate the raw message
-  const info = await transporter.sendMail(mailOptions);
-  const rawMessage = info.message.toString();
-
-  return rawMessage;
+  // Generate the raw message. `info.message` is typed as `any` in
+  // @types/nodemailer but in practice is a MessageStream whose toString
+  // is meaningful; explicitly widen to an object with the method we use.
+  const info = (await transporter.sendMail(mailOptions)) as unknown as {
+    message: { toString: () => string };
+  };
+  return info.message.toString();
 }

@@ -3,6 +3,7 @@
  */
 
 import emailAddresses from "email-addresses";
+import type { gmail_v1 } from "googleapis";
 
 // Types
 export interface ParsedAddress {
@@ -75,16 +76,16 @@ export function parseEmailAddresses(addresses: string | undefined): ParsedAddres
  * Convert Gmail API message to structured JSON
  */
 export function gmailMessageToJson(
-  message: any,
+  message: gmail_v1.Schema$Message,
   emailContent: { text: string; html: string },
   attachments: EmailAttachment[],
 ): EmailJson {
-  const headers = message.payload?.headers || [];
+  const headers: gmail_v1.Schema$MessagePartHeader[] = message.payload?.headers || [];
   const getHeader = (name: string) =>
-    headers.find((h: any) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+    headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
 
   const dateStr = getHeader("date");
-  let isoDate = "";
+  let isoDate: string;
   try {
     isoDate = new Date(dateStr).toISOString();
   } catch {
@@ -92,8 +93,8 @@ export function gmailMessageToJson(
   }
 
   return {
-    messageId: message.id,
-    threadId: message.threadId,
+    messageId: message.id ?? "",
+    threadId: message.threadId ?? "",
     subject: getHeader("subject"),
     from: parseEmailAddress(getHeader("from")),
     to: parseEmailAddresses(getHeader("to")),
@@ -116,30 +117,16 @@ export function gmailMessageToJson(
 }
 
 /**
- * Format address for display
- */
-function formatAddress(a: ParsedAddress): string {
-  return a.name ? `${a.name} <${a.email}>` : a.email;
-}
-
-/**
- * Format list of addresses for display
- */
-function formatAddresses(addrs: ParsedAddress[]): string {
-  return addrs.map(formatAddress).join(", ");
-}
-
-/**
  * Convert email to plain text format
  */
 export function emailToTxt(
-  message: any,
+  message: gmail_v1.Schema$Message,
   emailContent: { text: string; html: string },
   attachments: EmailAttachment[],
 ): string {
-  const headers = message.payload?.headers || [];
+  const headers: gmail_v1.Schema$MessagePartHeader[] = message.payload?.headers || [];
   const getHeader = (name: string) =>
-    headers.find((h: any) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+    headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
 
   const from = getHeader("from");
   const to = getHeader("to");

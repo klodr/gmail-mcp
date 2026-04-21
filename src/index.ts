@@ -17,13 +17,13 @@ import {
   resolveDownloadSavePath,
   getDownloadDir,
   safeWriteFile,
+  ValidatedEmailArgs,
 } from "./utl.js";
 import {
   createLabel,
   updateLabel,
   deleteLabel,
   listLabels,
-  findLabelByName,
   getOrCreateLabel,
   GmailLabel,
 } from "./label-manager.js";
@@ -33,16 +33,8 @@ import {
   getFilter,
   deleteFilter,
   filterTemplates,
-  GmailFilterCriteria,
-  GmailFilterAction,
 } from "./filter-manager.js";
-import {
-  parseEmailAddresses,
-  filterOutEmail,
-  addRePrefix,
-  buildReferencesHeader,
-  buildReplyAllRecipients,
-} from "./reply-all-helpers.js";
+import { addRePrefix, buildReferencesHeader, buildReplyAllRecipients } from "./reply-all-helpers.js";
 import {
   DEFAULT_SCOPES,
   scopeNamesToUrls,
@@ -152,7 +144,7 @@ function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
 /**
  * Extract common headers from Gmail message payload
  */
-function extractHeaders(payload: any): {
+function extractHeaders(payload: GmailMessagePart | undefined): {
   subject: string;
   from: string;
   to: string;
@@ -161,7 +153,7 @@ function extractHeaders(payload: any): {
 } {
   const headers = payload?.headers || [];
   const getHeader = (name: string) =>
-    headers.find((h: any) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+    headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
   return {
     subject: getHeader("subject"),
     from: getHeader("from"),
@@ -195,7 +187,7 @@ function extractAttachments(payload: GmailMessagePart): EmailAttachment[] {
   return attachments;
 }
 
-async function loadCredentials() {
+function loadCredentials() {
   try {
     // Create config directory if it doesn't exist
     if (
@@ -208,12 +200,11 @@ async function loadCredentials() {
 
     // Check for OAuth keys in current directory first, then in config directory
     const localOAuthPath = path.join(process.cwd(), "gcp-oauth.keys.json");
-    let oauthPath = OAUTH_PATH;
 
     if (fs.existsSync(localOAuthPath)) {
       // If found in current directory, copy to config directory
       fs.copyFileSync(localOAuthPath, OAUTH_PATH);
-      console.log("OAuth keys found in current directory, copied to global config.");
+      console.error("OAuth keys found in current directory, copied to global config.");
     }
 
     if (!fs.existsSync(OAUTH_PATH)) {
@@ -311,48 +302,52 @@ async function authenticate(scopes: string[]) {
       scope: scopeUrls,
     });
 
-    console.log("Requesting scopes:", scopes.join(", "));
-    console.log("Please visit this URL to authenticate:", authUrl);
-    open(authUrl);
+    console.error("Requesting scopes:", scopes.join(", "));
+    console.error("Please visit this URL to authenticate:", authUrl);
+    void open(authUrl);
 
-    server.on("request", async (req, res) => {
-      if (!req.url?.startsWith(callbackPath)) return;
+    server.on("request", (req, res) => {
+      void (async () => {
+        if (!req.url?.startsWith(callbackPath)) return;
 
-      const url = new URL(req.url, `http://${hostname}:${port}`);
-      const code = url.searchParams.get("code");
+        const url = new URL(req.url, `http://${hostname}:${port}`);
+        const code = url.searchParams.get("code");
 
-      if (!code) {
-        res.writeHead(400);
-        res.end("No code provided");
-        reject(new Error("No code provided"));
-        return;
-      }
+        if (!code) {
+          res.writeHead(400);
+          res.end("No code provided");
+          reject(new Error("No code provided"));
+          return;
+        }
 
-      try {
-        const { tokens } = await oauth2Client.getToken(code);
-        oauth2Client.setCredentials(tokens);
+        try {
+          const { tokens } = await oauth2Client.getToken(code);
+          oauth2Client.setCredentials(tokens);
 
-        // Store both tokens and authorized scopes for runtime filtering
-        const credentials = { tokens, scopes };
-        fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2), { mode: 0o600 });
+          // Store both tokens and authorized scopes for runtime filtering
+          const credentials = { tokens, scopes };
+          fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2), {
+            mode: 0o600,
+          });
 
-        res.writeHead(200);
-        res.end("Authentication successful! You can close this window.");
-        console.log("Credentials saved with scopes:", scopes.join(", "));
-        server.close();
-        resolve();
-      } catch (error) {
-        res.writeHead(500);
-        res.end("Authentication failed");
-        reject(error);
-      }
+          res.writeHead(200);
+          res.end("Authentication successful! You can close this window.");
+          console.error("Credentials saved with scopes:", scopes.join(", "));
+          server.close();
+          resolve();
+        } catch (error) {
+          res.writeHead(500);
+          res.end("Authentication failed");
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      })();
     });
   });
 }
 
 // Main function
 async function main() {
-  await loadCredentials();
+  loadCredentials();
 
   if (process.argv[2] === "auth") {
     // Parse --scopes flag from CLI arguments
@@ -373,13 +368,13 @@ async function main() {
         process.exit(1);
       }
     } else {
-      console.log("No --scopes flag specified, using defaults:", DEFAULT_SCOPES.join(", "));
-      console.log("Tip: Use --scopes=gmail.readonly for read-only access");
-      console.log("Available scopes:", getAvailableScopeNames().join(", "));
+      console.error("No --scopes flag specified, using defaults:", DEFAULT_SCOPES.join(", "));
+      console.error("Tip: Use --scopes=gmail.readonly for read-only access");
+      console.error("Available scopes:", getAvailableScopeNames().join(", "));
     }
 
     await authenticate(scopes);
-    console.log("Authentication completed successfully");
+    console.error("Authentication completed successfully");
     process.exit(0);
   }
 
@@ -401,11 +396,11 @@ async function main() {
 
   // Tool handlers
   // Filter available tools based on authorized scopes
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  server.setRequestHandler(ListToolsRequestSchema, () => {
     const availableTools = toolDefinitions.filter((tool) =>
       hasScope(authorizedScopes, tool.scopes),
     );
-    return { tools: toMcpTools(availableTools) };
+    return Promise.resolve({ tools: toMcpTools(availableTools) });
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -425,7 +420,10 @@ async function main() {
       };
     }
 
-    async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
+    async function handleEmailAction(
+      action: "send" | "draft",
+      validatedArgs: ValidatedEmailArgs & { threadId?: string; inReplyTo?: string },
+    ) {
       let message: string;
 
       try {
@@ -467,7 +465,7 @@ async function main() {
                 validatedArgs.references = allMessageIds.join(" ");
               }
             }
-          } catch (threadError: any) {
+          } catch (threadError: unknown) {
             console.warn(
               `Warning: Could not fetch thread ${validatedArgs.threadId} for header resolution: ${threadError.message}`,
             );
@@ -586,7 +584,7 @@ async function main() {
             };
           }
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Log attachment-related errors for debugging
         if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
           console.error(
@@ -613,7 +611,7 @@ async function main() {
         try {
           const results = await processFn(batch);
           successes.push(...results);
-        } catch (error) {
+        } catch {
           // If batch fails, try individual items
           for (const item of batch) {
             try {
@@ -801,7 +799,7 @@ async function main() {
                 },
               ],
             };
-          } catch (error: any) {
+          } catch (error: unknown) {
             return {
               content: [
                 {
@@ -818,7 +816,7 @@ async function main() {
           const validatedArgs = ModifyEmailSchema.parse(args);
 
           // Prepare request body
-          const requestBody: any = {};
+          const requestBody: Record<string, unknown> = {};
 
           if (validatedArgs.labelIds) {
             requestBody.addLabelIds = validatedArgs.labelIds;
@@ -891,7 +889,7 @@ async function main() {
           const batchSize = validatedArgs.batchSize || 50;
 
           // Prepare request body
-          const requestBody: any = {};
+          const requestBody: Record<string, unknown> = {};
 
           if (validatedArgs.addLabelIds) {
             requestBody.addLabelIds = validatedArgs.addLabelIds;
@@ -908,7 +906,7 @@ async function main() {
             async (batch) => {
               const results = await Promise.all(
                 batch.map(async (messageId) => {
-                  const result = await gmail.users.messages.modify({
+                  await gmail.users.messages.modify({
                     userId: "me",
                     id: messageId,
                     requestBody: requestBody,
@@ -931,7 +929,7 @@ async function main() {
             resultText += `Failed to process: ${failureCount} messages\n\n`;
             resultText += `Failed message IDs:\n`;
             resultText += failures
-              .map((f) => `- ${(f.item as string).substring(0, 16)}... (${f.error.message})`)
+              .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
               .join("\n");
           }
 
@@ -979,7 +977,7 @@ async function main() {
             resultText += `Failed to delete: ${failureCount} messages\n\n`;
             resultText += `Failed message IDs:\n`;
             resultText += failures
-              .map((f) => `- ${(f.item as string).substring(0, 16)}... (${f.error.message})`)
+              .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
               .join("\n");
           }
 
@@ -1015,7 +1013,7 @@ async function main() {
           const validatedArgs = UpdateLabelSchema.parse(args);
 
           // Prepare request body with only the fields that were provided
-          const updates: any = {};
+          const updates: Record<string, unknown> = {};
           if (validatedArgs.name) updates.name = validatedArgs.name;
           if (validatedArgs.messageListVisibility)
             updates.messageListVisibility = validatedArgs.messageListVisibility;
@@ -1116,7 +1114,7 @@ async function main() {
           }
 
           const filtersText = filters
-            .map((filter: any) => {
+            .map((filter) => {
               const criteriaEntries = Object.entries(filter.criteria || {})
                 .filter(([_, value]) => value !== undefined)
                 .map(([key, value]) => `${key}: ${value}`)
@@ -1296,7 +1294,7 @@ async function main() {
               });
 
               // Find the attachment part to get original filename
-              const findAttachment = (part: any): string | null => {
+              const findAttachment = (part: GmailMessagePart): string | null => {
                 if (part.body && part.body.attachmentId === validatedArgs.attachmentId) {
                   return part.filename || `attachment-${validatedArgs.attachmentId}`;
                 }
@@ -1337,7 +1335,7 @@ async function main() {
                 },
               ],
             };
-          } catch (error: any) {
+          } catch (error: unknown) {
             return {
               content: [
                 {
@@ -1690,11 +1688,12 @@ async function main() {
             mimeType: validatedArgs.mimeType,
             threadId: threadId,
             inReplyTo: originalMessageId,
+            references,
             attachments: validatedArgs.attachments,
           };
 
           // Use the existing handleEmailAction to send the reply
-          const result = await handleEmailAction("send", emailArgs);
+          await handleEmailAction("send", emailArgs);
 
           // Enhance the response with reply-all specific info
           return {
@@ -1711,7 +1710,7 @@ async function main() {
           const validatedArgs = ModifyThreadSchema.parse(args);
 
           // Prepare request body for threads.modify
-          const modifyRequestBody: any = {};
+          const modifyRequestBody: Record<string, unknown> = {};
 
           if (validatedArgs.addLabelIds) {
             modifyRequestBody.addLabelIds = validatedArgs.addLabelIds;
@@ -1740,7 +1739,7 @@ async function main() {
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         content: [
           {
@@ -1753,7 +1752,7 @@ async function main() {
   });
 
   const transport = new StdioServerTransport();
-  server.connect(transport);
+  await server.connect(transport);
 }
 
 main().catch((error) => {

@@ -343,7 +343,7 @@ export interface ToolAnnotations {
 export interface ToolDefinition {
   name: string;
   description: string;
-  schema: z.ZodType<any>;
+  schema: z.ZodType<unknown>;
   scopes: string[]; // Any of these scopes grants access
   annotations: ToolAnnotations;
 }

@@ -3,6 +3,26 @@
  * Provides comprehensive filter management functionality
  */
 
+import type { gmail_v1 } from "googleapis";
+import type { GaxiosError } from "gaxios";
+
+/**
+ * Narrowed view of a Gaxios error we can read without a full type.
+ */
+type GmailApiError = Error & { code?: number };
+
+function asGmailApiError(err: unknown): GmailApiError {
+  if (err instanceof Error) {
+    const e = err as GmailApiError;
+    const maybe = err as unknown as GaxiosError;
+    if (typeof e.code !== "number" && maybe.response?.status !== undefined) {
+      e.code = maybe.response.status;
+    }
+    return e;
+  }
+  return Object.assign(new Error(String(err)), { code: undefined });
+}
+
 // Type definitions for Gmail API filters
 export interface GmailFilterCriteria {
   from?: string;
@@ -36,7 +56,7 @@ export interface GmailFilter {
  * @returns The newly created filter
  */
 export async function createFilter(
-  gmail: any,
+  gmail: gmail_v1.Gmail,
   criteria: GmailFilterCriteria,
   action: GmailFilterAction,
 ) {
@@ -52,11 +72,12 @@ export async function createFilter(
     });
 
     return response.data;
-  } catch (error: any) {
+  } catch (err: unknown) {
+    const error = asGmailApiError(err);
     if (error.code === 400) {
-      throw new Error(`Invalid filter criteria or action: ${error.message}`);
+      throw new Error(`Invalid filter criteria or action: ${error.message}`, { cause: err });
     }
-    throw new Error(`Failed to create filter: ${error.message}`);
+    throw new Error(`Failed to create filter: ${error.message}`, { cause: err });
   }
 }
 
@@ -65,7 +86,7 @@ export async function createFilter(
  * @param gmail - Gmail API instance
  * @returns Array of all filters
  */
-export async function listFilters(gmail: any) {
+export async function listFilters(gmail: gmail_v1.Gmail) {
   try {
     const response = await gmail.users.settings.filters.list({
       userId: "me",
@@ -77,8 +98,9 @@ export async function listFilters(gmail: any) {
       filters,
       count: filters.length,
     };
-  } catch (error: any) {
-    throw new Error(`Failed to list filters: ${error.message}`);
+  } catch (err: unknown) {
+    const error = asGmailApiError(err);
+    throw new Error(`Failed to list filters: ${error.message}`, { cause: err });
   }
 }
 
@@ -88,7 +110,7 @@ export async function listFilters(gmail: any) {
  * @param filterId - ID of the filter to retrieve
  * @returns The filter details
  */
-export async function getFilter(gmail: any, filterId: string) {
+export async function getFilter(gmail: gmail_v1.Gmail, filterId: string) {
   try {
     const response = await gmail.users.settings.filters.get({
       userId: "me",
@@ -96,11 +118,12 @@ export async function getFilter(gmail: any, filterId: string) {
     });
 
     return response.data;
-  } catch (error: any) {
+  } catch (err: unknown) {
+    const error = asGmailApiError(err);
     if (error.code === 404) {
-      throw new Error(`Filter with ID "${filterId}" not found.`);
+      throw new Error(`Filter with ID "${filterId}" not found.`, { cause: err });
     }
-    throw new Error(`Failed to get filter: ${error.message}`);
+    throw new Error(`Failed to get filter: ${error.message}`, { cause: err });
   }
 }
 
@@ -110,7 +133,7 @@ export async function getFilter(gmail: any, filterId: string) {
  * @param filterId - ID of the filter to delete
  * @returns Success message
  */
-export async function deleteFilter(gmail: any, filterId: string) {
+export async function deleteFilter(gmail: gmail_v1.Gmail, filterId: string) {
   try {
     await gmail.users.settings.filters.delete({
       userId: "me",
@@ -118,11 +141,12 @@ export async function deleteFilter(gmail: any, filterId: string) {
     });
 
     return { success: true, message: `Filter "${filterId}" deleted successfully.` };
-  } catch (error: any) {
+  } catch (err: unknown) {
+    const error = asGmailApiError(err);
     if (error.code === 404) {
-      throw new Error(`Filter with ID "${filterId}" not found.`);
+      throw new Error(`Filter with ID "${filterId}" not found.`, { cause: err });
     }
-    throw new Error(`Failed to delete filter: ${error.message}`);
+    throw new Error(`Failed to delete filter: ${error.message}`, { cause: err });
   }
 }
 
