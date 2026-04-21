@@ -1,115 +1,86 @@
-# Gmail AutoAuth MCP Installation Guide
+# Installing this MCP server (LLM-readable guide)
 
-This guide will help you install and configure the Gmail AutoAuth MCP server for managing Gmail operations through Claude Desktop with auto authentication support.
+This file is meant to be read by an LLM-driven assistant (Claude, ChatGPT,
+Cursor, Cline, …) that has been asked to install this Gmail MCP server on
+behalf of a human user. It is intentionally generic: any MCP-compatible
+client that can launch a stdio child process can use this server.
 
-## Requirements
+## Prerequisites the assistant should verify
 
-- Node.js and npm installed
-- Access to create a Google Cloud Project
-- Local directory for configuration storage
-- Web browser for OAuth authentication
+1. **Node.js ≥ 18** is installed (`node --version`).
+2. **npx** is on `PATH` (ships with Node).
+3. The user has — or is willing to create — a Google Cloud project with the
+   Gmail API enabled and an OAuth client credential file
+   (`gcp-oauth.keys.json`) for either Desktop app or Web application type.
 
-## Installation Steps
+## Setup steps
 
-1. First, create a Google Cloud Project and obtain the necessary credentials:
-   ```
-   1. Go to Google Cloud Console (https://console.cloud.google.com)
-   2. Create a new project or select an existing one
-   3. Enable the Gmail API for your project
-   4. Create OAuth 2.0 credentials:
-      - Go to "APIs & Services" > "Credentials"
-      - Click "Create Credentials" > "OAuth client ID"
-      - Choose "Desktop app" or "Web application" type
-      - For Web application, add http://localhost:3000/oauth2callback to redirect URIs
-      - Download the OAuth keys JSON file
-      - Rename it to gcp-oauth.keys.json
-   ```
+1. Place the OAuth keys file at `~/.gmail-mcp/gcp-oauth.keys.json`:
 
-2. Set up the configuration directory:
    ```bash
    mkdir -p ~/.gmail-mcp
-   mv gcp-oauth.keys.json ~/.gmail-mcp/
+   mv /path/to/downloaded/gcp-oauth.keys.json ~/.gmail-mcp/
    ```
 
-3. Run authentication:
+2. Run the OAuth flow with the **minimal scope** required for the user's
+   stated use case (do not over-request):
+
    ```bash
-   npx @gongrzhe/server-gmail-autoauth-mcp auth
-   ```
-   This will:
-   - Look for gcp-oauth.keys.json in current directory or ~/.gmail-mcp/
-   - Copy it to ~/.gmail-mcp/ if found in current directory
-   - Launch browser for Google authentication
-   - Save credentials as ~/.gmail-mcp/credentials.json
+   # Send-only (e.g. forwarding receipts, status notifications)
+   npx @klodr/gmail-mcp auth --scopes=gmail.send
 
-4. Configure Claude Desktop by adding the MCP server configuration:
+   # Read-only (e.g. inbox search, summarisation)
+   npx @klodr/gmail-mcp auth --scopes=gmail.readonly
+
+   # Full read + write (only if the user explicitly needs it)
+   npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
+   ```
+
+   The command opens the user's browser to complete the consent screen and
+   writes the resulting refresh token to `~/.gmail-mcp/credentials.json`
+   (mode `0600`).
+
+3. Add the server to the MCP client's configuration. The entry below is
+   **client-agnostic**; place it inside the client's `mcpServers` map:
+
    ```json
    {
      "mcpServers": {
        "gmail": {
          "command": "npx",
-         "args": [
-           "@gongrzhe/server-gmail-autoauth-mcp"
-         ]
+         "args": ["@klodr/gmail-mcp"]
        }
      }
    }
    ```
 
-## Troubleshooting
+   Common config locations:
+   - Claude Code CLI: `~/.claude.json`
+   - Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%\Claude\claude_desktop_config.json` (Windows)
+   - Cursor: `~/.cursor/mcp.json`
+   - Continue / Cline / Zed / etc.: see that client's MCP documentation
 
-If you encounter any issues during installation:
+   The assistant should locate the active config file rather than guess.
 
-1. OAuth Keys Issues:
-   - Verify gcp-oauth.keys.json exists in correct location
-   - Check file permissions
-   - Ensure keys contain valid web or installed credentials
+4. Restart (or reconnect) the MCP client so the new server is picked up.
 
-2. Authentication Errors:
-   - Confirm Gmail API is enabled
-   - For web applications, verify redirect URI configuration
-   - Check port 3000 is available during authentication
+## Verifying
 
-3. Configuration Issues:
-   - Verify ~/.gmail-mcp directory exists and has correct permissions
-   - Check credentials.json was created after authentication
-   - Ensure Claude Desktop configuration is properly formatted
+After reconnection, the assistant should observe a `gmail` server in the
+client's MCP server list, exposing only the tools allowed by the granted
+scope. A trivial smoke test (e.g. `list_email_labels` if `gmail.readonly`
+is granted, or a `--dry-run` send if available) confirms end-to-end OAuth
+works.
 
-## Security Notes
+## Things the assistant should NOT do
 
-- Store OAuth credentials securely in ~/.gmail-mcp/
-- Never commit credentials to version control
-- Use proper file permissions for config directory
-- Regularly review access in Google Account settings
-- Credentials are only accessible by current user
-
-## Usage Examples
-
-After installation, you can perform various Gmail operations:
-
-### Send Email
-```json
-{
-  "to": ["recipient@example.com"],
-  "subject": "Meeting Tomorrow",
-  "body": "Hi,\n\nJust a reminder about our meeting tomorrow at 10 AM.\n\nBest regards",
-  "cc": ["cc@example.com"],
-  "bcc": ["bcc@example.com"]
-}
-```
-
-### Search Emails
-```json
-{
-  "query": "from:sender@example.com after:2024/01/01",
-  "maxResults": 10
-}
-```
-
-### Manage Email
-- Read emails by ID
-- Move emails between labels
-- Mark emails as read/unread
-- Delete emails
-- List emails in different folders
-
-For more details or support, please check the GitHub repository or file an issue.
+- Never request scopes the user didn't ask for. Default to the smallest
+  scope that satisfies the stated task.
+- Never execute `send_email` / `delete_email` / `batch_delete_emails` / any
+  destructive tool without explicit human confirmation in the chat — even
+  if a previous message authorised "the install".
+- Never copy `gcp-oauth.keys.json` or `credentials.json` outside
+  `~/.gmail-mcp/` — these contain a refresh token that gives full Gmail
+  access.
+- Never paste tokens, codes, or credential file contents back into the
+  chat (they end up in conversation transcripts).
