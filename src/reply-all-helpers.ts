@@ -14,23 +14,23 @@
  * @returns Array of extracted email addresses
  */
 export function parseEmailAddresses(headerValue: string): string[] {
-    if (!headerValue) return [];
+  if (!headerValue) return [];
 
-    const emails: string[] = [];
-    const parts = headerValue.split(',');
+  const emails: string[] = [];
+  const parts = headerValue.split(",");
 
-    for (const part of parts) {
-        const trimmed = part.trim();
-        // Extract email from "Name <email>" format
-        const match = trimmed.match(/<([^>]+)>/);
-        if (match) {
-            emails.push(match[1].trim());
-        } else if (trimmed.includes('@')) {
-            emails.push(trimmed);
-        }
+  for (const part of parts) {
+    const trimmed = part.trim();
+    // Extract email from "Name <email>" format
+    const match = trimmed.match(/<([^>]+)>/);
+    if (match) {
+      emails.push(match[1].trim());
+    } else if (trimmed.includes("@")) {
+      emails.push(trimmed);
     }
+  }
 
-    return emails;
+  return emails;
 }
 
 /**
@@ -42,8 +42,8 @@ export function parseEmailAddresses(headerValue: string): string[] {
  * @returns Filtered array excluding the user's email
  */
 export function filterOutEmail(emails: string[], myEmail: string): string[] {
-    const myEmailLower = myEmail.toLowerCase();
-    return emails.filter(email => email.toLowerCase() !== myEmailLower);
+  const myEmailLower = myEmail.toLowerCase();
+  return emails.filter((email) => email.toLowerCase() !== myEmailLower);
 }
 
 /**
@@ -54,10 +54,10 @@ export function filterOutEmail(emails: string[], myEmail: string): string[] {
  * @returns Subject with "Re: " prefix
  */
 export function addRePrefix(subject: string): string {
-    if (subject.toLowerCase().startsWith('re:')) {
-        return subject;
-    }
-    return `Re: ${subject}`;
+  if (subject.toLowerCase().startsWith("re:")) {
+    return subject;
+  }
+  return `Re: ${subject}`;
 }
 
 /**
@@ -68,11 +68,14 @@ export function addRePrefix(subject: string): string {
  * @param originalMessageId - The Message-ID of the original email
  * @returns Combined References header value
  */
-export function buildReferencesHeader(originalReferences: string, originalMessageId: string): string {
-    if (!originalMessageId) {
-        return originalReferences;
-    }
-    return originalReferences ? `${originalReferences} ${originalMessageId}` : originalMessageId;
+export function buildReferencesHeader(
+  originalReferences: string,
+  originalMessageId: string,
+): string {
+  if (!originalMessageId) {
+    return originalReferences;
+  }
+  return originalReferences ? `${originalReferences} ${originalMessageId}` : originalMessageId;
 }
 
 /**
@@ -89,23 +92,23 @@ export function buildReferencesHeader(originalReferences: string, originalMessag
  * @returns Object with 'to' and 'cc' arrays
  */
 export function buildReplyAllRecipients(
-    originalFrom: string,
-    originalTo: string,
-    originalCc: string,
-    myEmail: string
+  originalFrom: string,
+  originalTo: string,
+  originalCc: string,
+  myEmail: string,
 ): { to: string[]; cc: string[] } {
-    const fromEmails = parseEmailAddresses(originalFrom);
-    const toEmails = parseEmailAddresses(originalTo);
-    const ccEmails = parseEmailAddresses(originalCc);
+  const fromEmails = parseEmailAddresses(originalFrom);
+  const toEmails = parseEmailAddresses(originalTo);
+  const ccEmails = parseEmailAddresses(originalCc);
 
-    // TO recipients: original From (the person who sent the email), excluding myself
-    const replyTo = filterOutEmail(fromEmails, myEmail);
+  // TO recipients: original From (the person who sent the email), excluding myself
+  const replyTo = filterOutEmail(fromEmails, myEmail);
 
-    // CC recipients: everyone else who was on To and CC, excluding myself
-    const replyCc = filterOutEmail([...toEmails, ...ccEmails], myEmail);
+  // CC recipients: everyone else who was on To and CC, excluding myself
+  const replyCc = filterOutEmail([...toEmails, ...ccEmails], myEmail);
 
-    return {
-        to: replyTo,
-        cc: replyCc
-    };
+  return {
+    to: replyTo,
+    cc: replyCc,
+  };
 }

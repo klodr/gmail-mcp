@@ -1,0 +1,31 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.5%
+        # Project coverage shouldn't drop more than 0.5% in any single PR.
+        if_no_uploads: success
+        if_not_found: success
+        # PRs that don't touch source code (CI bumps, doc-only, GitHub
+        # Actions updates) produce no coverage upload — pass instead of
+        # blocking on a missing report.
+    patch:
+      default:
+        target: 95%
+        threshold: 1.5%
+        if_no_uploads: success
+        if_not_found: success
+        # Strict patch gate (95% target, 1.5% threshold) — new code must
+        # be ≥93.5% covered. The 1.5% threshold (vs an absolute 95%
+        # requirement) exists for two narrow exceptions, not a blanket
+        # relaxation:
+        # - Defensive code paths (e.g. TOCTOU re-checks, OS-level error
+        #   branches) are intentionally hard to exercise in unit tests.
+        # - Pure-formatting PRs (Prettier reflows, ESLint cleanups)
+        #   surface as "new" lines but add no logic to test.
+
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_changes: false

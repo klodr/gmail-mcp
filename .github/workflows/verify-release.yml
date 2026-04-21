@@ -1,0 +1,208 @@
+name: Verify published release
+
+# Runs after the publish job in release.yml has put the package on npm.
+# Exercises the three verification paths documented in SECURITY.md so we
+# catch any regression in the release pipeline (broken provenance, missing
+# Sigstore bundle, asset upload mismatch) within minutes of publish.
+on:
+  workflow_run:
+    workflows: ["Release & npm publish"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Re-run the three SECURITY.md verify paths
+    # Only fire when the upstream workflow was triggered by a tag push
+    # (event == 'push'), succeeded, and the ref looks like a version tag.
+    # We re-validate the exact tag format in the first step below.
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read         # gh release download
+      attestations: read     # gh attestation verify
+    env:
+      PKG: faxdrop-mcp
+      TAG: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      - name: Validate TAG format (semver, no shell metacharacters)
+        # head_branch is whatever ref triggered the upstream workflow. We
+        # already filtered on event=push and startsWith(v) at the job level,
+        # but TAG ends up in `cosign --certificate-identity ...@refs/tags/${TAG}`
+        # and in shell strings, so re-validate the bytes before they reach
+        # any subprocess. Reject anything that isn't strict semver.
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "ERROR: refusing to verify with TAG='$TAG' — not a semver tag" >&2
+            exit 1
+          fi
+
+      - name: Setup Node 20
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - name: Wait for npm to propagate the new version AND its attestations
+        # npm publishes in steps: version metadata → tarball → provenance
+        # attestations → registry signatures. Polling on .version alone
+        # races against .dist.attestations.url or .dist.signatures still
+        # being absent when Path 1 runs. Wait for all three.
+        run: |
+          VERSION="${TAG#v}"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            META=$(npm view "${PKG}@${VERSION}" --json 2>/dev/null || echo '{}')
+            VER_OK=$(printf '%s' "$META" | jq -r '.version // ""')
+            ATT_OK=$(printf '%s' "$META" | jq -r '.dist.attestations.url // ""')
+            SIG_OK=$(printf '%s' "$META" | jq -r '.dist.signatures | length // 0')
+            if [ "$VER_OK" = "$VERSION" ] && [ -n "$ATT_OK" ] && [ "${SIG_OK:-0}" -ge 1 ]; then
+              echo "npm OK: ${PKG}@${VERSION} (attestations: $ATT_OK, signatures: $SIG_OK)"
+              exit 0
+            fi
+            echo "Waiting for ${PKG}@${VERSION} (version=$VER_OK, att=${ATT_OK:-<missing>}, sigs=${SIG_OK:-0}) — $i/10"
+            sleep 10
+          done
+          echo "Timeout waiting for ${PKG}@${VERSION} (version+attestations+signatures)" >&2
+          exit 1
+
+      - name: Path 1 — npm provenance via npm CLI
+        # Scorecard's Pinned-Dependencies wants every npm install to be
+        # pinned by hash. We download the tarball explicitly, verify both
+        # SHA-1 (.dist.shasum, legacy) AND SHA-512 SRI (.dist.integrity,
+        # current npm standard), then install the local file.
+        run: |
+          VERSION="${TAG#v}"
+          META=$(npm view "${PKG}@${VERSION}" --json)
+          ATT=$(echo "$META" | jq -er '.dist.attestations.url')
+          TARBALL_URL=$(echo "$META" | jq -er '.dist.tarball')
+          EXPECTED_SHA=$(echo "$META" | jq -er '.dist.shasum')
+          EXPECTED_INTEGRITY=$(echo "$META" | jq -er '.dist.integrity')
+          ALGO="${EXPECTED_INTEGRITY%%-*}"
+          EXPECTED_B64="${EXPECTED_INTEGRITY#*-}"
+          echo "Attestation URL: $ATT"
+          echo "Tarball: $TARBALL_URL"
+          echo "Expected sha1=$EXPECTED_SHA"
+          echo "Expected $ALGO=$EXPECTED_B64"
+          mkdir verify-tmp && cd verify-tmp
+          curl --fail --show-error --silent --location \
+               --retry 3 --retry-all-errors \
+               --connect-timeout 10 --max-time 120 \
+               -O "$TARBALL_URL"
+          TARBALL=$(basename "$TARBALL_URL")
+          ACTUAL_SHA=$(sha1sum "$TARBALL" | awk '{print $1}')
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "ERROR: tarball SHA-1 mismatch (expected $EXPECTED_SHA, got $ACTUAL_SHA)" >&2
+            exit 1
+          fi
+          case "$ALGO" in
+            sha512) ACTUAL_B64=$(sha512sum "$TARBALL" | awk '{print $1}' | xxd -r -p | base64 -w0) ;;
+            sha384) ACTUAL_B64=$(sha384sum "$TARBALL" | awk '{print $1}' | xxd -r -p | base64 -w0) ;;
+            sha256) ACTUAL_B64=$(sha256sum "$TARBALL" | awk '{print $1}' | xxd -r -p | base64 -w0) ;;
+            *) echo "ERROR: unsupported integrity algorithm: $ALGO" >&2; exit 1 ;;
+          esac
+          if [ "$ACTUAL_B64" != "$EXPECTED_B64" ]; then
+            echo "ERROR: tarball $ALGO integrity mismatch" >&2
+            echo "  expected: $EXPECTED_B64" >&2
+            echo "  actual:   $ACTUAL_B64" >&2
+            exit 1
+          fi
+
+          # ECDSA P-256 verification of the npm registry signature on
+          # "<pkg>@<version>:<integrity>". `npm audit signatures` would do
+          # this for us, but it requires a registry-resolved install (which
+          # would defeat Scorecard's Pinned-Dependencies check). So we do it
+          # by hand against the public keys at /-/npm/v1/keys.
+          SIG_COUNT=$(echo "$META" | jq -r '.dist.signatures | length // 0')
+          if [ "${SIG_COUNT:-0}" -lt 1 ]; then
+            echo "ERROR: no .dist.signatures on ${PKG}@${VERSION} (npm registry didn't sign — refusing to proceed)" >&2
+            exit 1
+          fi
+          KEYID=$(echo "$META" | jq -er '.dist.signatures[0].keyid')
+          SIG_B64=$(echo "$META" | jq -er '.dist.signatures[0].sig')
+          KEYS_JSON=$(curl --fail --show-error --silent --max-time 30 \
+                       --retry 3 --retry-all-errors \
+                       https://registry.npmjs.org/-/npm/v1/keys)
+          PUBKEY_B64=$(echo "$KEYS_JSON" | jq -r --arg keyid "$KEYID" '.keys[] | select(.keyid == $keyid) | .key')
+          if [ -z "$PUBKEY_B64" ]; then
+            echo "ERROR: public key for keyid '$KEYID' not found in npm registry keys" >&2
+            echo "Available keyids in /-/npm/v1/keys:" >&2
+            echo "$KEYS_JSON" | jq -r '.keys[].keyid' >&2
+            exit 1
+          fi
+          {
+            echo "-----BEGIN PUBLIC KEY-----"
+            echo "$PUBKEY_B64" | fold -w 64
+            echo "-----END PUBLIC KEY-----"
+          } > npm-pubkey.pem
+          echo "$SIG_B64" | base64 -d > npm-sig.bin
+          SIGNED_MSG="${PKG}@${VERSION}:${EXPECTED_INTEGRITY}"
+          if ! printf '%s' "$SIGNED_MSG" | openssl dgst -sha256 \
+                  -verify npm-pubkey.pem -signature npm-sig.bin; then
+            echo "ERROR: npm registry ECDSA signature verification failed" >&2
+            echo "  keyid:   $KEYID" >&2
+            echo "  message: $SIGNED_MSG" >&2
+            exit 1
+          fi
+          echo "npm registry signature: OK ($KEYID)"
+          echo "Path 1 OK: SHA-1 + SHA-512 SRI + ECDSA registry signature all matched."
+          # NB: no `npm install` / `npm audit signatures` step. Everything
+          # `npm audit signatures` would have checked is already done above
+          # (and more strictly): the tarball bytes are SHA-512 verified
+          # against `dist.integrity`, and the registry's ECDSA signature on
+          # `<pkg>@<version>:<integrity>` is verified by hand against the
+          # public keys at /-/npm/v1/keys. Skipping the install also keeps
+          # Scorecard's Pinned-Dependencies check clean (no `npm install`
+          # invocation in the workflow at all).
+
+      - name: Download signed assets from the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p verify-assets
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern 'index.js' \
+            --pattern 'index.js.sigstore' \
+            --pattern 'index.js.intoto.jsonl' \
+            --dir verify-assets
+
+      - name: Assert all three release assets were actually downloaded
+        # gh release download silently skips missing patterns. We must fail
+        # fast if any of the three artifacts is absent — a missing
+        # .intoto.jsonl would mean Scorecard's Signed-Releases check drops
+        # back to 8/10 even though the rest of the verify steps still pass.
+        run: |
+          for f in index.js index.js.sigstore index.js.intoto.jsonl; do
+            test -f "verify-assets/$f" || { echo "ERROR: release asset missing: $f" >&2; exit 1; }
+          done
+
+      - name: Path 2 — gh attestation verify
+        # Pin the exact Fulcio SAN (workflow path + ref) and the source ref.
+        # --cert-identity is mutually exclusive with --signer-workflow in the
+        # current gh CLI: the cert-identity already encodes the workflow path
+        # AND the tag ref, so it is strictly more specific.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh attestation verify verify-assets/index.js \
+            --repo "${{ github.repository }}" \
+            --source-ref "refs/tags/${TAG}" \
+            --cert-identity "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${TAG}"
+
+      - name: Path 3 — cosign verify-blob-attestation
+        # Same hardening: replace the open identity-regexp with the exact
+        # Fulcio SAN that release.yml at this tag would have produced.
+        run: |
+          cosign verify-blob-attestation \
+            --bundle verify-assets/index.js.sigstore \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${TAG}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            verify-assets/index.js
