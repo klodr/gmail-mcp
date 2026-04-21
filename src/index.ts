@@ -53,6 +53,7 @@ interface EmailContent {
 
 // OAuth2 configuration
 let oauth2Client: OAuth2Client;
+let oauthCallbackUrl: string;
 let authorizedScopes: string[] = DEFAULT_SCOPES;
 
 /**
@@ -159,18 +160,21 @@ async function loadCredentials() {
             process.exit(1);
         }
 
-        // Parse callback URL from args (must be a URL, not a flag)
-        // Supports: node index.js auth https://example.com/callback
+        // Parse callback URL from args (must be a URL, not a flag).
+        // Only loopback callbacks are supported (hostname must resolve to
+        // localhost / 127.0.0.1 / ::1); non-loopback targets would require
+        // an externally reachable endpoint, which this flow does not set up.
+        // Supports: node index.js auth http://localhost:8080/oauth2callback
         // Or: node index.js auth --scopes=gmail.readonly (uses default callback)
         const callbackArg = process.argv.find(arg =>
             arg.startsWith('http://') || arg.startsWith('https://')
         );
-        const callback = callbackArg || "http://localhost:3000/oauth2callback";
+        oauthCallbackUrl = callbackArg || 'http://localhost:3000/oauth2callback';
 
         oauth2Client = new OAuth2Client(
             keys.client_id,
             keys.client_secret,
-            callback
+            oauthCallbackUrl
         );
 
         if (fs.existsSync(CREDENTIALS_PATH)) {
@@ -198,8 +202,31 @@ async function loadCredentials() {
 }
 
 async function authenticate(scopes: string[]) {
+    const parsed = new URL(oauthCallbackUrl);
+    const hostname = parsed.hostname;
+    const isLoopback =
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1';
+
+    if (!isLoopback) {
+        throw new Error(
+            `Callback hostname '${hostname}' is not loopback. ` +
+            `Only http://localhost / 127.0.0.1 / [::1] are supported by the built-in ` +
+            `auth flow. Either (a) rerun 'auth' without a positional callback URL, ` +
+            `or (b) point your Web OAuth client at a loopback URL.`
+        );
+    }
+
+    const port = parsed.port
+        ? Number(parsed.port)
+        : parsed.protocol === 'https:'
+            ? 443
+            : 80;
+    const callbackPath = parsed.pathname || '/oauth2callback';
+
     const server = http.createServer();
-    server.listen(3000, '127.0.0.1');
+    server.listen(port, hostname);
 
     // Convert shorthand scope names (e.g., "gmail.readonly") to full Google API URLs
     const scopeUrls = scopeNamesToUrls(scopes);
@@ -215,9 +242,9 @@ async function authenticate(scopes: string[]) {
         open(authUrl);
 
         server.on('request', async (req, res) => {
-            if (!req.url?.startsWith('/oauth2callback')) return;
+            if (!req.url?.startsWith(callbackPath)) return;
 
-            const url = new URL(req.url, 'http://localhost:3000');
+            const url = new URL(req.url, `http://${hostname}:${port}`);
             const code = url.searchParams.get('code');
 
             if (!code) {
