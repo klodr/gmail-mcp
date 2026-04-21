@@ -1,5 +1,8 @@
 # Gmail AutoAuth MCP Server (Actively Maintained Fork)
 
+> [!WARNING]
+> **This repository has not been independently security-reviewed and is not recommended for production use in its current state.** A security audit is in progress. Use at your own risk.
+
 [![CI](https://github.com/ArtyMcLabin/Gmail-MCP-Server/actions/workflows/ci.yml/badge.svg)](https://github.com/ArtyMcLabin/Gmail-MCP-Server/actions/workflows/ci.yml)
 
 > **This is an actively maintained fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server).**
