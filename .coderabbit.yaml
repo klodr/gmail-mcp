@@ -23,7 +23,7 @@ reviews:
 
   auto_title_instructions: |
     Use conventional commit format: type(scope): description.
-    Types: feat, fix, docs, ci, chore, refactor, test, perf.
+    Types: feat, fix, docs, ci, chore, refactor, test, perf, build, style, revert.
     Keep under 72 chars.
 
   high_level_summary_instructions: |
@@ -80,7 +80,12 @@ reviews:
       instructions: |
         Main entry point with OAuth flow and tool handlers.
         Verify savePath / filePath inputs are validated before fs operations.
-        Stdout must stay clean (JSON-RPC only — use console.error for logs).
+        Once the StdioServerTransport is connected (search for
+        `new StdioServerTransport()`), stdout is reserved for JSON-RPC
+        framing — any code path reached after that point must use
+        `console.error` (or a MCP log notification), never `console.log`.
+        OAuth setup paths (run before transport connect) may use
+        `console.log` freely.
 
 chat:
   auto_reply: true
