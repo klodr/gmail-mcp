@@ -1,0 +1,39 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    # Keep @types/node pinned on the 20.x line so its type surface
+    # tracks engines.node (>=20.11). A semver-major bump would declare
+    # APIs the runtime doesn't guarantee. Reopen only when we move the
+    # engines floor to a newer LTS.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      types:
+        patterns:
+          - "@types/*"
+      dev-dependencies:
+        dependency-type: "development"
+      production-dependencies:
+        dependency-type: "production"
+    commit-message:
+      # No `include: "scope"` — it would duplicate the type in the
+      # prefix ("deps(deps): …" / "deps-dev(deps-dev): …") since we
+      # already encode prod vs dev in `prefix` / `prefix-development`.
+      prefix: "deps"
+      prefix-development: "deps-dev"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
