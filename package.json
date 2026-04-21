@@ -61,7 +61,7 @@
   "devDependencies": {
     "@types/mime-types": "^2.1.4",
     "@types/node": "^20.10.5",
-    "@types/nodemailer": "^6.4.17",
+    "@types/nodemailer": "^8.0.0",
     "mcp-evals": "^1.0.18",
     "typescript": "^5.3.3",
     "vitest": "^4.0.18"
