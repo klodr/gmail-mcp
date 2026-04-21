@@ -18,6 +18,7 @@ import {
   createEmailWithNodemailer,
   resolveDownloadSavePath,
   getDownloadDir,
+  safeWriteFile,
   resetAttachmentDirCache,
   resetDownloadDirCache,
 } from './utl.js';
@@ -166,8 +167,33 @@ describe('Download path jail', () => {
     expect(mode).toBe(0o700);
   });
 
-  it('getDownloadDir creates the default dir when GMAIL_MCP_DOWNLOAD_DIR is unset', () => {
-    // Point at a fresh subdir that does not exist yet
+  it('safeWriteFile refuses to follow a pre-existing symlink at the leaf (O_NOFOLLOW)', () => {
+    const outsideFile = path.join(outsideDir, 'target.txt');
+    fs.writeFileSync(outsideFile, 'original');
+    // Plant a symlink inside the jail pointing out — simulates a
+    // race where an attacker pre-creates the target filename as a
+    // symlink to a sensitive file (e.g. ~/.ssh/id_rsa). Without
+    // O_NOFOLLOW, fs.writeFileSync() would follow the link and
+    // truncate-overwrite the outside target.
+    const evilLeaf = path.join(jailDir, 'innocent-looking.pdf');
+    fs.symlinkSync(outsideFile, evilLeaf);
+    expect(() => safeWriteFile(evilLeaf, Buffer.from('attacker payload'))).toThrow();
+    // The outside target must remain untouched (symlink was not followed)
+    expect(fs.readFileSync(outsideFile, 'utf-8')).toBe('original');
+  });
+
+  it('safeWriteFile creates a new file with mode 0o600 inside the jail', () => {
+    const fullPath = path.join(jailDir, 'fresh.txt');
+    safeWriteFile(fullPath, 'hello');
+    expect(fs.readFileSync(fullPath, 'utf-8')).toBe('hello');
+    expect(fs.statSync(fullPath).mode & 0o777).toBe(0o600);
+  });
+
+  it('getDownloadDir materialises the configured dir (0o700) on first access', () => {
+    // Override GMAIL_MCP_DOWNLOAD_DIR to a fresh subdir that does not
+    // exist yet. On first getDownloadDir() call the helper must create
+    // it and apply mode 0o700 — mirroring the cold-start behaviour a
+    // user would see immediately after setting the env var.
     const fresh = path.join(jailDir, 'first-boot');
     process.env.GMAIL_MCP_DOWNLOAD_DIR = fresh;
     resetDownloadDirCache();
