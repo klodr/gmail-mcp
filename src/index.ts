@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import open from 'open';
 import os from 'os';
-import {createEmailMessage, createEmailWithNodemailer, resolveDownloadSavePath, getDownloadDir} from "./utl.js";
+import {createEmailMessage, createEmailWithNodemailer, resolveDownloadSavePath, getDownloadDir, safeWriteFile} from "./utl.js";
 import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 import { createFilter, listFilters, getFilter, deleteFilter, filterTemplates, GmailFilterCriteria, GmailFilterAction } from "./filter-manager.js";
 import { parseEmailAddresses, filterOutEmail, addRePrefix, buildReferencesHeader, buildReplyAllRecipients } from "./reply-all-helpers.js";
@@ -645,10 +645,14 @@ async function main() {
                             }
                         }
 
-                        // Write file
+                        // Write file via safeWriteFile (O_NOFOLLOW on the
+                        // leaf) so a pre-existing symlink at `fullPath`
+                        // cannot be used to escape the jail that
+                        // resolveDownloadSavePath already verified for
+                        // the parent directory.
                         const filename = `${messageId}.${format}`;
                         const fullPath = path.join(savePath, filename);
-                        fs.writeFileSync(fullPath, content, "utf-8");
+                        safeWriteFile(fullPath, content);
                         const stats = fs.statSync(fullPath);
 
                         // Return metadata with attachments
@@ -1148,12 +1152,15 @@ async function main() {
 
                         // savePath is already realpath-resolved inside the
                         // download jail by resolveDownloadSavePath above.
-                        // Defense-in-depth: re-check the final path.
+                        // Defense-in-depth: re-check the final path, then
+                        // use safeWriteFile (O_NOFOLLOW on the leaf) so a
+                        // pre-existing symlink at `fullPath` cannot be
+                        // used to escape the jail.
                         const fullPath = path.resolve(savePath, filename);
                         if (!fullPath.startsWith(savePath + path.sep) && fullPath !== savePath) {
                             throw new Error('Invalid filename: path traversal detected');
                         }
-                        fs.writeFileSync(fullPath, buffer);
+                        safeWriteFile(fullPath, buffer);
 
                         return {
                             content: [

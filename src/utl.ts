@@ -65,6 +65,38 @@ export function resetDownloadDirCache(): void {
 }
 
 /**
+ * Write a file without following symlinks on the final component.
+ *
+ * The caller is expected to have validated that `dirPath` (the parent
+ * of `fullPath`) already resolves inside the download jail — typically
+ * by passing it through resolveDownloadSavePath first. This helper
+ * closes the remaining attack window: if `fullPath` itself pre-exists
+ * as a symlink pointing outside the jail, a naive fs.writeFileSync()
+ * would follow it and write outside. O_NOFOLLOW on the leaf makes the
+ * open fail with ELOOP instead.
+ *
+ * Mode 0o600 on create. Overwrites existing regular files by design
+ * (re-downloads of the same attachment should be idempotent).
+ */
+export function safeWriteFile(fullPath: string, content: string | Buffer): void {
+    const flags =
+        fs.constants.O_WRONLY |
+        fs.constants.O_CREAT |
+        fs.constants.O_TRUNC |
+        fs.constants.O_NOFOLLOW;
+    const fd = fs.openSync(fullPath, flags, 0o600);
+    try {
+        if (typeof content === 'string') {
+            fs.writeSync(fd, content, 0, 'utf-8');
+        } else {
+            fs.writeSync(fd, content);
+        }
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+/**
  * Validate and canonicalize a user-supplied savePath for downloads.
  * Creates the directory (mode 0o700) if it does not exist yet, then
  * enforces that it resolves inside the download jail. Returns the
@@ -109,7 +141,17 @@ export function resolveDownloadSavePath(savePath: string): string {
     if (!fs.existsSync(resolvedTarget)) {
         fs.mkdirSync(resolvedTarget, { recursive: true, mode: 0o700 });
     }
-    return fs.realpathSync(resolvedTarget);
+    // Re-realpath after mkdir. If a missing component was swapped to a
+    // symlink in the window between the pre-check and the mkdir, the
+    // leaf would now live outside the jail — catch that here.
+    const finalPath = fs.realpathSync(resolvedTarget);
+    if (finalPath !== jail && !finalPath.startsWith(jail + path.sep)) {
+        throw new Error(
+            `savePath resolved outside the allowed download directory after mkdir. ` +
+            `Got: ${finalPath} (resolved from ${savePath}). Allowed: ${jail}.`,
+        );
+    }
+    return finalPath;
 }
 
 /**
@@ -276,11 +318,19 @@ export async function createEmailWithNodemailer(validatedArgs: any): Promise<str
     for (const filePath of validatedArgs.attachments) {
         assertAttachmentPathAllowed(filePath);
 
+        // Resolve to realpath right after validation and push the
+        // resolved path to nodemailer. Closes a TOCTOU where a
+        // validated symlink could be repointed at a secret file
+        // between assertAttachmentPathAllowed() and the actual
+        // transporter.sendMail() read. nodemailer reads `path` at
+        // send time, so locking in the real target here bounds the
+        // race window to validation-against-itself.
+        const resolvedPath = fs.realpathSync(filePath);
         const fileName = path.basename(filePath);
 
         attachments.push({
             filename: fileName,
-            path: filePath
+            path: resolvedPath,
         });
     }
 
