@@ -34,7 +34,11 @@ import {
   deleteFilter,
   filterTemplates,
 } from "./filter-manager.js";
-import { addRePrefix, buildReferencesHeader, buildReplyAllRecipients } from "./reply-all-helpers.js";
+import {
+  addRePrefix,
+  buildReferencesHeader,
+  buildReplyAllRecipients,
+} from "./reply-all-helpers.js";
 import {
   DEFAULT_SCOPES,
   scopeNamesToUrls,
@@ -236,11 +240,7 @@ function loadCredentials() {
     );
     oauthCallbackUrl = callbackArg || "http://localhost:3000/oauth2callback";
 
-    oauth2Client = new OAuth2Client(
-      keys.client_id,
-      keys.client_secret,
-      oauthCallbackUrl,
-    );
+    oauth2Client = new OAuth2Client(keys.client_id, keys.client_secret, oauthCallbackUrl);
 
     if (fs.existsSync(CREDENTIALS_PATH)) {
       const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, "utf8"));
@@ -269,10 +269,7 @@ function loadCredentials() {
 async function authenticate(scopes: string[]) {
   const parsed = new URL(oauthCallbackUrl);
   const hostname = parsed.hostname;
-  const isLoopback =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1";
+  const isLoopback = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 
   if (!isLoopback) {
     throw new Error(
@@ -283,11 +280,7 @@ async function authenticate(scopes: string[]) {
     );
   }
 
-  const port = parsed.port
-    ? Number(parsed.port)
-    : parsed.protocol === "https:"
-      ? 443
-      : 80;
+  const port = parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80;
   const callbackPath = parsed.pathname || "/oauth2callback";
 
   const server = http.createServer();

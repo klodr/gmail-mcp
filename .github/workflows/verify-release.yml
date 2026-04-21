@@ -24,8 +24,8 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     permissions:
-      contents: read         # gh release download
-      attestations: read     # gh attestation verify
+      contents: read # gh release download
+      attestations: read # gh attestation verify
     env:
       PKG: faxdrop-mcp
       TAG: ${{ github.event.workflow_run.head_branch }}

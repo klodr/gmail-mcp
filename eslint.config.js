@@ -32,7 +32,7 @@ export default tseslint.config(
     },
     rules: {
       // High-value additions over `recommendedTypeChecked`:
-      "eqeqeq": ["error", "always"],
+      eqeqeq: ["error", "always"],
       "no-console": ["warn", { allow: ["error", "warn"] }],
       // The recommendedTypeChecked preset already enables:
       // - @typescript-eslint/no-floating-promises

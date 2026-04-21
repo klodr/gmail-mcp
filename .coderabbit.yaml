@@ -5,12 +5,12 @@ language: en-US
 early_access: false
 
 reviews:
-  profile: assertive          # stricter feedback (vs "chill")
+  profile: assertive # stricter feedback (vs "chill")
   request_changes_workflow: true
   high_level_summary: true
   high_level_summary_in_walkthrough: true
-  poem: false                 # no decorative poetry
-  in_progress_fortune: false  # no fortune-cookie message during reviews
+  poem: false # no decorative poetry
+  in_progress_fortune: false # no fortune-cookie message during reviews
   review_status: true
   collapse_walkthrough: true
   changed_files_summary: true
@@ -90,4 +90,4 @@ reviews:
 
 chat:
   auto_reply: true
-  art: false                  # no ASCII/emoji art in chat responses
+  art: false # no ASCII/emoji art in chat responses

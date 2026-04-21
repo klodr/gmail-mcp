@@ -6,7 +6,7 @@ name: Release & npm publish
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 # Default workflow permissions: read-only. The publish job below escalates
@@ -45,9 +45,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write       # upload signed artifacts to the GitHub Release
-      id-token: write       # npm provenance + Sigstore keyless signing
-      attestations: write   # actions/attest-build-provenance writes to the attestation API
+      contents: write # upload signed artifacts to the GitHub Release
+      id-token: write # npm provenance + Sigstore keyless signing
+      attestations: write # actions/attest-build-provenance writes to the attestation API
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
