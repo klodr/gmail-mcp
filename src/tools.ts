@@ -150,9 +150,15 @@ export const ListInboxThreadsSchema = z.object({
 
 export const GetInboxWithThreadsSchema = z.object({
   query: z.string().optional().default('in:inbox').describe("Gmail search query (default: 'in:inbox')"),
-  maxResults: z.number().int().min(1).max(100).optional().default(50).describe("Maximum number of threads to return (1-100, default 50). Capped at 100 because expandThreads fetches full bodies."),
+  maxResults: z.number().int().min(1).max(500).optional().default(50).describe("Maximum number of threads to return. Up to 500 when expandThreads=false (lightweight summary); capped at 100 when expandThreads=true because each thread triggers a full-body fetch."),
   expandThreads: z.boolean().optional().default(true).describe("Whether to fetch full thread content for each thread (default: true)"),
-});
+}).refine(
+  (args) => !args.expandThreads || args.maxResults <= 100,
+  {
+    message: "maxResults cannot exceed 100 when expandThreads is true (body fetches). Set expandThreads=false to request up to 500.",
+    path: ["maxResults"],
+  },
+);
 
 // Reply All schema - fetches original email and builds recipient list automatically
 export const ReplyAllSchema = z.object({

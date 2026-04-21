@@ -78,20 +78,38 @@ export function resolveDownloadSavePath(savePath: string): string {
             `or set GMAIL_MCP_DOWNLOAD_DIR to change the allowed root.`,
         );
     }
-    if (!fs.existsSync(savePath)) {
-        fs.mkdirSync(savePath, { recursive: true, mode: 0o700 });
-    }
-    const resolved = fs.realpathSync(savePath);
+    // Validate containment BEFORE creating the directory. Otherwise a
+    // path like /etc/rogue would be materialised on disk with mode
+    // 0o700, then rejected — we'd fail with a side effect. Walk up to
+    // the first ancestor that exists, realpath it (blocks symlink
+    // escapes on an existing parent), then confirm the full resolved
+    // path sits inside the jail before any mkdirSync.
     const jail = getDownloadDir();
-    if (resolved !== jail && !resolved.startsWith(jail + path.sep)) {
+    const resolvedTarget = path.resolve(savePath);
+    let probe = resolvedTarget;
+    while (!fs.existsSync(probe) && path.dirname(probe) !== probe) {
+        probe = path.dirname(probe);
+    }
+    const probeReal = fs.realpathSync(probe);
+    // Diff computed against the *original* (non-realpathed) probe so
+    // the "still-missing leaf" portion is preserved verbatim. On macOS
+    // /var/folders/... is a symlink to /private/var/folders/..., so
+    // computing `relative(probeReal, resolvedTarget)` would produce
+    // `../../../var/folders/...` and falsely escape the jail.
+    const relative = path.relative(probe, resolvedTarget);
+    const effectivePath = relative === "" ? probeReal : path.resolve(probeReal, relative);
+    if (effectivePath !== jail && !effectivePath.startsWith(jail + path.sep)) {
         throw new Error(
             `savePath is outside the allowed download directory. ` +
-            `Got: ${resolved} (resolved from ${savePath}). ` +
+            `Got: ${effectivePath} (resolved from ${savePath}). ` +
             `Allowed: ${jail}. ` +
             `Override with GMAIL_MCP_DOWNLOAD_DIR=/abs/path if you need a different jail.`,
         );
     }
-    return resolved;
+    if (!fs.existsSync(resolvedTarget)) {
+        fs.mkdirSync(resolvedTarget, { recursive: true, mode: 0o700 });
+    }
+    return fs.realpathSync(resolvedTarget);
 }
 
 /**

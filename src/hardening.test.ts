@@ -210,8 +210,26 @@ describe('Zod schema bounds', () => {
     expect(() => ListInboxThreadsSchema.parse({ maxResults: 501 })).toThrow();
   });
 
-  it('GetInboxWithThreadsSchema caps maxResults at 100 (bodies are heavy)', () => {
+  it('GetInboxWithThreadsSchema caps maxResults at 100 when expandThreads is true', () => {
+    // Default expandThreads=true
     expect(() => GetInboxWithThreadsSchema.parse({ maxResults: 101 })).toThrow();
     expect(() => GetInboxWithThreadsSchema.parse({ maxResults: 100 })).not.toThrow();
+    // Explicit expandThreads=true
+    expect(() =>
+      GetInboxWithThreadsSchema.parse({ maxResults: 101, expandThreads: true }),
+    ).toThrow();
+  });
+
+  it('GetInboxWithThreadsSchema allows maxResults up to 500 when expandThreads is false', () => {
+    expect(() =>
+      GetInboxWithThreadsSchema.parse({ maxResults: 500, expandThreads: false }),
+    ).not.toThrow();
+    expect(() =>
+      GetInboxWithThreadsSchema.parse({ maxResults: 501, expandThreads: false }),
+    ).toThrow();
+    // Summary-path can exceed the expanded cap
+    expect(() =>
+      GetInboxWithThreadsSchema.parse({ maxResults: 200, expandThreads: false }),
+    ).not.toThrow();
   });
 });

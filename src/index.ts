@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import open from 'open';
 import os from 'os';
-import {createEmailMessage, createEmailWithNodemailer, resolveDownloadSavePath} from "./utl.js";
+import {createEmailMessage, createEmailWithNodemailer, resolveDownloadSavePath, getDownloadDir} from "./utl.js";
 import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel, GmailLabel } from "./label-manager.js";
 import { createFilter, listFilters, getFilter, deleteFilter, filterTemplates, GmailFilterCriteria, GmailFilterAction } from "./filter-manager.js";
 import { parseEmailAddresses, filterOutEmail, addRePrefix, buildReferencesHeader, buildReplyAllRecipients } from "./reply-all-helpers.js";
@@ -1106,8 +1106,15 @@ async function main() {
                         // the MCP server's working directory, which could be
                         // anywhere — including directories containing the
                         // user's source code or config files.
+                        //
+                        // Fall back to the *configured* jail root via
+                        // getDownloadDir(), not a hardcoded ~/GmailDownloads
+                        // — otherwise when the user sets GMAIL_MCP_DOWNLOAD_DIR
+                        // to a custom path, the hardcoded default would be
+                        // rejected by resolveDownloadSavePath() and the tool
+                        // would break whenever savePath is omitted.
                         const savePath = resolveDownloadSavePath(
-                            validatedArgs.savePath ?? path.join(os.homedir(), 'GmailDownloads'),
+                            validatedArgs.savePath ?? getDownloadDir(),
                         );
                         let filename = validatedArgs.filename;
 
