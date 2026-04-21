@@ -60,3 +60,12 @@ cosign verify-blob-attestation \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   index.js
 ```
+
+## Software Bill of Materials (SBOM)
+
+Every GitHub Release also ships two SBOMs generated from the install-time dependency tree by `anchore/sbom-action` (syft under the hood):
+
+- `sbom.spdx.json` — SPDX 2.3 JSON
+- `sbom.cdx.json` — CycloneDX 1.6 JSON
+
+Pick whichever format your scanner speaks. Download with `gh release download v<version> --repo klodr/gmail-mcp --pattern 'sbom.*'` and feed into `grype`, `trivy`, `dependency-track`, or any SPDX/CDX-aware tooling. The SBOMs cover the same commit as the Sigstore-attested `dist/index.js` they accompany.
