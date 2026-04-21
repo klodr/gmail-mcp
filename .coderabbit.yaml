@@ -1,0 +1,75 @@
+# CodeRabbit configuration
+# Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive          # stricter feedback (vs "chill")
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false                 # no decorative poetry
+  review_status: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: true
+  abort_on_close: true
+
+  auto_title_instructions: |
+    Use conventional commit format: type(scope): description.
+    Types: feat, fix, docs, ci, chore, refactor, test, perf.
+    Keep under 72 chars.
+
+  high_level_summary_instructions: |
+    Concise bullet-point list of user-facing changes.
+    Focus on security, OAuth scopes, and tool behavior.
+    Skip internal refactors.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+    base_branches:
+      - main
+
+  pre_merge_checks:
+    docstrings:
+      # The codebase deliberately keeps comments to non-obvious WHY only.
+      # MCP tool descriptions live in Zod .describe() calls, not JSDoc.
+      mode: off
+
+  path_instructions:
+    - path: "src/tools.ts"
+      instructions: |
+        MCP tool registry and Zod schemas. Verify:
+        - Zod schemas enforce bounds (maxResults, batchSize have .max())
+        - File-path inputs (attachments, savePath) are constrained
+        - Tool `scopes` field matches the Gmail API scope actually required
+        - destructiveHint / readOnlyHint annotations reflect real behavior
+    - path: "src/scopes.ts"
+      instructions: |
+        OAuth scope mapping. Flag any change that:
+        - Widens the default scope list (DEFAULT_SCOPES)
+        - Loosens scope validation
+        - Breaks shorthand↔URL round-trip
+    - path: "src/utl.ts"
+      instructions: |
+        Security-sensitive email construction.
+        Flag any regression on CRLF sanitization, attachment path validation,
+        or cryptographic boundary generation.
+    - path: "src/index.ts"
+      instructions: |
+        Main entry point with OAuth flow and tool handlers.
+        Verify savePath / filePath inputs are validated before fs operations.
+        Stdout must stay clean (JSON-RPC only — use console.error for logs).
+
+chat:
+  auto_reply: true
