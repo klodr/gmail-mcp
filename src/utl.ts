@@ -2,7 +2,6 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { randomBytes } from "crypto";
-import { lookup as mimeLookup } from "mime-types";
 import nodemailer from "nodemailer";
 
 // Env-var names for the two jails. Hoisted to constants so a future

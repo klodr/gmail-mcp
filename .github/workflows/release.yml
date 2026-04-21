@@ -90,7 +90,7 @@ jobs:
             echo "$NOTES"
             echo ""
             echo "**Full changelog:** https://github.com/${{ github.repository }}/blob/${TAG}/CHANGELOG.md"
-            echo "**npm:** https://www.npmjs.com/package/faxdrop-mcp/v/${VERSION}"
+            echo "**npm:** https://www.npmjs.com/package/@klodr/gmail-mcp/v/${VERSION}"
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
 
