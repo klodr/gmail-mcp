@@ -12,6 +12,18 @@ import { asGmailApiError } from "./gmail-errors.js";
 export type GmailLabel = gmail_v1.Schema$Label;
 
 /**
+ * Dedicated sentinel so the TOCTOU recovery in getOrCreateLabel can
+ * detect a racing duplicate without keying off the user-facing message
+ * text of a wrapped Error (which would break silently on a copy change).
+ */
+export class DuplicateLabelError extends Error {
+  constructor(labelName: string, options?: { cause?: unknown }) {
+    super(`Label "${labelName}" already exists. Please use a different name.`, options);
+    this.name = "DuplicateLabelError";
+  }
+}
+
+/**
  * Creates a new Gmail label
  * @param gmail - Gmail API instance
  * @param labelName - Name of the label to create
@@ -55,9 +67,7 @@ export async function createLabel(
       (error.code === 400 && messageIndicatesDuplicate) ||
       (error.code === undefined && messageIndicatesDuplicate);
     if (isDuplicate) {
-      throw new Error(`Label "${labelName}" already exists. Please use a different name.`, {
-        cause: err,
-      });
+      throw new DuplicateLabelError(labelName, { cause: err });
     }
 
     throw new Error(`Failed to create label: ${error.message}`, { cause: err });
@@ -81,12 +91,10 @@ export async function updateLabel(
   },
 ) {
   try {
-    // Verify the label exists before updating
-    await gmail.users.labels.get({
-      userId: "me",
-      id: labelId,
-    });
-
+    // Skip the preflight `labels.get()` — labels.update() is the source of
+    // truth. The preflight added an extra Gmail round-trip without closing
+    // any race (the label can still vanish between the get and the update),
+    // and the 404 path in the catch already surfaces the missing-label case.
     const response = await gmail.users.labels.update({
       userId: "me",
       id: labelId,
@@ -233,15 +241,18 @@ export async function getOrCreateLabel(
     // If not found, create a new one. There is an inherent TOCTOU
     // window between the findLabelByName() above and this create:
     // another caller (or another agent session) can win the race and
-    // create the same label first, which makes createLabel throw
-    // "Label already exists". Recover by re-scanning and returning
+    // create the same label first, which makes createLabel throw a
+    // DuplicateLabelError. Recover by re-scanning and returning
     // whatever landed — honours the "get or create" contract under
     // concurrency rather than surfacing the duplicate error.
+    //
+    // Detecting the race via the sentinel class (not a substring match
+    // on the user-facing message) keeps the recovery robust against
+    // future copy changes in createLabel's error message.
     try {
       return await createLabel(gmail, labelName, options);
     } catch (createErr: unknown) {
-      const createMsg = createErr instanceof Error ? createErr.message : String(createErr);
-      if (createMsg.includes("already exists")) {
+      if (createErr instanceof DuplicateLabelError) {
         const racedLabel = await findLabelByName(gmail, labelName);
         if (racedLabel) return racedLabel;
       }
