@@ -141,7 +141,7 @@ describe("download_email formats", () => {
 
     it("throws when no HTML content available", () => {
       expect(() => emailToHtml({ text: "plain only", html: "" })).toThrow(
-        "This email has no HTML content"
+        "This email has no HTML content",
       );
     });
   });
@@ -179,9 +179,7 @@ describe("download_email scope filtering", () => {
 
   it("works with full URL scope format", () => {
     const tool = getToolByName("download_email")!;
-    expect(
-      hasScope(["https://www.googleapis.com/auth/gmail.readonly"], tool.scopes)
-    ).toBe(true);
+    expect(hasScope(["https://www.googleapis.com/auth/gmail.readonly"], tool.scopes)).toBe(true);
   });
 });
 
@@ -225,20 +223,16 @@ describe("DownloadEmailSchema", () => {
         messageId: "msg123",
         savePath: "/tmp",
         format: "xml",
-      })
+      }),
     ).toThrow();
   });
 
   it("requires messageId", () => {
-    expect(() =>
-      DownloadEmailSchema.parse({ savePath: "/tmp" })
-    ).toThrow();
+    expect(() => DownloadEmailSchema.parse({ savePath: "/tmp" })).toThrow();
   });
 
   it("requires savePath", () => {
-    expect(() =>
-      DownloadEmailSchema.parse({ messageId: "msg123" })
-    ).toThrow();
+    expect(() => DownloadEmailSchema.parse({ messageId: "msg123" })).toThrow();
   });
 });
 
@@ -256,12 +250,14 @@ describe("extractHeaders refactor - source verification", () => {
 
   it("read_email uses extractHeaders (not inline header extraction)", () => {
     // The read_email case should use destructured extractHeaders call
-    expect(indexSource).toContain("const { subject, from, to, date, rfcMessageId } = extractHeaders(");
+    expect(indexSource).toContain(
+      "const { subject, from, to, date, rfcMessageId } = extractHeaders(",
+    );
   });
 
   it("download_email uses extractHeaders", () => {
     // download_email should also use extractHeaders
-    expect(indexSource).toContain('const { subject, from, date } = extractHeaders(');
+    expect(indexSource).toContain("const { subject, from, date } = extractHeaders(");
   });
 
   it("read_email still outputs Message-ID in response", () => {

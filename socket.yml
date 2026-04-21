@@ -1,0 +1,38 @@
+# Socket.dev configuration for @klodr/gmail-mcp
+# https://docs.socket.dev/docs/socket-yml-reference
+#
+# Each rule below is intentionally configured. The "false" entries silence
+# alerts that are intrinsic to what this MCP does and are documented.
+# High-value supply-chain alerts (unstableOwnership, unmaintained,
+# manifestConfusion) are NOT suppressed globally — suppress those
+# per-package with `@SocketSecurity ignore <name>@<version>` comments
+# on the relevant PR if a specific transitive dep generates a false
+# positive.
+
+version: 2
+
+projectIgnorePaths:
+  - "test/**"
+  - "scripts/**"
+  - "examples/**"
+  - "dist/**"
+
+githubApp:
+  enabled: true
+  pullRequestAlertsEnabled: true
+  secretAlertsEnabled: true
+
+issueRules:
+  # Silence the alerts that are intrinsic to what this MCP does (read env,
+  # read local files, call Gmail API, hardcode a small list of Google
+  # endpoint URLs). Each is intentional and documented in README.md
+  # (Configuration / Security sections) and SECURITY.md.
+  envVars: false
+  filesystemAccess: false
+  networkAccess: false
+  urlStrings: false
+  hasIPProxy: false
+
+  # gptDidYouMean fires on fuzzy package-name matches and is noisy on MCP
+  # naming (e.g. "@modelcontextprotocol" near other SDK names).
+  gptDidYouMean: false

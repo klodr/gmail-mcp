@@ -7,7 +7,7 @@ client that can launch a stdio child process can use this server.
 
 ## Prerequisites the assistant should verify
 
-1. **Node.js ≥ 18** is installed (`node --version`).
+1. **Node.js ≥ 20.11** is installed (`node --version`).
 2. **npx** is on `PATH` (ships with Node).
 3. The user has — or is willing to create — a Google Cloud project with the
    Gmail API enabled and an OAuth client credential file
@@ -15,12 +15,21 @@ client that can launch a stdio child process can use this server.
 
 ## Setup steps
 
-1. Place the OAuth keys file at `~/.gmail-mcp/gcp-oauth.keys.json`:
+1. Place the OAuth keys file at `~/.gmail-mcp/gcp-oauth.keys.json`,
+   forcing owner-only permissions on both the directory and the file:
 
    ```bash
    mkdir -p ~/.gmail-mcp
+   chmod 700 ~/.gmail-mcp
    mv /path/to/downloaded/gcp-oauth.keys.json ~/.gmail-mcp/
+   chmod 600 ~/.gmail-mcp/gcp-oauth.keys.json
    ```
+
+   The explicit `chmod 700` step is load-bearing: `mkdir -p -m 700`
+   only applies the mode when **creating** a new directory. If
+   `~/.gmail-mcp` already exists with a more permissive mode (e.g.
+   `755` from an earlier install), `mkdir -p` silently succeeds
+   without tightening it — the extra `chmod 700` forces owner-only.
 
 2. Run the OAuth flow with the **minimal scope** required for the user's
    stated use case (do not over-request):

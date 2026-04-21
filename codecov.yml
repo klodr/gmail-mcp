@@ -1,0 +1,35 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.5%
+        # Project coverage shouldn't drop more than 0.5% in any single PR.
+        # if_no_uploads / if_not_found default to "failure" so a broken
+        # upload step (vitest crash, Codecov outage, missing token) is
+        # visible instead of silently turning the gate into a no-op.
+        only_pulls: false
+    patch:
+      default:
+        target: 95%
+        threshold: 1.5%
+        only_pulls: false
+        # New code must be ≥93.5% covered (95% target − 1.5% threshold).
+        # The threshold covers two exceptions: defensive paths (TOCTOU
+        # re-checks, OS-level error branches) hard to exercise in unit
+        # tests, and pure-formatting PRs that add no logic to test.
+  ignore:
+    # Doc-only / config-only PRs never touch these paths, so Codecov
+    # has no reason to demand coverage for them even though their file
+    # trees live under the repository root.
+    - "**/*.md"
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/*.json"
+    - ".github/**"
+    - "scripts/**"
+
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_changes: false
