@@ -53,14 +53,17 @@ export async function createLabel(
     return response.data;
   } catch (err: unknown) {
     const error = asGmailApiError(err);
-    // Prefer HTTP-status detection of the duplicate: Gmail returns 409
-    // Conflict (and occasionally 400 Bad Request) for an existing name.
-    // Fall back to the message substring only if the status is missing,
-    // which can happen on network-layer errors.
+    // Duplicate-label detection: Gmail API returns HTTP 409 Conflict
+    // unambiguously for an existing name, so that's a Met-signal on
+    // its own. 400 Bad Request is generic (also fires on invalid
+    // names, missing fields, etc.) — require a corroborating message
+    // match. For network-layer errors with no status at all, fall
+    // back to message matching alone.
+    const messageIndicatesDuplicate = error.message.includes("already exists");
     const isDuplicate =
       error.code === 409 ||
-      error.code === 400 ||
-      (error.code === undefined && error.message.includes("already exists"));
+      (error.code === 400 && messageIndicatesDuplicate) ||
+      (error.code === undefined && messageIndicatesDuplicate);
     if (isDuplicate) {
       throw new Error(`Label "${labelName}" already exists. Please use a different name.`, {
         cause: err,
@@ -117,6 +120,15 @@ export async function updateLabel(
  * @param labelId - ID of the label to delete
  * @returns Success message
  */
+// Sentinel so the generic catch can tell our own pre-flight rejection
+// apart from a Gaxios error and re-throw the specific message unchanged.
+class SystemLabelProtectionError extends Error {
+  constructor(labelId: string) {
+    super(`Cannot delete system label with ID "${labelId}".`);
+    this.name = "SystemLabelProtectionError";
+  }
+}
+
 export async function deleteLabel(gmail: gmail_v1.Gmail, labelId: string) {
   try {
     // Ensure we're not trying to delete system labels
@@ -126,7 +138,7 @@ export async function deleteLabel(gmail: gmail_v1.Gmail, labelId: string) {
     });
 
     if (label.data.type === "system") {
-      throw new Error(`Cannot delete system label with ID "${labelId}".`);
+      throw new SystemLabelProtectionError(labelId);
     }
 
     await gmail.users.labels.delete({
@@ -136,6 +148,10 @@ export async function deleteLabel(gmail: gmail_v1.Gmail, labelId: string) {
 
     return { success: true, message: `Label "${label.data.name}" deleted successfully.` };
   } catch (err: unknown) {
+    // Let our own system-label rejection bubble up with its specific
+    // message intact instead of being swallowed by the generic catch.
+    if (err instanceof SystemLabelProtectionError) throw err;
+
     const error = asGmailApiError(err);
     if (error.code === 404) {
       throw new Error(`Label with ID "${labelId}" not found.`, { cause: err });
@@ -224,8 +240,23 @@ export async function getOrCreateLabel(
       return existingLabel;
     }
 
-    // If not found, create a new one
-    return await createLabel(gmail, labelName, options);
+    // If not found, create a new one. There is an inherent TOCTOU
+    // window between the findLabelByName() above and this create:
+    // another caller (or another agent session) can win the race and
+    // create the same label first, which makes createLabel throw
+    // "Label already exists". Recover by re-scanning and returning
+    // whatever landed — honours the "get or create" contract under
+    // concurrency rather than surfacing the duplicate error.
+    try {
+      return await createLabel(gmail, labelName, options);
+    } catch (createErr: unknown) {
+      const createMsg = createErr instanceof Error ? createErr.message : String(createErr);
+      if (createMsg.includes("already exists")) {
+        const racedLabel = await findLabelByName(gmail, labelName);
+        if (racedLabel) return racedLabel;
+      }
+      throw createErr;
+    }
   } catch (err: unknown) {
     const error = asGmailApiError(err);
     throw new Error(`Failed to get or create label: ${error.message}`, { cause: err });
