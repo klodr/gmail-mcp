@@ -8,11 +8,14 @@
     "gmail-mcp": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "start": "node dist/index.js",
     "auth": "node dist/index.js auth",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "eslint src",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
@@ -59,11 +62,18 @@
     "zod-to-json-schema": "^3.22.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/mime-types": "^2.1.4",
     "@types/node": "^20.19.39",
     "@types/nodemailer": "^6.4.17",
+    "@vitest/coverage-v8": "^4.1.4",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
     "mcp-evals": "^1.0.18",
+    "prettier": "^3.8.3",
+    "tsup": "^8.5.1",
     "typescript": "^5.3.3",
+    "typescript-eslint": "^8.58.2",
     "vitest": "^4.0.18"
   }
 }

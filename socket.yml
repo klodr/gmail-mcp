@@ -1,0 +1,38 @@
+# Socket.dev configuration for faxdrop-mcp
+# https://docs.socket.dev/docs/socket-yml-reference
+#
+# Each rule below is intentionally configured. The "true" entries flag
+# legitimate behaviour we accept and document; the "false" entries silence
+# alerts that fire on transitive deps we do not control.
+
+version: 2
+
+projectIgnorePaths:
+  - "test/**"
+  - "scripts/**"
+  - "examples/**"
+  - "dist/**"
+
+githubApp:
+  enabled: true
+  pullRequestAlertsEnabled: true
+  secretAlertsEnabled: true
+
+issueRules:
+  # Silence the alerts that are intrinsic to what this MCP does (read env,
+  # read local files, call the FaxDrop API, hardcode a small list of
+  # FaxDrop URLs). Each is intentional and documented in README.md
+  # (Configuration / Security sections).
+  envVars: false
+  filesystemAccess: false
+  networkAccess: false
+  urlStrings: false
+  hasIPProxy: false
+
+  # Silence noise from transitive deps via @modelcontextprotocol/sdk → express.
+  # Not actionable from this package. Tracked upstream:
+  #   https://github.com/modelcontextprotocol/typescript-sdk/issues/1924
+  gptDidYouMean: false
+  unstableOwnership: false
+  unmaintained: false
+  manifestConfusion: false
