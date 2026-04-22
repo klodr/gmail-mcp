@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
+// Gmail API IDs (messageId, threadId, labelId, attachmentId) are base64url
+// strings. Bounding them (non-empty, ≤ 256 chars, base64url charset) stops
+// a prompt-injected agent from forging megabyte-sized IDs that would burn
+// a round-trip and then leak their prefix through batch error logs.
+const GmailIdSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
 // Schema definitions
 export const SendEmailSchema = z.object({
   to: z.array(z.string()).describe("List of recipient email addresses"),
@@ -22,13 +32,21 @@ export const SendEmailSchema = z.object({
     .describe("Email content type"),
   cc: z.array(z.string()).optional().describe("List of CC recipients"),
   bcc: z.array(z.string()).optional().describe("List of BCC recipients"),
-  threadId: z.string().optional().describe("Thread ID to reply to"),
-  inReplyTo: z.string().optional().describe("Message ID being replied to"),
+  threadId: GmailIdSchema.optional().describe("Thread ID to reply to"),
+  // inReplyTo is an RFC 5322 Message-ID (e.g. `<abc@host>`), not a
+  // Gmail API ID — different charset, kept out of GmailIdSchema. Bound
+  // the length at the RFC's line limit (998 chars) to block unbounded
+  // z.string() DoS without constraining the legitimate form.
+  inReplyTo: z
+    .string()
+    .max(998)
+    .optional()
+    .describe("RFC 5322 Message-ID being replied to (e.g. <abc@host>, max 998 chars)"),
   attachments: z.array(z.string()).optional().describe("List of file paths to attach to the email"),
 });
 
 export const ReadEmailSchema = z.object({
-  messageId: z.string().describe("ID of the email message to retrieve"),
+  messageId: GmailIdSchema.describe("ID of the email message to retrieve"),
 });
 
 export const SearchEmailsSchema = z.object({
@@ -43,17 +61,20 @@ export const SearchEmailsSchema = z.object({
 });
 
 export const ModifyEmailSchema = z.object({
-  messageId: z.string().describe("ID of the email message to modify"),
-  labelIds: z.array(z.string()).optional().describe("List of label IDs to apply"),
-  addLabelIds: z.array(z.string()).optional().describe("List of label IDs to add to the message"),
+  messageId: GmailIdSchema.describe("ID of the email message to modify"),
+  labelIds: z.array(GmailIdSchema).optional().describe("List of label IDs to apply"),
+  addLabelIds: z
+    .array(GmailIdSchema)
+    .optional()
+    .describe("List of label IDs to add to the message"),
   removeLabelIds: z
-    .array(z.string())
+    .array(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from the message"),
 });
 
 export const DeleteEmailSchema = z.object({
-  messageId: z.string().describe("ID of the email message to delete"),
+  messageId: GmailIdSchema.describe("ID of the email message to delete"),
 });
 
 export const ListEmailLabelsSchema = z.object({}).describe("Retrieves all available Gmail labels");
@@ -74,7 +95,7 @@ export const CreateLabelSchema = z
 
 export const UpdateLabelSchema = z
   .object({
-    id: z.string().describe("ID of the label to update"),
+    id: GmailIdSchema.describe("ID of the label to update"),
     name: z.string().optional().describe("New name for the label"),
     messageListVisibility: z
       .enum(["show", "hide"])
@@ -89,7 +110,7 @@ export const UpdateLabelSchema = z
 
 export const DeleteLabelSchema = z
   .object({
-    id: z.string().describe("ID of the label to delete"),
+    id: GmailIdSchema.describe("ID of the label to delete"),
   })
   .describe("Deletes a Gmail label");
 
@@ -109,12 +130,15 @@ export const GetOrCreateLabelSchema = z
 
 export const BatchModifyEmailsSchema = z.object({
   messageIds: z
-    .array(z.string())
+    .array(GmailIdSchema)
     .max(1000)
     .describe("List of message IDs to modify (max 1000 per call)"),
-  addLabelIds: z.array(z.string()).optional().describe("List of label IDs to add to all messages"),
+  addLabelIds: z
+    .array(GmailIdSchema)
+    .optional()
+    .describe("List of label IDs to add to all messages"),
   removeLabelIds: z
-    .array(z.string())
+    .array(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from all messages"),
   batchSize: z
@@ -129,7 +153,7 @@ export const BatchModifyEmailsSchema = z.object({
 
 export const BatchDeleteEmailsSchema = z.object({
   messageIds: z
-    .array(z.string())
+    .array(GmailIdSchema)
     .max(1000)
     .describe("List of message IDs to delete (max 1000 per call)"),
   batchSize: z
@@ -162,9 +186,12 @@ export const CreateFilterSchema = z
       .describe("Criteria for matching emails"),
     action: z
       .object({
-        addLabelIds: z.array(z.string()).optional().describe("Label IDs to add to matching emails"),
+        addLabelIds: z
+          .array(GmailIdSchema)
+          .optional()
+          .describe("Label IDs to add to matching emails"),
         removeLabelIds: z
-          .array(z.string())
+          .array(GmailIdSchema)
           .optional()
           .describe("Label IDs to remove from matching emails"),
         forward: z.string().optional().describe("Email address to forward matching emails to"),
@@ -177,13 +204,13 @@ export const ListFiltersSchema = z.object({}).describe("Retrieves all Gmail filt
 
 export const GetFilterSchema = z
   .object({
-    filterId: z.string().describe("ID of the filter to retrieve"),
+    filterId: GmailIdSchema.describe("ID of the filter to retrieve"),
   })
   .describe("Gets details of a specific Gmail filter");
 
 export const DeleteFilterSchema = z
   .object({
-    filterId: z.string().describe("ID of the filter to delete"),
+    filterId: GmailIdSchema.describe("ID of the filter to delete"),
   })
   .describe("Deletes a Gmail filter");
 
@@ -215,7 +242,7 @@ export const CreateFilterFromTemplateSchema = z
           .number()
           .optional()
           .describe("Size threshold in bytes (for largeEmails template)"),
-        labelIds: z.array(z.string()).optional().describe("Label IDs to apply"),
+        labelIds: z.array(GmailIdSchema).optional().describe("Label IDs to apply"),
         archive: z.boolean().optional().describe("Whether to archive (skip inbox)"),
         markAsRead: z.boolean().optional().describe("Whether to mark as read"),
         markImportant: z.boolean().optional().describe("Whether to mark as important"),
@@ -225,8 +252,8 @@ export const CreateFilterFromTemplateSchema = z
   .describe("Creates a filter using a pre-defined template");
 
 export const DownloadAttachmentSchema = z.object({
-  messageId: z.string().describe("ID of the email message containing the attachment"),
-  attachmentId: z.string().describe("ID of the attachment to download"),
+  messageId: GmailIdSchema.describe("ID of the email message containing the attachment"),
+  attachmentId: GmailIdSchema.describe("ID of the attachment to download"),
   filename: z
     .string()
     .optional()
@@ -238,7 +265,7 @@ export const DownloadAttachmentSchema = z.object({
 });
 
 export const DownloadEmailSchema = z.object({
-  messageId: z.string().describe("ID of the email message to download"),
+  messageId: GmailIdSchema.describe("ID of the email message to download"),
   savePath: z.string().describe("Directory path to save the email file"),
   format: z
     .enum(["json", "eml", "txt", "html"])
@@ -250,20 +277,20 @@ export const DownloadEmailSchema = z.object({
 });
 
 export const ModifyThreadSchema = z.object({
-  threadId: z.string().describe("ID of the Gmail thread to modify"),
+  threadId: GmailIdSchema.describe("ID of the Gmail thread to modify"),
   addLabelIds: z
-    .array(z.string())
+    .array(GmailIdSchema)
     .optional()
     .describe("List of label IDs to add to all messages in the thread"),
   removeLabelIds: z
-    .array(z.string())
+    .array(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from all messages in the thread"),
 });
 
 // Thread-level schemas
 export const GetThreadSchema = z.object({
-  threadId: z.string().describe("ID of the email thread to retrieve"),
+  threadId: GmailIdSchema.describe("ID of the email thread to retrieve"),
   format: z
     .enum(["full", "metadata", "minimal"])
     .optional()
@@ -318,7 +345,7 @@ export const GetInboxWithThreadsSchema = z
 
 // Reply All schema - fetches original email and builds recipient list automatically
 export const ReplyAllSchema = z.object({
-  messageId: z.string().describe("ID of the email message to reply to"),
+  messageId: GmailIdSchema.describe("ID of the email message to reply to"),
   body: z
     .string()
     .describe("Reply body content (used for text/plain or when htmlBody not provided)"),

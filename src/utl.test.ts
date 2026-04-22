@@ -72,7 +72,14 @@ describe("Email threading headers", () => {
 describe("Source verification", () => {
   it("createEmailWithNodemailer uses references field with inReplyTo fallback", () => {
     const source = fs.readFileSync(path.join(srcDir, "utl.ts"), "utf-8");
-    expect(source).toContain("references: validatedArgs.references || validatedArgs.inReplyTo");
+    // Guard both the fallback expression AND that the resulting
+    // header value is passed through sanitizeHeaderValue — otherwise
+    // a refactor that drops the sanitize call silently reopens the
+    // CRLF-injection vector on the attachment path.
+    expect(source).toContain("validatedArgs.references || validatedArgs.inReplyTo");
+    expect(source).toMatch(
+      /sanitizeHeaderValue\(\s*(?:ref|validatedArgs\.references\s*\|\|\s*validatedArgs\.inReplyTo)/,
+    );
   });
 
   it("handleEmailAction auto-resolves threading headers", () => {

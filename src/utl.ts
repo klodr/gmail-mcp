@@ -89,32 +89,61 @@ function assertInsideJail(
  * would follow it and write outside. O_NOFOLLOW on the leaf makes the
  * open fail with ELOOP instead.
  *
- * Mode 0o600 on create. Overwrites existing regular files by design
- * (re-downloads of the same attachment should be idempotent).
+ * Mode 0o600 on create. Uses O_EXCL so a pre-existing regular file is
+ * never silently overwritten — that would let a prompt-injected agent
+ * clobber a user file that happens to share a name with an incoming
+ * Gmail attachment or export (e.g. `./report.pdf`). If `onCollision:
+ * "suffix"` is set, the name is suffixed ` (1)`, ` (2)`, … until a free
+ * slot is found (max 100 attempts, then throws). Returns the actual
+ * path written, so callers can report it back accurately.
  */
-export function safeWriteFile(fullPath: string, content: string | Buffer): void {
+export function safeWriteFile(
+  fullPath: string,
+  content: string | Buffer,
+  options: { onCollision?: "error" | "suffix" } = {},
+): string {
+  const onCollision = options.onCollision ?? "error";
   const flags =
-    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW;
-  const fd = fs.openSync(fullPath, flags, 0o600);
-  try {
-    // fs.writeSync returns the byte count actually written, which may be
-    // less than the buffer length on short writes (large payloads, slow
-    // storage). Loop until the whole buffer has been flushed or a zero
-    // write signals we cannot make progress.
-    const buffer = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
-    let offset = 0;
-    while (offset < buffer.length) {
-      const written = fs.writeSync(fd, buffer, offset, buffer.length - offset);
-      if (written === 0) {
-        throw new Error(
-          `safeWriteFile: zero-byte write at offset ${offset}/${buffer.length} for ${fullPath}`,
-        );
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
+  const buffer = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
+
+  const ext = path.extname(fullPath);
+  const base = fullPath.slice(0, fullPath.length - ext.length);
+  let target = fullPath;
+
+  for (let attempt = 0; attempt < 100; attempt++) {
+    let fd: number;
+    try {
+      fd = fs.openSync(target, flags, 0o600);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EEXIST" && onCollision === "suffix") {
+        target = `${base} (${attempt + 1})${ext}`;
+        continue;
       }
-      offset += written;
+      throw err;
     }
-  } finally {
-    fs.closeSync(fd);
+    try {
+      // fs.writeSync returns the byte count actually written, which may
+      // be less than the buffer length on short writes (large payloads,
+      // slow storage). Loop until the whole buffer has been flushed or
+      // a zero write signals we cannot make progress.
+      let offset = 0;
+      while (offset < buffer.length) {
+        const written = fs.writeSync(fd, buffer, offset, buffer.length - offset);
+        if (written === 0) {
+          throw new Error(
+            `safeWriteFile: zero-byte write at offset ${offset}/${buffer.length} for ${target}`,
+          );
+        }
+        offset += written;
+      }
+      return target;
+    } finally {
+      fs.closeSync(fd);
+    }
   }
+  throw new Error(`safeWriteFile: too many collisions for ${fullPath} (100 attempts)`);
 }
 
 /**
@@ -367,17 +396,25 @@ export async function createEmailWithNodemailer(
     });
   }
 
+  // Belt-and-suspenders: nodemailer itself strips CRLF from header values
+  // since CVE-2019-19947, but we don't want to externalise that guarantee.
+  // Sanitize every user-supplied header value here so the invariant is
+  // enforced in-tree and covered by the same test matrix as the
+  // attachment-less path (createEmailMessage).
   const mailOptions = {
-    from: validatedArgs.from || "me", // Gmail API uses default send-as if 'me', or specified alias
-    to: validatedArgs.to.join(", "),
-    cc: validatedArgs.cc?.join(", "),
-    bcc: validatedArgs.bcc?.join(", "),
-    subject: validatedArgs.subject,
+    from: sanitizeHeaderValue(validatedArgs.from || "me"),
+    to: validatedArgs.to.map(sanitizeHeaderValue).join(", "),
+    cc: validatedArgs.cc?.map(sanitizeHeaderValue).join(", "),
+    bcc: validatedArgs.bcc?.map(sanitizeHeaderValue).join(", "),
+    subject: sanitizeHeaderValue(validatedArgs.subject),
     text: validatedArgs.body,
     html: validatedArgs.htmlBody,
     attachments: attachments,
-    inReplyTo: validatedArgs.inReplyTo,
-    references: validatedArgs.references || validatedArgs.inReplyTo,
+    inReplyTo: validatedArgs.inReplyTo ? sanitizeHeaderValue(validatedArgs.inReplyTo) : undefined,
+    references: (() => {
+      const ref = validatedArgs.references || validatedArgs.inReplyTo;
+      return ref ? sanitizeHeaderValue(ref) : undefined;
+    })(),
   };
 
   // Generate the raw message. `info.message` is typed as `any` in

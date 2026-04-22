@@ -2,8 +2,8 @@
 
 ## Status
 
-> [!WARNING]
-> This repository has **not yet** been independently security-reviewed end-to-end. The hardening layer described below is being rolled out through a series of PRs (see the `feat/security-hardening` branch and `feat(security):` commit history). Use at your own risk until the audit lands.
+> [!NOTE]
+> This repository has not yet undergone a full independent third-party security review end-to-end. The hardening layer described below has been landed incrementally (path jails with `realpath` + `O_NOFOLLOW`, CRLF sanitization on both email-assembly paths, OAuth scope filtering at startup, Zod bounds on all Gmail IDs and batch sizes, crypto MIME boundary, credentials at `0o600`, Sigstore + SLSA + SBOM-signed releases, fast-check fuzz suite) and is tested on every CI run. Against the two parent forks (GongRzhe/Gmail-MCP-Server and ArtyMcLabin's intermediate fork), `klodr/gmail-mcp` is already a meaningful step forward on prompt-injection and supply-chain posture. For mission-critical or high-sensitivity deployments, treat the server as carefully as any third-party MCP exposed to an LLM host: prefer a narrowly-scoped OAuth token, enable human-in-the-loop confirmation on write tools, and follow this repo's release notes for security-relevant updates.
 
 ## Security model — what this MCP provides
 
@@ -11,9 +11,10 @@
 - **Attachment source jail.** `send_email` / `draft_email` / `reply_all` refuse to attach any file whose realpath is not inside `GMAIL_MCP_ATTACHMENT_DIR` (default `~/GmailAttachments/`, mode `0o700`). Closes the headline prompt-injection vector: a crafted inbound email instructing the agent to attach `~/.ssh/id_rsa`, `~/.gmail-mcp/credentials.json`, `~/.claude.json`, or similar.
 - **Download destination jail.** `download_email` and `download_attachment` write exclusively inside `GMAIL_MCP_DOWNLOAD_DIR` (default `~/GmailDownloads/`, mode `0o700`). The leaf is opened with `O_NOFOLLOW` — a pre-existing symlink at the destination cannot be used to escape the jail. After `mkdirSync` the resolved path is re-verified against the jail root to defeat the TOCTOU window between the pre-check and the `mkdir`.
 - **Input validation (Zod).** Every tool input is validated before it reaches a Gmail client call. Bounds on `maxResults`, `batchSize`, and `messageIds` array length block resource-exhaustion prompts.
-- **CRLF header injection sanitization.** Every user-supplied RFC-822 header value (`From`, `To`, `Cc`, `Bcc`, `Subject`, `In-Reply-To`, `References`) is stripped of `\r`, `\n`, `\0` before the message is assembled.
+- **CRLF header injection sanitization.** Every user-supplied RFC-822 header value (`From`, `To`, `Cc`, `Bcc`, `Subject`, `In-Reply-To`, `References`) is stripped of `\r`, `\n`, `\0` before the message is assembled — applied on both the attachment-less path (`createEmailMessage`) and the attachment path (`createEmailWithNodemailer`) so the invariant is in-tree and covered by the same tests on both paths.
 - **Cryptographic MIME boundary.** `crypto.randomBytes(16).toString('hex')` — not `Math.random()` — so a crafted body cannot collide with the multipart boundary and inject synthetic MIME headers.
-- **Credentials at rest.** `~/.gmail-mcp/credentials.json` is written with mode `0o600`. `~/.gmail-mcp/` directory is `0o700`. The jail directories (`GmailAttachments`, `GmailDownloads`) are `0o700`.
+- **Credentials at rest.** Both `~/.gmail-mcp/credentials.json` (refresh token) and `~/.gmail-mcp/gcp-oauth.keys.json` (client_id + client_secret) are written with mode `0o600` — when the OAuth keys are copied in from the current directory, the mode is forced to `0o600` regardless of the source file's mode. `~/.gmail-mcp/` directory is `0o700`. The jail directories (`GmailAttachments`, `GmailDownloads`) are `0o700`.
+- **No silent overwrite inside the download jail.** `safeWriteFile` uses `O_CREAT | O_EXCL | O_NOFOLLOW` (not `O_TRUNC`), so a prompt-injected agent cannot clobber a user file that happens to share a name with an incoming attachment (`~/GmailDownloads/report.pdf`). On collision the filename is suffixed " (1)", " (2)", … like a browser does.
 - **Supply-chain integrity.** Every release artifact is (or will be) signed with Sigstore, ships an SLSA in-toto attestation, and carries npm provenance. All GitHub Actions in `.github/workflows/` are pinned by full commit SHA.
 - **Least-privilege CI.** `permissions:` is set per-workflow with `contents: read` at the top level; individual jobs widen only the specific scopes they need.
 
