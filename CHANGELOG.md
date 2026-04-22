@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`delete_email` / `batch_delete_emails` required scope corrected to `mail.google.com`** (upstream GongRzhe#47). The two tools were gated on `gmail.modify`, but the Google API `users.messages.delete` endpoint specifically rejects `gmail.modify` with HTTP 403 "Insufficient Permission" — only the legacy `mail.google.com` scope authorizes permanent delete (`gmail.modify` stops at moving to Trash). The bug was silently carried from upstream: the tool was advertised to LLMs but every invocation failed at Google. Users who need permanent delete now authenticate with `--scopes=mail.google.com,gmail.settings.basic` (or add `mail.google.com` to their existing scopes). Users who don't need it keep the default `gmail.modify` floor and the two delete tools are correctly filtered out of the registered tool list at startup.
+- **`SCOPE_MAP` gained `mail.google.com`** pointing to the legacy bare URL `https://mail.google.com/` (the only Google scope not served under `https://www.googleapis.com/auth/…`).
+
 ## [0.9.1] - 2026-04-22
 
 Single focus: move the whole toolchain off Node 20 ahead of its 2026-04-30 Active-LTS exit. Not a feature release — the `dist/index.js` behaviour is unchanged versus 0.9.0.

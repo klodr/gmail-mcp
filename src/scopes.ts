@@ -2,14 +2,18 @@
 //
 // Scope hierarchy (for reference):
 //   - gmail.readonly: Read-only access to emails
-//   - gmail.modify: Read AND write access (superset of readonly)
+//   - gmail.modify: Read AND write access except permanent delete
 //   - gmail.compose: Create drafts and send emails
 //   - gmail.send: Send emails only
 //   - gmail.labels: Manage labels only
 //   - gmail.settings.basic: Manage filters and settings
+//   - mail.google.com: Full access including permanent delete
 //
 // Note: gmail.modify includes all capabilities of gmail.readonly,
-// so you don't need both scopes together.
+// so you don't need both scopes together. mail.google.com is the only
+// scope that authorizes users.messages.delete / users.threads.delete
+// (purge from Trash) — gmail.modify alone returns HTTP 403
+// "Insufficient Permission" on those endpoints.
 
 // Map shorthand scope names to full Google API URLs
 export const SCOPE_MAP: Record<string, string> = {
@@ -20,6 +24,7 @@ export const SCOPE_MAP: Record<string, string> = {
   "gmail.labels": "https://www.googleapis.com/auth/gmail.labels",
   "gmail.settings.basic": "https://www.googleapis.com/auth/gmail.settings.basic",
   "gmail.settings.sharing": "https://www.googleapis.com/auth/gmail.settings.sharing",
+  "mail.google.com": "https://mail.google.com/",
 };
 
 // Reverse map for converting full URLs back to shorthand
