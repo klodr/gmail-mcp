@@ -1,0 +1,59 @@
+name: Qodo Merge (dual reviewer)
+
+# Runs two parallel AI reviews via qodo-ai/pr-agent — one with DeepSeek
+# (distinct lineage from CodeRabbit's GPT base) and one with Gemini 2.5 Pro
+# (Google US/EU residency). Both post under `qodo-ai[bot]` with a distinct
+# `[DeepSeek]` / `[Gemini]` prefix so they can be disambiguated in the UI.
+#
+# Intentional complement to CodeRabbit: triangulates findings with 3
+# independent model families (GPT, DeepSeek, Gemini) rather than re-reading
+# the same diff with the same lineage. See project_qodo_dual_reviewer_plan.md.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  # Cancel in-flight runs on push — only the latest commit's review matters.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qodo-deepseek:
+    name: Qodo review (DeepSeek)
+    runs-on: ubuntu-latest
+    # Skip drafts unless explicitly marked ready; they're noisy and the
+    # API cost isn't useful while the PR is still being drafted.
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - name: PR Agent — DeepSeek
+        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG__MODEL: deepseek/deepseek-coder
+          CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-coder"]'
+          DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # Prefix every review with [DeepSeek] so the two jobs can be
+          # told apart in the PR timeline (both post as qodo-ai[bot]).
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[DeepSeek]'."
+          PR_DESCRIPTION__EXTRA_INSTRUCTIONS: "Prefix the description header with '[DeepSeek]'."
+
+  qodo-gemini:
+    name: Qodo review (Gemini)
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - name: PR Agent — Gemini
+        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG__MODEL: gemini/gemini-2.5-pro
+          CONFIG__FALLBACK_MODELS: '["gemini/gemini-2.5-pro"]'
+          GOOGLE_AI_STUDIO__GEMINI_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[Gemini]'."
+          PR_DESCRIPTION__EXTRA_INSTRUCTIONS: "Prefix the description header with '[Gemini]'."
