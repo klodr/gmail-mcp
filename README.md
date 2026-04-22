@@ -15,7 +15,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/@klodr/gmail-mcp.svg)](https://www.npmjs.com/package/@klodr/gmail-mcp)
 [![Node.js Version](https://img.shields.io/node/v/@klodr/gmail-mcp.svg)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![MCP](https://img.shields.io/badge/MCP-1.27-blue)](https://modelcontextprotocol.io)
+[![MCP](https://img.shields.io/badge/MCP-1.29-blue)](https://modelcontextprotocol.io)
 [![MCP Server](https://badge.mcpx.dev?type=server 'MCP Server')](https://modelcontextprotocol.io)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/klodr/gmail-mcp/pulls)
 
@@ -23,8 +23,8 @@
 [![Patreon](https://img.shields.io/badge/Patreon-F96854?logo=patreon&logoColor=white)](https://www.patreon.com/klodr)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/klodr)
 
-> [!WARNING]
-> **This repository has not yet been independently security-reviewed end-to-end and is not recommended for production use in its current state.** A security audit is in progress (see `feat/security-hardening` branch and open PRs). Use at your own risk until the audit lands.
+> [!NOTE]
+> This repository has not yet undergone a full independent third-party security review end-to-end. The hardening layer (path jails with `realpath` + `O_NOFOLLOW`, CRLF sanitization on both email-assembly paths, OAuth scope filtering at startup, Zod bounds on every Gmail ID, crypto MIME boundary, credentials at `0o600`, Sigstore + SLSA + SBOM-signed releases, fast-check fuzz suite) is tested on every CI run. Against the two parent forks, `klodr/gmail-mcp` is already a meaningful step forward on prompt-injection and supply-chain posture. For mission-critical or high-sensitivity deployments, treat the server as carefully as any third-party MCP: prefer a narrowly-scoped OAuth token, enable human-in-the-loop confirmation on write tools, and track this repo's release notes for security-relevant updates. See [SECURITY.md](./SECURITY.md) for the detailed threat model.
 
 A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, Claude Code, Cursor, Continue, OpenClaw…) read and manage a Gmail account through scope-gated tools. Exposes the Gmail v1 API surface you actually need (messages, threads, labels, filters, attachments, drafts, reply-all) behind a single `npx` install.
 
@@ -59,7 +59,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Zod bounds on `maxResults` / `batchSize` / `messageIds` length | ❌ | ❌ | ✅ |
 | Cryptographic MIME boundary (`crypto.randomBytes`, not `Math.random`) | ❌ | ❌ | ✅ |
 | **MCP protocol & tool surface** | | | |
-| MCP SDK version | v1.0 (3 CVEs) | v1.27.1 | v1.27.1 |
+| MCP SDK version | v0.4.x (outdated) | v1.27.x | v1.29.x |
 | Tool annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) | ❌ | ✅ | ✅ |
 | `llms-install.md` (LLM-readable install guide) | ❌ | ❌ | ✅ |
 | **Publishing / discoverability** | | | |
@@ -67,7 +67,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | GitHub repo | [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) | [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) | [klodr/gmail-mcp](https://github.com/klodr/gmail-mcp) |
 | Active maintenance (last 30 d) | ❌ (dormant since Aug 2025) | ⚠️ sporadic | ✅ daily review cycle (CodeRabbit + human) |
 | **Supply-chain integrity** | | | |
-| Node.js floor | `>=14` (EOL) | `>=14` (EOL) | `>=20.11` |
+| Node.js floor | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=20.11` (LTS — bump to 22 tracked in [ROADMAP](./ROADMAP.md); Node 20 EOL 2026-04-30) |
 | CI: CodeQL Advanced (`javascript-typescript` + `actions`) | ❌ | ❌ | ✅ |
 | CI: OpenSSF Scorecard (weekly scan + badge) | ❌ | ❌ | ✅ |
 | CI: Socket Security supply-chain alerts | ❌ | ❌ | ✅ |
@@ -75,6 +75,11 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: Sigstore-signed `dist/index.js` + SLSA in-toto attestation | ❌ | ❌ | ✅ |
 | Release: npm provenance statement | ❌ | ❌ | ✅ |
 | Release: single-file `tsup` ESM bundle (smaller tarball, easier to verify) | ❌ (multi-file `tsc`) | ❌ (multi-file `tsc`) | ✅ |
+| **Testing** | | | |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (215 tests) |
+| Statement coverage across `src/**` | 0% | 16.14% | **39.27%** |
+| Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
+| Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
 | **CI/CD hardening** | | | |
 | Shell-injection-safe GitHub Actions workflows | ❌ | ✅ | ✅ |
 | Workflows use least-privilege `permissions:` scopes | ❌ | ✅ | ✅ |

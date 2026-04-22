@@ -14,7 +14,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createEmailMessage } from "./utl.js";
+import { createEmailMessage, createEmailWithNodemailer } from "./utl.js";
 
 // Resolve src directory
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,7 +72,14 @@ describe("Email threading headers", () => {
 describe("Source verification", () => {
   it("createEmailWithNodemailer uses references field with inReplyTo fallback", () => {
     const source = fs.readFileSync(path.join(srcDir, "utl.ts"), "utf-8");
-    expect(source).toContain("references: validatedArgs.references || validatedArgs.inReplyTo");
+    // Guard both the fallback expression AND that the resulting
+    // header value is passed through sanitizeHeaderValue — otherwise
+    // a refactor that drops the sanitize call silently reopens the
+    // CRLF-injection vector on the attachment path.
+    expect(source).toContain("validatedArgs.references || validatedArgs.inReplyTo");
+    expect(source).toMatch(
+      /sanitizeHeaderValue\(\s*(?:ref|validatedArgs\.references\s*\|\|\s*validatedArgs\.inReplyTo)/,
+    );
   });
 
   it("handleEmailAction auto-resolves threading headers", () => {
@@ -88,5 +95,51 @@ describe("Source verification", () => {
     expect(source).toContain("message-id");
     expect(source).toContain("rfcMessageId");
     expect(source).toContain("Message-ID: ${rfcMessageId}");
+  });
+});
+
+describe("createEmailMessage — content-type paths", () => {
+  it("escalates to multipart/alternative when htmlBody is present with non-plain mimeType", () => {
+    const raw = createEmailMessage({
+      to: ["test@example.com"],
+      subject: "Mixed",
+      body: "plain fallback",
+      htmlBody: "<p>hi</p>",
+      mimeType: "text/html",
+    });
+
+    expect(raw).toContain("Content-Type: multipart/alternative");
+    expect(raw).toContain("Content-Type: text/plain");
+    expect(raw).toContain("Content-Type: text/html");
+    expect(raw).toContain("plain fallback");
+    expect(raw).toContain("<p>hi</p>");
+  });
+
+  it("emits an html-only body when mimeType is text/html without htmlBody", () => {
+    // Passing htmlBody with mimeType=text/html escalates to multipart/alternative
+    // (see the escalation branch in createEmailMessage). The html-only path is
+    // reached when body itself is HTML and mimeType is explicitly text/html.
+    const raw = createEmailMessage({
+      to: ["test@example.com"],
+      subject: "Html only",
+      body: "<strong>body is html</strong>",
+      mimeType: "text/html",
+    });
+
+    expect(raw).toContain("Content-Type: text/html; charset=UTF-8");
+    expect(raw).toContain("<strong>body is html</strong>");
+    expect(raw).not.toContain("multipart/");
+  });
+});
+
+describe("createEmailWithNodemailer — recipient validation", () => {
+  it("rejects an invalid recipient address before composing", async () => {
+    await expect(
+      createEmailWithNodemailer({
+        to: ["not-an-email"],
+        subject: "x",
+        body: "x",
+      }),
+    ).rejects.toThrow(/Recipient email address is invalid/);
   });
 });

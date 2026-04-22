@@ -195,8 +195,16 @@ function loadCredentials() {
     const localOAuthPath = path.join(process.cwd(), "gcp-oauth.keys.json");
 
     if (fs.existsSync(localOAuthPath)) {
-      // If found in current directory, copy to config directory
+      // If found in current directory, copy to config directory.
+      // The CONFIG_DIR guard above skips mkdirSync when only
+      // GMAIL_CREDENTIALS_PATH is overridden — but OAUTH_PATH still
+      // defaults under ~/.gmail-mcp in that case, so without this
+      // explicit mkdir the copy would ENOENT. Also force 0o600 on
+      // the copy: copyFileSync preserves the source mode, so a 0o644
+      // `gcp-oauth.keys.json` sitting in cwd would keep that mode.
+      fs.mkdirSync(path.dirname(OAUTH_PATH), { recursive: true, mode: 0o700 });
       fs.copyFileSync(localOAuthPath, OAUTH_PATH);
+      fs.chmodSync(OAUTH_PATH, 0o600);
       console.error("OAuth keys found in current directory, copied to global config.");
     }
 
@@ -250,7 +258,13 @@ function loadCredentials() {
       }
     }
   } catch (error) {
-    console.error("Error loading credentials:", error);
+    // Log only the error message, not the full Error object — a JSON.parse
+    // failure on a partially-corrupted OAuth file carries a snippet of
+    // the faulty content (position/line pointer) that could include
+    // client_secret if the corruption landed near it. Stderr is forwarded
+    // to the MCP host's logs.
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Error loading credentials: ${msg}`);
     process.exit(1);
   }
 }
@@ -325,11 +339,17 @@ async function authenticate(scopes: string[]) {
           const { tokens } = await oauth2Client.getToken(code);
           oauth2Client.setCredentials(tokens);
 
-          // Store both tokens and authorized scopes for runtime filtering
+          // Store both tokens and authorized scopes for runtime filtering.
+          // writeFileSync's `mode` option only applies on CREATE, so an
+          // existing credentials.json with broader perms (e.g. 0o644
+          // from a prior setup) would keep those bytes after re-auth.
+          // Force 0o600 explicitly after write to match SECURITY.md.
           const credentials = { tokens, scopes };
+          fs.mkdirSync(path.dirname(CREDENTIALS_PATH), { recursive: true, mode: 0o700 });
           fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2), {
             mode: 0o600,
           });
+          fs.chmodSync(CREDENTIALS_PATH, 0o600);
 
           res.writeHead(200);
           res.end("Authentication successful! You can close this window.");
@@ -775,19 +795,21 @@ async function main() {
             }
 
             // Write file via safeWriteFile (O_NOFOLLOW on the
-            // leaf) so a pre-existing symlink at `fullPath`
+            // leaf, O_EXCL against silent overwrites) so a
+            // pre-existing symlink OR regular file at `fullPath`
             // cannot be used to escape the jail that
             // resolveDownloadSavePath already verified for
-            // the parent directory.
+            // the parent directory. On name collision, suffix
+            // ` (1)`, ` (2)`, … — matches browser behavior.
             const filename = `${messageId}.${format}`;
-            const fullPath = path.join(savePath, filename);
-            safeWriteFile(fullPath, content);
-            const stats = fs.statSync(fullPath);
+            const requestedPath = path.join(savePath, filename);
+            const writtenPath = safeWriteFile(requestedPath, content, { onCollision: "suffix" });
+            const stats = fs.statSync(writtenPath);
 
             // Return metadata with attachments
             const result = {
               status: "saved",
-              path: fullPath,
+              path: writtenPath,
               size: stats.size,
               messageId,
               subject,
@@ -1325,20 +1347,23 @@ async function main() {
             // savePath is already realpath-resolved inside the
             // download jail by resolveDownloadSavePath above.
             // Defense-in-depth: re-check the final path, then
-            // use safeWriteFile (O_NOFOLLOW on the leaf) so a
-            // pre-existing symlink at `fullPath` cannot be
-            // used to escape the jail.
+            // use safeWriteFile (O_NOFOLLOW on the leaf, O_EXCL
+            // against silent overwrites) so neither a pre-existing
+            // symlink NOR a pre-existing regular file at `fullPath`
+            // can be used to escape the jail or clobber a user
+            // file sharing the same name. On collision, suffix
+            // ` (1)`, ` (2)`, …
             const fullPath = path.resolve(savePath, filename);
             if (!fullPath.startsWith(savePath + path.sep) && fullPath !== savePath) {
               throw new Error("Invalid filename: path traversal detected");
             }
-            safeWriteFile(fullPath, buffer);
+            const writtenPath = safeWriteFile(fullPath, buffer, { onCollision: "suffix" });
 
             return {
               content: [
                 {
                   type: "text",
-                  text: `Attachment downloaded successfully:\nFile: ${filename}\nSize: ${buffer.length} bytes\nSaved to: ${fullPath}`,
+                  text: `Attachment downloaded successfully:\nFile: ${path.basename(writtenPath)}\nSize: ${buffer.length} bytes\nSaved to: ${writtenPath}`,
                 },
               ],
             };
