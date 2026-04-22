@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- **Node.js floor: `>=22`** (was `>=20.11`). Node 20 reaches end of active LTS on 2026-04-30; keeping the floor there would ship a version on an unmaintained runtime the day after. Active-LTS Node 22 runs maintenance until 2027-04-30, which gives a year of headroom before the next bump. Internally: CI matrix dropped Node 20 (now 22 + 24), the release/verify workflows and the Dockerfile base image pin `node:22-alpine` with an explicit digest, and the coverage upload job now runs on Node 22.
+
 ## [0.9.0] - 2026-04-22
 
 First tagged release of `klodr/gmail-mcp`. Sets a high version floor to reflect
