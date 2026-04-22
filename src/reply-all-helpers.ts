@@ -42,10 +42,19 @@ export function parseEmailAddresses(headerValue: string): string[] {
   const emails: string[] = [];
   for (const part of parts) {
     const trimmed = part.trim();
-    // Extract email from "Name <email>" format
-    const match = trimmed.match(/<([^>]+)>/);
-    if (match?.[1]) {
-      emails.push(match[1].trim());
+    // Extract email from "Name <email>" format. Three traps guarded
+    // against, all surfaced by the fast-check fuzzer:
+    //   1. A display name that itself contains a '<…>' span (must
+    //      pick the LAST bracketed address, not the first — so a
+    //      `"Display <alias@meta>" <real@host>` returns `real@host`).
+    //   2. Empty `< >` — skipped by the `@` requirement inside the
+    //      brackets.
+    //   3. Nested '<' or '>' — excluded from the capture class
+    //      (`[^<>]`) so the regex anchors to a single bracketed span.
+    const bracketMatches = [...trimmed.matchAll(/<([^<>]*@[^<>]*)>/g)];
+    const lastBracketEmail = bracketMatches.at(-1)?.[1]?.trim();
+    if (lastBracketEmail) {
+      emails.push(lastBracketEmail);
     } else if (trimmed.includes("@")) {
       // Strip any surrounding quotes / whitespace from a bare address
       emails.push(trimmed.replace(/^["']|["']$/g, "").trim());
