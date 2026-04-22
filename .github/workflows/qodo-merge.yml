@@ -14,11 +14,15 @@ name: Qodo Merge (dual reviewer)
 # author's PR description, /improve produces commitable suggestions which
 # block merges for a solo maintainer (see feedback_coderabbit_no_auto_commit).
 #
-# Reasoning budget: both models are explicit reasoning models with
-# `CONFIG__REASONING_EFFORT=high` so they spend actual thinking tokens
-# on the diff instead of glancing at it. Takes longer (~40-90s/job) and
-# costs more per review, but that's the whole point of running a second
-# reviewer tier — otherwise we're paying for a glorified grep.
+# Reasoning: both models reason natively — DeepSeek R1 has built-in
+# chain-of-thought, Gemini 3.1 Pro Preview runs with thinking mode on
+# by default on Google AI Studio. pr-agent v0.34's `reasoning_effort`
+# config is whitelisted to OpenAI `o3`/`o4-mini` models only
+# (SUPPORT_REASONING_EFFORT_MODELS) and its `litellm.extra_body` hook
+# accepts only `processing_mode`/`service_tier` — no supported path to
+# inject a custom `thinking_level=high` on Gemini here. TODO: revisit
+# when pr-agent adds Gemini 3.x thinking controls natively or when we
+# move to a fork that exposes the litellm thinking_config passthrough.
 
 on:
   pull_request:
@@ -51,7 +55,6 @@ jobs:
           # diff rather than pattern-matching on surface syntax.
           CONFIG__MODEL: deepseek/deepseek-reasoner
           CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-reasoner"]'
-          CONFIG__REASONING_EFFORT: high
           DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
@@ -80,7 +83,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG__MODEL: gemini/gemini-3.1-pro-preview
           CONFIG__FALLBACK_MODELS: '["gemini/gemini-3-pro-preview"]'
-          CONFIG__REASONING_EFFORT: high
           GOOGLE_AI_STUDIO__GEMINI_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
