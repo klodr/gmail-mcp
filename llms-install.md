@@ -7,7 +7,7 @@ client that can launch a stdio child process can use this server.
 
 ## Prerequisites the assistant should verify
 
-1. **Node.js ≥ 20.11** is installed (`node --version`).
+1. **Node.js ≥ 22** is installed (`node --version`).
 2. **npx** is on `PATH` (ships with Node).
 3. The user has — or is willing to create — a Google Cloud project with the
    Gmail API enabled and an OAuth client credential file

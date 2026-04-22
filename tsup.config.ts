@@ -3,7 +3,7 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
-  target: "node20",
+  target: "node22",
   dts: false,
   // Sourcemaps are opt-in only (GMAIL_MCP_SOURCEMAP=true). Every other
   // invocation — including local `npm publish`, `npm run build`, CI, and

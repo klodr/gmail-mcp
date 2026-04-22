@@ -6,8 +6,8 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-    # Keep @types/node pinned on the 20.x line so its type surface
-    # tracks engines.node (>=20.11). A semver-major bump would declare
+    # Keep @types/node pinned on the 22.x line so its type surface
+    # tracks engines.node (>=22). A semver-major bump would declare
     # APIs the runtime doesn't guarantee. Reopen only when we move the
     # engines floor to a newer LTS.
     ignore:
