@@ -36,9 +36,7 @@ describe("SCOPE_MAP / SCOPE_REVERSE_MAP invariants", () => {
 
 describe("scopeNameToUrl / scopeUrlToName", () => {
   it("translates a known shorthand to its full URL", () => {
-    expect(scopeNameToUrl("gmail.readonly")).toBe(
-      "https://www.googleapis.com/auth/gmail.readonly",
-    );
+    expect(scopeNameToUrl("gmail.readonly")).toBe("https://www.googleapis.com/auth/gmail.readonly");
     expect(scopeNameToUrl("gmail.settings.basic")).toBe(
       "https://www.googleapis.com/auth/gmail.settings.basic",
     );
@@ -92,9 +90,7 @@ describe("hasScope", () => {
   });
 
   it("accepts a matching full URL on the authorized side", () => {
-    expect(
-      hasScope(["https://www.googleapis.com/auth/gmail.send"], ["gmail.send"]),
-    ).toBe(true);
+    expect(hasScope(["https://www.googleapis.com/auth/gmail.send"], ["gmail.send"])).toBe(true);
   });
 
   it("returns true if ANY required scope is granted (OR semantics)", () => {
@@ -125,10 +121,7 @@ describe("hasScope", () => {
 
 describe("parseScopes", () => {
   it("splits on commas", () => {
-    expect(parseScopes("gmail.readonly,gmail.send")).toEqual([
-      "gmail.readonly",
-      "gmail.send",
-    ]);
+    expect(parseScopes("gmail.readonly,gmail.send")).toEqual(["gmail.readonly", "gmail.send"]);
   });
 
   it("splits on whitespace (spaces and tabs)", () => {
@@ -148,10 +141,7 @@ describe("parseScopes", () => {
   });
 
   it("drops empty entries (trailing comma / double comma)", () => {
-    expect(parseScopes("gmail.readonly,,gmail.send,")).toEqual([
-      "gmail.readonly",
-      "gmail.send",
-    ]);
+    expect(parseScopes("gmail.readonly,,gmail.send,")).toEqual(["gmail.readonly", "gmail.send"]);
   });
 
   it("returns an empty array for empty/whitespace-only input", () => {
@@ -169,11 +159,7 @@ describe("validateScopes", () => {
   });
 
   it("reports the invalid entries without aborting", () => {
-    const { valid, invalid } = validateScopes([
-      "gmail.readonly",
-      "gmail.wat",
-      "typo.scope",
-    ]);
+    const { valid, invalid } = validateScopes(["gmail.readonly", "gmail.wat", "typo.scope"]);
     expect(valid).toBe(false);
     expect(invalid).toEqual(["gmail.wat", "typo.scope"]);
   });

@@ -139,9 +139,7 @@ describe("updateLabel", () => {
   it("wraps other failures generically", async () => {
     const { gmail, labels } = mockGmail();
     labels.update.mockRejectedValue(apiErr(500, "Internal"));
-    await expect(updateLabel(gmail, "L1", { name: "X" })).rejects.toThrow(
-      /Failed to update label/,
-    );
+    await expect(updateLabel(gmail, "L1", { name: "X" })).rejects.toThrow(/Failed to update label/);
   });
 });
 
@@ -160,9 +158,7 @@ describe("deleteLabel", () => {
     labels.get.mockResolvedValue({
       data: { id: "INBOX", name: "INBOX", type: "system" },
     });
-    await expect(deleteLabel(gmail, "INBOX")).rejects.toBeInstanceOf(
-      SystemLabelProtectionError,
-    );
+    await expect(deleteLabel(gmail, "INBOX")).rejects.toBeInstanceOf(SystemLabelProtectionError);
     expect(labels.delete).not.toHaveBeenCalled();
   });
 
@@ -177,9 +173,7 @@ describe("deleteLabel", () => {
   it("reports a specific 'not found' message on 404 from get", async () => {
     const { gmail, labels } = mockGmail();
     labels.get.mockRejectedValue(apiErr(404, "not found"));
-    await expect(deleteLabel(gmail, "ghost")).rejects.toThrow(
-      /Label with ID "ghost" not found/,
-    );
+    await expect(deleteLabel(gmail, "ghost")).rejects.toThrow(/Label with ID "ghost" not found/);
   });
 
   it("wraps other failures generically", async () => {
@@ -270,11 +264,9 @@ describe("getOrCreateLabel", () => {
   it("recovers from a TOCTOU duplicate by re-fetching", async () => {
     const { gmail, labels } = mockGmail();
     // First list → not found. createLabel races → 409. Second list → found.
-    labels.list
-      .mockResolvedValueOnce({ data: { labels: [] } })
-      .mockResolvedValueOnce({
-        data: { labels: [{ id: "Raced", name: "Foo", type: "user" }] },
-      });
+    labels.list.mockResolvedValueOnce({ data: { labels: [] } }).mockResolvedValueOnce({
+      data: { labels: [{ id: "Raced", name: "Foo", type: "user" }] },
+    });
     labels.create.mockRejectedValue(apiErr(409, "already exists"));
     const out = await getOrCreateLabel(gmail, "Foo");
     expect(out?.id).toBe("Raced");
@@ -284,17 +276,13 @@ describe("getOrCreateLabel", () => {
     const { gmail, labels } = mockGmail();
     labels.list.mockResolvedValue({ data: { labels: [] } });
     labels.create.mockRejectedValue(apiErr(409, "already exists"));
-    await expect(getOrCreateLabel(gmail, "Foo")).rejects.toThrow(
-      /Failed to get or create label/,
-    );
+    await expect(getOrCreateLabel(gmail, "Foo")).rejects.toThrow(/Failed to get or create label/);
   });
 
   it("wraps non-duplicate create errors without a rescan", async () => {
     const { gmail, labels } = mockGmail();
     labels.list.mockResolvedValue({ data: { labels: [] } });
     labels.create.mockRejectedValue(apiErr(500, "boom"));
-    await expect(getOrCreateLabel(gmail, "Foo")).rejects.toThrow(
-      /Failed to get or create label/,
-    );
+    await expect(getOrCreateLabel(gmail, "Foo")).rejects.toThrow(/Failed to get or create label/);
   });
 });
