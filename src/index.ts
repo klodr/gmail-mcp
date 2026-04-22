@@ -2,7 +2,12 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { google } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
 import fs from "fs";
@@ -76,6 +81,7 @@ import {
 } from "./tools.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./email-export.js";
 import { logAudit, type AuditResult } from "./audit-log.js";
+import { listPrompts, getPrompt } from "./prompts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -412,6 +418,7 @@ async function main() {
     {
       capabilities: {
         tools: {},
+        prompts: {},
       },
     },
   );
@@ -423,6 +430,41 @@ async function main() {
       hasScope(authorizedScopes, tool.scopes),
     );
     return Promise.resolve({ tools: toMcpTools(availableTools) });
+  });
+
+  // Prompt handlers — user-facing slash commands (see src/prompts.ts).
+  // Prompts do not themselves perform Gmail API calls; they return
+  // message templates that tell the LLM which tools to invoke. Scope
+  // enforcement happens at the tool layer when the LLM actually calls
+  // a write tool, so read-only clients can still list/get prompts.
+  server.setRequestHandler(ListPromptsRequestSchema, () => {
+    return Promise.resolve({ prompts: listPrompts() });
+  });
+
+  server.setRequestHandler(GetPromptRequestSchema, (request) => {
+    const { name, arguments: args } = request.params;
+    // Explicit error boundary so callers get a clean structured error
+    // instead of whatever the SDK defaults to on uncaught throws. The
+    // three classes worth distinguishing: "unknown prompt" (404-shape),
+    // "invalid args" (422-shape) — Zod throws ZodError on refine/parse
+    // failures — and everything else (500-shape).
+    try {
+      // Cast is a deliberate workaround: the SDK's response type is a
+      // discriminated union that includes a task-result variant (with a
+      // required `task` field) used by the experimental async-tasks
+      // API. Our prompts are synchronous, so we return the plain
+      // GetPromptResult shape; the cast keeps TS honest at the boundary.
+      return Promise.resolve(getPrompt(name, args) as unknown as Record<string, unknown>);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unexpected error generating prompt body";
+      // Re-throw as a typed Error so the SDK surfaces it as a JSON-RPC
+      // error to the caller (the SDK converts uncaught Errors into
+      // -32603 "Internal error" responses, which is the right shape
+      // here — the prompt call never made it to a successful result).
+      // `cause` carries the original error for server-side logs.
+      throw new Error(`Prompt "${name}": ${message}`, { cause: err });
+    }
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
