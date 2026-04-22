@@ -63,21 +63,21 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Tool annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) | ❌ | ✅ | ✅ |
 | `llms-install.md` (LLM-readable install guide) | ❌ | ❌ | ✅ |
 | **Publishing / discoverability** | | | |
-| Published on npm | ✅ [@gongrzhe/server-gmail-autoauth-mcp](https://www.npmjs.com/package/@gongrzhe/server-gmail-autoauth-mcp) (stale — no release since the fork diverged) | ❌ (consumed as a GitHub install from the intermediate fork) | ✅ [@klodr/gmail-mcp](https://www.npmjs.com/package/@klodr/gmail-mcp) (dedicated scoped package, signed releases) |
+| Published on npm | ✅ stale — no release since the fork diverged | ❌ (consumed as a GitHub install from the intermediate fork) | ✅ dedicated scoped package, signed releases |
 | GitHub repo | [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) | [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) | [klodr/gmail-mcp](https://github.com/klodr/gmail-mcp) |
 | Active maintenance (last 30 d) | ❌ (dormant since Aug 2025) | ⚠️ sporadic | ✅ daily review cycle (CodeRabbit + human) |
 | **Supply-chain integrity** | | | |
-| Node.js floor | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=22` (Active LTS, maintenance until 2027-04-30) |
+| Node.js floor | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ✅ `>=22` (Active LTS, maintenance until 2027-04-30) |
 | CI: CodeQL Advanced (`javascript-typescript` + `actions`) | ❌ | ❌ | ✅ |
 | CI: OpenSSF Scorecard (weekly scan + badge) | ❌ | ❌ | ✅ |
 | CI: Socket Security supply-chain alerts | ❌ | ❌ | ✅ |
 | CI: CodeRabbit assertive reviews on every PR | ❌ | ❌ | ✅ |
 | Release: Sigstore-signed `dist/index.js` + SLSA in-toto attestation | ❌ | ❌ | ✅ |
 | Release: npm provenance statement | ❌ | ❌ | ✅ |
-| Release: single-file `tsup` ESM bundle (smaller tarball, easier to verify) | ❌ (multi-file `tsc`) | ❌ (multi-file `tsc`) | ✅ |
+| Release: single-file `tsup` ESM bundle (smaller tarball, easier to verify) | ❌ (multi-file `tsc`) | ❌ (multi-file `tsc`) | ✅ (target `node22`, `ES2024`) |
 | **Testing** | | | |
 | Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (215 tests) |
-| Statement coverage across `src/**` | 0% | 16.14% | **>42%** |
+| Statement coverage across `src/**` | 0% | 16.14% | **>45%** |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
 | **CI/CD hardening** | | | |

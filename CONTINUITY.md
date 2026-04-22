@@ -38,7 +38,7 @@ If the maintainer is confirmed unable to continue, anyone can:
 
 ### Takeover checklist for the first release
 
-- [ ] Run the full test suite locally: `npm ci && npm test` — must pass on Node 20, 22, 24
+- [ ] Run the full test suite locally: `npm ci && npm test` — must pass on Node 22 and 24
 - [ ] Run `npm run build` and confirm the build succeeds with no warnings
 - [ ] Bump the version (`npm version patch`) and add a `## [Unreleased]` → `## [X.Y.Z]` entry to `CHANGELOG.md`
 - [ ] Tag with a signed tag: `git tag -s vX.Y.Z -m "..." && git push origin vX.Y.Z`
