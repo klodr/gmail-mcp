@@ -264,15 +264,21 @@ export function enforceRateLimit(toolName: string): void {
   const now = Date.now();
   const records = (callHistory.get(bucket) ?? []).filter((ts) => now - ts < MONTH_MS);
 
+  // retryAfterMs must be computed from the *oldest* timestamp still in the
+  // window. Append order is normally chronological, but a concurrent
+  // second process, a manually edited state file, or a clock skew could
+  // leave entries out of order — relying on `records[0]` would then
+  // advertise a wrong retry delay. Math.min is O(n) on a window that's
+  // already filtered to ≤ `limits.monthly` entries (≤ 6000 worst case).
   const dailyRecords = records.filter((ts) => now - ts < DAY_MS);
-  const oldestDaily = dailyRecords[0];
-  if (dailyRecords.length >= limits.daily && oldestDaily !== undefined) {
+  if (dailyRecords.length >= limits.daily) {
+    const oldestDaily = Math.min(...dailyRecords);
     const retryAfterMs = DAY_MS - (now - oldestDaily);
     throw new RateLimitError(toolName, bucket, "daily", limits.daily, retryAfterMs);
   }
 
-  const oldestMonthly = records[0];
-  if (records.length >= limits.monthly && oldestMonthly !== undefined) {
+  if (records.length >= limits.monthly) {
+    const oldestMonthly = Math.min(...records);
     const retryAfterMs = MONTH_MS - (now - oldestMonthly);
     throw new RateLimitError(toolName, bucket, "monthly", limits.monthly, retryAfterMs);
   }

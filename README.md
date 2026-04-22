@@ -177,6 +177,10 @@ npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
 | Download jail | `GMAIL_MCP_DOWNLOAD_DIR=/abs/path` | `~/GmailDownloads/` (auto-created mode `0o700`) | `download_email` and `download_attachment` write exclusively here. The leaf is opened with `O_NOFOLLOW`; post-`mkdir` the resolved path is re-verified against the jail root (TOCTOU defense). |
 | OAuth keys path | `GMAIL_OAUTH_PATH=/abs/path/gcp-oauth.keys.json` | `~/.gmail-mcp/gcp-oauth.keys.json` | Google Desktop/Web OAuth client credentials. |
 | Credentials path | `GMAIL_CREDENTIALS_PATH=/abs/path/credentials.json` | `~/.gmail-mcp/credentials.json` | Access/refresh tokens. File mode `0o600`. |
+| Rate limit state dir | `GMAIL_MCP_STATE_DIR=/abs/path` | `~/.gmail-mcp/` | Where the rolling call-history for rate limiting is persisted (`ratelimit.json`, mode `0o600`). Same directory is reused for any future state files. |
+| Rate limit overrides | `GMAIL_MCP_RATE_LIMIT_<bucket>=D/day,M/month` | see below | Override the per-bucket daily/monthly caps. Buckets: `send` (400/6000), `delete` (200/2000), `modify` (500/5000), `drafts` (300/3000), `labels` (50/500), `filters` (20/200). The bucket name is lowercase and matches the tool family. Example: `GMAIL_MCP_RATE_LIMIT_send=100/day,1500/month`. |
+| Rate limit disable | `GMAIL_MCP_RATE_LIMIT_DISABLE=true` | unset (limiter active) | Kill-switch for the entire limiter. Use only for test suites or controlled batch operations. |
+| Audit log | `GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl` | unset (no audit trail) | Opt-in append-only JSONL log of every tool call (name, redacted args, outcome). File mode `0o600`. Must be an absolute path; relative paths are rejected at startup. Redaction keeps structural keys and drops values under an allowlist. |
 
 ## Tools
 
