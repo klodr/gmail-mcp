@@ -345,6 +345,7 @@ async function authenticate(scopes: string[]) {
           // from a prior setup) would keep those bytes after re-auth.
           // Force 0o600 explicitly after write to match SECURITY.md.
           const credentials = { tokens, scopes };
+          fs.mkdirSync(path.dirname(CREDENTIALS_PATH), { recursive: true, mode: 0o700 });
           fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2), {
             mode: 0o600,
           });
