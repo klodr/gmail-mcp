@@ -77,7 +77,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: single-file `tsup` ESM bundle (smaller tarball, easier to verify) | ❌ (multi-file `tsc`) | ❌ (multi-file `tsc`) | ✅ |
 | **Testing** | | | |
 | Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (215 tests) |
-| Statement coverage across `src/**` | 0% | 16.14% | **39.27%** |
+| Statement coverage across `src/**` | 0% | 16.14% | **>42%** |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
 | **CI/CD hardening** | | | |
