@@ -67,7 +67,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | GitHub repo | [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) | [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) | [klodr/gmail-mcp](https://github.com/klodr/gmail-mcp) |
 | Active maintenance (last 30 d) | ❌ (dormant since Aug 2025) | ⚠️ sporadic | ✅ daily review cycle (CodeRabbit + human) |
 | **Supply-chain integrity** | | | |
-| Node.js floor | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=20.11` (LTS — bump to 22 tracked in [ROADMAP](./ROADMAP.md); Node 20 EOL 2026-04-30) |
+| Node.js floor | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | `>=22` (Active LTS, maintenance until 2027-04-30) |
 | CI: CodeQL Advanced (`javascript-typescript` + `actions`) | ❌ | ❌ | ✅ |
 | CI: OpenSSF Scorecard (weekly scan + badge) | ❌ | ❌ | ✅ |
 | CI: Socket Security supply-chain alerts | ❌ | ❌ | ✅ |
@@ -104,7 +104,7 @@ Or directly via `npx`:
 npx -y @klodr/gmail-mcp
 ```
 
-Requires **Node.js 20.11+**.
+Requires **Node.js 22+**.
 
 ## Configuration
 
