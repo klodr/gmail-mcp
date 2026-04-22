@@ -75,6 +75,7 @@ import {
   ModifyThreadSchema,
 } from "./tools.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./email-export.js";
+import { logAudit, type AuditResult } from "./audit-log.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -431,6 +432,7 @@ async function main() {
     // This guards against direct tool calls that bypass ListTools
     const toolDef = getToolByName(name);
     if (!toolDef || !hasScope(authorizedScopes, toolDef.scopes)) {
+      logAudit(name, args, "error");
       return {
         content: [
           {
@@ -440,6 +442,12 @@ async function main() {
         ],
       };
     }
+
+    // Opt-in JSONL audit log (GMAIL_MCP_AUDIT_LOG=/abs/path).
+    // `auditResult` starts as "ok" and is flipped to "error" in the
+    // catch block below or when a tool returns a business-error. The
+    // `finally` ensures the entry lands regardless of how we exit.
+    let auditResult: AuditResult = "ok";
 
     async function handleEmailAction(
       action: "send" | "draft",
@@ -1773,6 +1781,7 @@ async function main() {
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (error: unknown) {
+      auditResult = "error";
       const msg = error instanceof Error ? error.message : String(error);
       return {
         content: [
@@ -1782,6 +1791,8 @@ async function main() {
           },
         ],
       };
+    } finally {
+      logAudit(name, args, auditResult);
     }
   });
 
