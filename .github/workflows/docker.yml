@@ -1,0 +1,126 @@
+name: Docker build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "tsup.config.ts"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "tsup.config.ts"
+      - ".github/workflows/docker.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
+
+      - name: Read package version
+        id: pkg
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build image (linux/amd64, tarball only — no push)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.pkg.outputs.version }}
+          push: false
+          load: true
+          tags: gmail-mcp:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Assert OCI labels and non-root user
+        # Load-bearing for Docker MCP Registry ingestion — we fail CI
+        # here rather than silently ship an image without them.
+        run: |
+          set -euo pipefail
+          expected_version="${{ steps.pkg.outputs.version }}"
+          labels_json=$(docker inspect --format='{{json .Config.Labels}}' gmail-mcp:ci)
+          echo "$labels_json" | jq .
+          actual_version=$(echo "$labels_json" | jq -r '."org.opencontainers.image.version"')
+          if [ "$actual_version" != "$expected_version" ]; then
+            echo "Expected org.opencontainers.image.version=$expected_version, got '$actual_version'" >&2
+            exit 1
+          fi
+          for key in \
+            org.opencontainers.image.source \
+            org.opencontainers.image.licenses \
+            org.opencontainers.image.title \
+            org.opencontainers.image.description; do
+            value=$(echo "$labels_json" | jq -r --arg k "$key" '.[$k]')
+            if [ -z "$value" ] || [ "$value" = "null" ]; then
+              echo "Missing required OCI label: $key" >&2
+              exit 1
+            fi
+          done
+          user=$(docker inspect --format='{{.Config.User}}' gmail-mcp:ci)
+          if [ "$user" != "mcp" ]; then
+            echo "Expected non-root USER=mcp, got '$user'" >&2
+            exit 1
+          fi
+
+      - name: Smoke-test (container is executable and reaches the entrypoint)
+        # The stdio MCP server blocks on stdin. Healthy outcomes are
+        # either:
+        #   - exit 1: fail-fast when no gcp-oauth.keys.json is present
+        #     (no credentials volume mounted — the container refuses
+        #     to start). Must be accompanied by an error message
+        #     mentioning gcp-oauth.keys or GMAIL_OAUTH_PATH.
+        #   - exit 124: `timeout` killed the process while it was
+        #     waiting on stdin for a JSON-RPC frame (would happen if
+        #     credentials WERE present, which CI never ships).
+        # Any other exit code fails CI so a broken entrypoint cannot
+        # silently ship.
+        run: |
+          set +e
+          out=$(timeout 5 docker run --rm gmail-mcp:ci < /dev/null 2>&1)
+          ec=$?
+          echo "$out"
+          case $ec in
+            124)
+              echo "Startup OK (exit=124 — stdin wait)"
+              ;;
+            1)
+              if echo "$out" | grep -qEi "gcp-oauth\.keys|GMAIL_OAUTH_PATH"; then
+                echo "Startup OK (exit=1 — fail-fast on missing OAuth keys)"
+              else
+                echo "Exit 1 without the expected missing-credentials error — real crash" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Unexpected exit code $ec — only 1 (with missing-credentials message) or 124 (stdin wait) are healthy" >&2
+              exit 1
+              ;;
+          esac
