@@ -8,6 +8,10 @@ name: Qodo Merge (dual reviewer)
 # Intentional complement to CodeRabbit: triangulates findings with 3
 # independent model families (GPT, DeepSeek, Gemini) rather than re-reading
 # the same diff with the same lineage. See project_qodo_dual_reviewer_plan.md.
+#
+# Scope: only the /review tool is enabled — /describe would overwrite the
+# author's PR description, /improve produces commitable suggestions which
+# block merges for a solo maintainer (see feedback_coderabbit_no_auto_commit).
 
 on:
   pull_request:
@@ -35,13 +39,15 @@ jobs:
         uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CONFIG__MODEL: deepseek/deepseek-coder
-          CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-coder"]'
+          CONFIG__MODEL: deepseek/deepseek-chat
+          CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-chat"]'
           DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
           # Prefix every review with [DeepSeek] so the two jobs can be
           # told apart in the PR timeline (both post as qodo-ai[bot]).
           PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[DeepSeek]'."
-          PR_DESCRIPTION__EXTRA_INSTRUCTIONS: "Prefix the description header with '[DeepSeek]'."
 
   qodo-gemini:
     name: Qodo review (Gemini)
@@ -55,5 +61,7 @@ jobs:
           CONFIG__MODEL: gemini/gemini-2.5-pro
           CONFIG__FALLBACK_MODELS: '["gemini/gemini-2.5-pro"]'
           GOOGLE_AI_STUDIO__GEMINI_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
           PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[Gemini]'."
-          PR_DESCRIPTION__EXTRA_INSTRUCTIONS: "Prefix the description header with '[Gemini]'."
