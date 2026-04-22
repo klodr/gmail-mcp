@@ -221,8 +221,10 @@ export const validateEmail = (email: string): boolean => {
 /**
  * Sanitize a value destined for an email header to prevent CRLF injection.
  * Strips \r, \n, and \0 characters that could inject additional headers.
+ * Exported so test/fuzz.test.ts can fuzz the real implementation instead
+ * of a drift-prone mirror.
  */
-function sanitizeHeaderValue(value: string): string {
+export function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n\0]/g, "");
 }
 
