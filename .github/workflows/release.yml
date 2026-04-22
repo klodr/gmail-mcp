@@ -159,12 +159,14 @@ jobs:
       # (the direct action) — actions/attest-sbom is now a deprecated
       # compatibility wrapper per GitHub's own docs.
       - name: Sign SPDX SBOM attestation
+        id: attest_spdx
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: dist/index.js
           sbom-path: dist/sbom.spdx.json
 
       - name: Sign CycloneDX SBOM attestation
+        id: attest_cdx
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: dist/index.js
@@ -175,13 +177,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          SPDX_BUNDLE_PATH: ${{ steps.attest_spdx.outputs.bundle-path }}
+          CDX_BUNDLE_PATH: ${{ steps.attest_cdx.outputs.bundle-path }}
         run: |
           test -n "${BUNDLE_PATH:-}" || { echo "Missing attestation bundle-path output"; exit 1; }
           test -f "$BUNDLE_PATH" || { echo "Bundle file not found: $BUNDLE_PATH"; exit 1; }
+          test -n "${SPDX_BUNDLE_PATH:-}" || { echo "Missing SPDX SBOM attestation bundle-path"; exit 1; }
+          test -f "$SPDX_BUNDLE_PATH" || { echo "SPDX SBOM attestation bundle not found: $SPDX_BUNDLE_PATH"; exit 1; }
+          test -n "${CDX_BUNDLE_PATH:-}" || { echo "Missing CycloneDX SBOM attestation bundle-path"; exit 1; }
+          test -f "$CDX_BUNDLE_PATH" || { echo "CycloneDX SBOM attestation bundle not found: $CDX_BUNDLE_PATH"; exit 1; }
           test -f dist/sbom.spdx.json || { echo "SPDX SBOM missing"; exit 1; }
           test -f dist/sbom.cdx.json || { echo "CycloneDX SBOM missing"; exit 1; }
           # The Sigstore bundle (.sigstore) satisfies Scorecard's "signed" check (8/10).
           cp "$BUNDLE_PATH" dist/index.js.sigstore
+          cp "$SPDX_BUNDLE_PATH" dist/sbom.spdx.sigstore
+          cp "$CDX_BUNDLE_PATH" dist/sbom.cdx.sigstore
           # The DSSE envelope inside the bundle IS the SLSA in-toto attestation.
           # Extracting it to .intoto.jsonl satisfies Scorecard's "provenance"
           # check (10/10) — Scorecard recognises *.intoto.jsonl specifically.
@@ -197,7 +207,9 @@ jobs:
             dist/index.js.sigstore \
             dist/index.js.intoto.jsonl \
             dist/sbom.spdx.json \
+            dist/sbom.spdx.sigstore \
             dist/sbom.cdx.json \
+            dist/sbom.cdx.sigstore \
             --repo "${{ github.repository }}" \
             --clobber
 
