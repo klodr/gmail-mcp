@@ -7,9 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-04-22
+
+Single focus: move the whole toolchain off Node 20 ahead of its 2026-04-30 Active-LTS exit. Not a feature release — the `dist/index.js` behaviour is unchanged versus 0.9.0.
+
 ### Changed (BREAKING)
 
-- **Node.js floor: `>=22`** (was `>=20.11`). Node 20 reaches end of active LTS on 2026-04-30; keeping the floor there would ship a version on an unmaintained runtime the day after. Active-LTS Node 22 runs maintenance until 2027-04-30, which gives a year of headroom before the next bump. Internally: CI matrix dropped Node 20 (now 22 + 24), the release/verify workflows and the Dockerfile base image pin `node:22-alpine` with an explicit digest, the coverage upload job now runs on Node 22, and `@types/node` was bumped from `^20.19.39` to `^22.19.17` so the TypeScript definitions match the runtime floor. `ROADMAP.md` item **Node.js 22 migration** ticked off; `SECURITY.md` gained a **Supported runtimes** section.
+- **Node.js floor: `>=22`** (was `>=20.11`). Node 20 reaches end of Active LTS on 2026-04-30; keeping the floor there would ship 0.9.0-era packages on an unmaintained runtime the day after. Active-LTS Node 22 runs maintenance until 2027-04-30, which gives a year of headroom before the next cadence bump.
+- **Compile target: `ES2024`** (was `ES2022`). Node 22 implements the full ES2024 surface (`Object.groupBy`, `Map.groupBy`, `Promise.withResolvers`, iterator helpers, etc.) — the TypeScript `target` and `lib` now match, so stdlib additions don't need polyfills.
+- **Bundle target: `tsup target: node22`** (was `node20`). Without this the bundler was still down-levelling Node 22 intrinsics (WebCrypto globals, `AbortSignal.any`) and the shipped `dist/index.js` wasn't actually taking advantage of the higher floor we just set.
+
+### Changed
+
+- `@types/node` bumped from `^20.19.39` to `^22.19.17` so the TypeScript definitions line up with the runtime floor.
+- CI matrix dropped Node 20 — builds now run on Node 22 + 24. The coverage-upload step (Codecov) moved from Node 20 to Node 22.
+- Release and verify-release workflows set up Node 22 (`setup-node node-version: "22"`).
+- Dockerfile base image pinned to `node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f` (digest resolved via Docker Hub API at release time).
+- `package-lock.json` refreshed via `npm update` — minor bumps within existing carets (`typescript-eslint` 8.58 → 8.59, etc.), no semver-major shifts.
+
+### Added
+
+- `.nvmrc` with `22` so `nvm use` in a fresh checkout matches `engines.node` and the CI matrix without guessing.
+- `SECURITY.md` gained a **Supported runtimes** section stating the Node 22 floor and the LTS window. Existing "Verifying releases (once v1 is out)" section retitled to "Verifying releases" — v0.9.0 being already on npm, the future tense no longer applies.
+- `ROADMAP.md` item **Node.js 22 migration** ticked off; **Optional audit log** also removed (shipped in 0.9.0 as `GMAIL_MCP_AUDIT_LOG`).
+- README comparison-table tweaks: Node-floor cells marked ❌/❌/✅ for readability, published-on-npm cells deduplicated (package names were already in the GitHub-repo row), statement coverage refreshed to `>45%` (was `>42%`), `tsup` ESM-bundle cell now notes the `node22` + `ES2024` target.
+- Issue-template `bug_report.yml` / `dependabot.yml` / `CONTINUITY.md` / `ASSURANCE_CASE.md` scrubbed of stray Node 20 / `20.11` references.
 
 ## [0.9.0] - 2026-04-22
 
