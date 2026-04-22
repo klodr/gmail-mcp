@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 
 // Gmail API IDs (messageId, threadId, labelId, attachmentId) are base64url
 // strings. Bounding them (non-empty, ≤ 256 chars, base64url charset) stops
@@ -574,17 +573,16 @@ export const toolDefinitions: ToolDefinition[] = [
   },
 ];
 
-// Convert tool definitions to MCP tool format.
-// The cast bridges a generics mismatch between Zod v4's `ZodType` shape
-// and zod-to-json-schema@3's expected `ZodType<any, ZodTypeDef, any>`.
-// Runtime behaviour is unaffected — both APIs consume the same schema
-// instance, only the TS generic signatures differ.
+// Convert tool definitions to MCP tool format. Uses Zod v4's native
+// `z.toJSONSchema()` (draft 2020-12). The external `zod-to-json-schema@3`
+// library is incompatible with Zod v4's ZodType shape and silently emits
+// `{"$schema": "..."}` with no `type`/`properties`, which fails MCP
+// Inspector validation (the spec requires `inputSchema.type = "object"`).
 export function toMcpTools(tools: ToolDefinition[]) {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    inputSchema: zodToJsonSchema(tool.schema as any),
+    inputSchema: z.toJSONSchema(tool.schema),
     annotations: tool.annotations,
   }));
 }
