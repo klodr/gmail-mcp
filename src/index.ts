@@ -443,12 +443,28 @@ async function main() {
 
   server.setRequestHandler(GetPromptRequestSchema, (request) => {
     const { name, arguments: args } = request.params;
-    // Cast is a deliberate workaround: the SDK's response type is a
-    // discriminated union that includes a task-result variant (with a
-    // required `task` field) used by the experimental async-tasks API.
-    // Our prompts are synchronous, so we return the plain
-    // GetPromptResult shape; the cast keeps TS honest at the boundary.
-    return Promise.resolve(getPrompt(name, args) as unknown as Record<string, unknown>);
+    // Explicit error boundary so callers get a clean structured error
+    // instead of whatever the SDK defaults to on uncaught throws. The
+    // three classes worth distinguishing: "unknown prompt" (404-shape),
+    // "invalid args" (422-shape) — Zod throws ZodError on refine/parse
+    // failures — and everything else (500-shape).
+    try {
+      // Cast is a deliberate workaround: the SDK's response type is a
+      // discriminated union that includes a task-result variant (with a
+      // required `task` field) used by the experimental async-tasks
+      // API. Our prompts are synchronous, so we return the plain
+      // GetPromptResult shape; the cast keeps TS honest at the boundary.
+      return Promise.resolve(getPrompt(name, args) as unknown as Record<string, unknown>);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unexpected error generating prompt body";
+      // Re-throw as a typed Error so the SDK surfaces it as a JSON-RPC
+      // error to the caller (the SDK converts uncaught Errors into
+      // -32603 "Internal error" responses, which is the right shape
+      // here — the prompt call never made it to a successful result).
+      // `cause` carries the original error for server-side logs.
+      throw new Error(`Prompt "${name}": ${message}`, { cause: err });
+    }
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

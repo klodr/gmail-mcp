@@ -112,9 +112,17 @@ describe("prompts: getPrompt", () => {
     expect(text).toContain("Personal");
   });
 
+  // Per-prompt valid-argument stubs for the "every prompt produces a
+  // body" sweep. Keyed by prompt name so adding a new prompt with
+  // different required args is an explicit edit here rather than a
+  // silent test failure down the line.
+  const validArgsFor: Record<string, Record<string, string>> = {
+    "unread-stale": { olderThan: "7d" },
+  };
+
   it("each returned prompt has exactly one user-role text message", () => {
     for (const p of PROMPTS) {
-      const args = p.arguments.some((a) => a.required) ? { olderThan: "7d" } : {};
+      const args = validArgsFor[p.name] ?? {};
       const r = getPrompt(p.name, args);
       expect(r.messages).toHaveLength(1);
       expect(r.messages[0]?.role).toBe("user");

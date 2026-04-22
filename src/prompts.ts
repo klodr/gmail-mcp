@@ -48,6 +48,20 @@ export interface PromptResult {
   messages: PromptMessage[];
 }
 
+/**
+ * Prompt name literal — derived from PROMPTS so schemas / bodies can be
+ * constrained to the same key set via `satisfies`. If a new prompt is
+ * added to PROMPTS but forgotten in schemas or bodies, the compile
+ * catches it instead of a runtime Zod error with a confusing stack.
+ */
+type PromptName =
+  | "unread-emails"
+  | "unread-stale"
+  | "inbox-reclass"
+  | "detect-phishing"
+  | "detect-spam"
+  | "unread-triage";
+
 /** Zod schemas per prompt — used to validate + coerce caller-supplied args. */
 const schemas = {
   "unread-emails": z.object({}).strict(),
@@ -60,7 +74,7 @@ const schemas = {
   "detect-phishing": z.object({}).strict(),
   "detect-spam": z.object({}).strict(),
   "unread-triage": z.object({}).strict(),
-} as const;
+} as const satisfies Record<PromptName, z.ZodType>;
 
 export const PROMPTS: PromptInfo[] = [
   {
@@ -111,7 +125,7 @@ export const PROMPTS: PromptInfo[] = [
   },
 ];
 
-const bodies: Record<string, (args: Record<string, string>) => string> = {
+const bodies = {
   "unread-emails": () =>
     `Use \`search_emails\` with query \`is:unread in:inbox\` (maxResults ≤ 100). ` +
     `For each hit, show: sender, subject, date received, and the first ~80 chars of the preview. ` +
@@ -202,7 +216,7 @@ const bodies: Record<string, (args: Record<string, string>) => string> = {
     `Output format: a single markdown table grouped by category, columns:\n` +
     `  \`#\` | \`sender\` | \`subject\` | \`recommendation\` | \`one-line rationale\`\n\n` +
     `End with: "Reply with the numbers you want me to [archive/reply to/delete] and I will run the corresponding tool calls."`,
-};
+} as const satisfies Record<PromptName, (args: Record<string, string>) => string>;
 
 export function listPrompts(): PromptInfo[] {
   return PROMPTS;
@@ -213,12 +227,9 @@ export function getPrompt(name: string, args: Record<string, unknown> | undefine
   if (!info) {
     throw new Error(`Unknown prompt: "${name}"`);
   }
-  const schema = schemas[name as keyof typeof schemas];
+  const schema = schemas[name as PromptName];
   const parsed = schema.parse(args ?? {}) as Record<string, string>;
-  const body = bodies[name]?.(parsed);
-  if (!body) {
-    throw new Error(`Prompt "${name}" has no body template (this is a bug).`);
-  }
+  const body = bodies[name as PromptName](parsed);
   return {
     description: info.description,
     messages: [
