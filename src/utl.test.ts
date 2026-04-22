@@ -99,13 +99,13 @@ describe("Source verification", () => {
 });
 
 describe("createEmailMessage — content-type paths", () => {
-  it("emits a multipart/alternative body when both htmlBody and body are present", () => {
+  it("escalates to multipart/alternative when htmlBody is present with non-plain mimeType", () => {
     const raw = createEmailMessage({
       to: ["test@example.com"],
       subject: "Mixed",
       body: "plain fallback",
       htmlBody: "<p>hi</p>",
-      mimeType: "multipart/alternative",
+      mimeType: "text/html",
     });
 
     expect(raw).toContain("Content-Type: multipart/alternative");
