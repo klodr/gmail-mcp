@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { closeSync, fstatSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -128,12 +128,22 @@ describe("rate-limit", () => {
     process.env.GMAIL_MCP_RATE_LIMIT_send = "10/day,100/month";
     enforceRateLimit("send_email");
     const statePath = join(stateDir, "ratelimit.json");
-    const stat = statSync(statePath);
-    // mode 0o600 = owner read/write only (0o100600 with file-type bits)
-    expect(stat.mode & 0o777).toBe(0o600);
-    const parsed = JSON.parse(readFileSync(statePath, "utf8")) as Record<string, number[]>;
-    expect(parsed.send).toBeDefined();
-    expect(parsed.send?.length).toBe(1);
+    // Open once and run both fstat + read via the same file descriptor
+    // so CodeQL's TOCTOU check is satisfied (no window between the mode
+    // check and the content read where the file could be swapped).
+    const fd = openSync(statePath, "r");
+    try {
+      const stat = fstatSync(fd);
+      // mode 0o600 = owner read/write only (0o100600 with file-type bits)
+      expect(stat.mode & 0o777).toBe(0o600);
+      const buf = Buffer.alloc(stat.size);
+      readSync(fd, buf, 0, stat.size, 0);
+      const parsed = JSON.parse(buf.toString("utf8")) as Record<string, number[]>;
+      expect(parsed.send).toBeDefined();
+      expect(parsed.send?.length).toBe(1);
+    } finally {
+      closeSync(fd);
+    }
   });
 
   it("formatRateLimitError produces a structured JSON with mcp_safeguard source", () => {

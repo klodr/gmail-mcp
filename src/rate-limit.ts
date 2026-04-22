@@ -130,7 +130,14 @@ function getBucketLimit(bucket: string): BucketLimit | null {
 }
 
 const callHistory = new Map<string, number[]>();
-let stateLoaded = false;
+// `readOk` is set once the state file has been successfully read (or the
+// file is confirmed absent). It gates `persistCallHistory`: if a prior
+// read failed with a hard error (EACCES, EIO…) we must NOT clobber the
+// unreadable-but-present file with an empty counter. Unlike the earlier
+// `stateLoaded` flag, this does NOT cache the in-memory state — every
+// enforce call re-reads the file (see the Critical CR comment on
+// cross-process stale reads).
+let readOk = false;
 
 function getStateFile(): string {
   const dir = process.env.GMAIL_MCP_STATE_DIR || join(homedir(), ".gmail-mcp");
@@ -138,7 +145,16 @@ function getStateFile(): string {
 }
 
 function loadCallHistory(): void {
-  if (stateLoaded) return;
+  // Always re-read the state file from disk. In-memory caching allowed
+  // two MCP processes sharing the same ratelimit.json to each enforce
+  // against stale state — effectively doubling the documented cap. The
+  // atomic rename in persistCallHistory still avoids torn files, so a
+  // reader either sees the complete old file or the complete new file,
+  // never a mid-write concatenation. A race between a reader and a
+  // writer in the same bucket can still let one extra call slip through
+  // (read → other process appends → we append); the cap is therefore
+  // ENFORCE_CAP + (N_processes - 1) worst case, not the per-process
+  // bypass the stale-cache version allowed.
   const path = getStateFile();
   let raw: string;
   try {
@@ -146,18 +162,20 @@ function loadCallHistory(): void {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
-      // Cold start: no prior state. Mark loaded so the first enforce
-      // can persist cleanly.
-      stateLoaded = true;
+      // Cold start: no prior state. readOk so the first persist succeeds.
+      callHistory.clear();
+      readOk = true;
       return;
     }
-    // Any other read error: do NOT mark loaded. Persisting with an
+    // Any other read error: do NOT mark readOk. Persisting with an
     // empty counter would clobber a present-but-unreadable state file
-    // and silently reset the limit. Keep stateLoaded=false so
+    // and silently reset the limit. Keep readOk=false so
     // persistCallHistory stays a no-op until a successful read.
     console.error(`[ratelimit] failed to read state from ${path}: ${(err as Error).message}`);
     return;
   }
+  // Successfully read the file → replace in-memory snapshot.
+  callHistory.clear();
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -174,11 +192,11 @@ function loadCallHistory(): void {
       `[ratelimit] corrupted state at ${path}, starting fresh: ${(err as Error).message}`,
     );
   }
-  stateLoaded = true;
+  readOk = true;
 }
 
 function persistCallHistory(): void {
-  if (!stateLoaded) return;
+  if (!readOk) return;
   const path = getStateFile();
   // Per-write unique tmp filename so two MCP processes that both call
   // persistCallHistory at the same instant cannot clobber each other's
@@ -195,10 +213,10 @@ function persistCallHistory(): void {
   }
 }
 
-/** Reset in-memory call history. Used by tests. */
+/** Reset in-memory call history + readOk gate. Used by tests. */
 export function resetRateLimitHistory(): void {
+  readOk = false;
   callHistory.clear();
-  stateLoaded = false;
 }
 
 export type LimitType = "daily" | "monthly";
