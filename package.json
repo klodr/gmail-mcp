@@ -18,7 +18,6 @@
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "files": [

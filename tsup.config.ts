@@ -12,5 +12,4 @@ export default defineConfig({
   sourcemap: process.env.GMAIL_MCP_SOURCEMAP === "true",
   clean: true,
   shims: true,
-  banner: { js: "#!/usr/bin/env node" },
 });
