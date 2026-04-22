@@ -60,3 +60,28 @@ cosign verify-blob-attestation \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   index.js
 ```
+
+## Software Bill of Materials (SBOM)
+
+Every GitHub Release ships two SBOMs generated from the **runtime** dependency tree (`devDependencies` pruned before `syft` walks the tree) by `anchore/sbom-action`:
+
+- `sbom.spdx.json` — SPDX 2.3 JSON
+- `sbom.cdx.json` — CycloneDX 1.6 JSON
+
+Each SBOM carries its own Sigstore attestation binding it to the `dist/index.js` of the same release run. The attestation subject is the artifact (`dist/index.js`), not the SBOM file itself — `gh attestation verify` therefore expects the artifact path plus an explicit `--predicate-type` selecting which SBOM flavor to check:
+
+```bash
+# Download the release artifact + SBOMs first
+gh release download v<version> --repo klodr/gmail-mcp \
+  --pattern 'index.js' --pattern 'sbom.*.json'
+
+# SPDX
+gh attestation verify index.js --repo klodr/gmail-mcp \
+  --predicate-type https://spdx.dev/Document/v2.3
+
+# CycloneDX
+gh attestation verify index.js --repo klodr/gmail-mcp \
+  --predicate-type https://cyclonedx.org/bom
+```
+
+Then feed the SBOMs into `grype`, `trivy`, `dependency-track`, or any SPDX/CDX-aware scanner.
