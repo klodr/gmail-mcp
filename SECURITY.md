@@ -33,9 +33,13 @@ Please open a private security advisory at https://github.com/klodr/gmail-mcp/se
 
 Response target: **acknowledgment within 48 hours**, fix or mitigation plan within 7 days for anything rated High or Critical.
 
-## Verifying releases (once v1 is out)
+## Supported runtimes
 
-Every published release of `@klodr/gmail-mcp` will be cryptographically signed via Sigstore (keyless, via GitHub OIDC → Fulcio → Rekor). Three independent ways to verify:
+`@klodr/gmail-mcp` supports **Node.js ≥ 22** (Active LTS, maintained through 2027-04-30). The 0.x series on npm previously shipped with a `>=20.11` floor; releases cut from 2026-04-30 onward require Node 22+ because Node 20 leaves Active LTS that day and stops receiving security patches shortly after. Older pinned versions of the package remain installable but will not receive back-ported security fixes.
+
+## Verifying releases
+
+Every published release of `@klodr/gmail-mcp` is cryptographically signed via Sigstore (keyless, via GitHub OIDC → Fulcio → Rekor). Three independent ways to verify:
 
 ### 1. npm — npm CLI
 
