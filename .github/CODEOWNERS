@@ -1,0 +1,21 @@
+# CODEOWNERS — GitHub auto-requests review from these handles when a
+# matching path changes. Reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# The project is currently maintained by a single individual. This file
+# documents that reality explicitly so reviewers and contributors know
+# who is accountable for each surface, and creates an obvious drop-in
+# point when a second maintainer joins (the "Second maintainer → OpenSSF
+# Gold" item on the ROADMAP).
+
+# Default owner for everything in the repo
+*                                   @klodr
+
+# Security-sensitive surfaces — any future co-maintainer added here
+# would also need explicit security review on PRs touching these paths.
+/SECURITY.md                        @klodr
+/ASSURANCE_CASE.md                  @klodr
+/src/utl.ts                         @klodr
+/src/gmail-errors.ts                @klodr
+/.github/workflows/                 @klodr
+/.github/dependabot.yml             @klodr
+/socket.yml                         @klodr
