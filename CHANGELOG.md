@@ -81,8 +81,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 ### Security
 
 - Closes `@ArtyMcLabin#28` class of concern: attachment exfiltration via prompt injection on write tools.
-- Closes a minor header-injection vector via `Math.random` boundary collision (theoretical, not exploited in the wild).
-- Closes a credential-leak vector in `loadCredentials`: previously logged the full `Error` object, whose `JSON.parse` failure message could carry a snippet of a partially-corrupted OAuth file including `client_secret`. Now logs `error.message` only.
+- Mitigates a minor header-injection vector via `Math.random` boundary collision (theoretical, not exploited in the wild).
+- Addresses a credential-leak path in `loadCredentials`: previously logged the full `Error` object, whose `JSON.parse` failure message could carry a snippet of a partially-corrupted OAuth file including `client_secret`. Now logs `error.message` only.
 - Adds a copy-mode enforcement for OAuth keys: `fs.copyFileSync(localOAuthPath, OAUTH_PATH)` is now followed by `chmodSync(OAUTH_PATH, 0o600)`. `copyFileSync` preserves the source mode, so a user-provided `gcp-oauth.keys.json` with `0o644` would have kept that mode in `~/.gmail-mcp/`. Aligns with the `0o600` guarantee already held for `credentials.json`.
 - Bumps the Node floor away from the EOL Node 18 line.
 
