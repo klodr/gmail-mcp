@@ -9,7 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Placeholder for the next release cycle.
+- Unit tests for `gmail-errors.ts`, `scopes.ts`, `label-manager.ts`, `filter-manager.ts` (+83 tests; 215 total). Global statement coverage from 27% → 39%.
+- `vitest.config.ts` now passes `coverage.include: ["src/**/*.ts"]` so untested files appear as 0% in the report instead of being silently omitted.
+- `SECURITY.md` sections documenting OAuth-keys 0o600 guarantee and the no-silent-overwrite behaviour of `safeWriteFile`.
+- README comparison table now includes a **Testing** section (test count + statement coverage across the three forks) and annotates each Node.js floor with its LTS/EOL status.
+- `ROADMAP.md` entry: raising `src/index.ts` coverage (currently 0% — the single `CallToolRequestSchema` dispatcher + its 25 tool cases + the OAuth callback path) is now a tracked v1.0.0-blocking item.
+- `Dockerfile` restored (removed in 0.1.0) alongside a dedicated `docker.yml` CI workflow for container builds; the ROADMAP's Node-22 migration step now pins a Dockerfile digest as part of its scope. `docker-compose.yml` stays out of the repo.
+
+### Security
+
+- `fs.copyFileSync(localOAuthPath, OAUTH_PATH)` now followed by `chmodSync(OAUTH_PATH, 0o600)` — copyFileSync preserves the source mode, so a user-provided `gcp-oauth.keys.json` with 0o644 would have kept that mode in `~/.gmail-mcp/`. Aligns with the 0o600 guarantee already held for `credentials.json`.
+- `createEmailWithNodemailer` now runs every user-supplied header value through `sanitizeHeaderValue` (from/to/cc/bcc/subject/inReplyTo/references). Previously the attachment path delegated CRLF sanitization to nodemailer; in-tree enforcement means a nodemailer regression cannot silently reopen the injection vector.
+- `safeWriteFile` switched from `O_CREAT | O_TRUNC` to `O_CREAT | O_EXCL`, preventing a silent overwrite of a user file sharing a name with an incoming attachment. New `onCollision: "error" | "suffix"` option; `download_email` / `download_attachment` handlers opt into `"suffix"` which appends " (1)", " (2)", … like browsers do.
+- `loadCredentials` now logs `error.message` instead of the full `Error` object — a JSON.parse failure on a partially-corrupted OAuth file was carrying a snippet of the faulty content (position pointer) that could include `client_secret`.
+- `GmailIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/)` applied to every Gmail ID field (`messageId`, `threadId`, `labelId`, `attachmentId`, `filterId`, array variants) in `src/tools.ts`. Blocks megabyte-sized IDs that would burn a round-trip and leak their prefix through the batch-error logger.
 
 ## [0.1.0] - 2026-04-22
 
