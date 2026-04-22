@@ -82,6 +82,7 @@ import {
 import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./email-export.js";
 import { logAudit, type AuditResult } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
+import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -483,6 +484,44 @@ async function main() {
           },
         ],
       };
+    }
+
+    // Validate args against the tool's Zod schema BEFORE charging the
+    // bucket quota. A malformed send_email / delete_email request must
+    // not burn daily/monthly budget — otherwise a buggy client or a
+    // bad prompt can lock out later valid writes. The Schema.parse
+    // happens again inside each tool case (for type narrowing), which
+    // is redundant but cheap; the contract here is just
+    // "if args cannot possibly succeed, don't consume quota".
+    const parseResult = toolDef.schema.safeParse(args);
+    if (!parseResult.success) {
+      logAudit(name, args, "error");
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: invalid arguments for "${name}": ${parseResult.error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // MCP-side rate limit for write tools (send/delete/modify/drafts/labels/filters).
+    // Trips BEFORE the Gmail API call so a prompt-injected agent cannot burn
+    // through the upstream quota. Read tools are untracked here (Gmail's
+    // per-user-per-second quota handles those at the platform level).
+    try {
+      enforceRateLimit(name);
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        logAudit(name, args, "rate_limited");
+        return {
+          content: [{ type: "text", text: formatRateLimitError(err) }],
+          isError: true,
+        };
+      }
+      throw err;
     }
 
     // Opt-in JSONL audit log (GMAIL_MCP_AUDIT_LOG=/abs/path).
