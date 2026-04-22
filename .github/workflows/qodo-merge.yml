@@ -1,0 +1,98 @@
+name: Qodo Merge (dual reviewer)
+
+# Runs two parallel AI reviews via qodo-ai/pr-agent — one with DeepSeek
+# R1 (reasoner) and one with Gemini 3.1 Pro Preview (thinking mode).
+# Both post under `qodo-ai[bot]` with a distinct `[DeepSeek]` / `[Gemini]`
+# prefix so they can be disambiguated in the UI.
+#
+# Intentional complement to CodeRabbit: triangulates findings with 3
+# independent model families (GPT via CR, DeepSeek R1, Gemini 3.1 Pro)
+# rather than re-reading the same diff with the same lineage.
+# See project_qodo_dual_reviewer_plan.md.
+#
+# Scope: only the /review tool is enabled — /describe would overwrite the
+# author's PR description, /improve produces commitable suggestions which
+# block merges for a solo maintainer (see feedback_coderabbit_no_auto_commit).
+#
+# Reasoning: both models reason natively — DeepSeek R1 has built-in
+# chain-of-thought, Gemini 3.1 Pro Preview runs with thinking mode on
+# by default on Google AI Studio. pr-agent v0.34's `reasoning_effort`
+# config is whitelisted to OpenAI `o3`/`o4-mini` models only
+# (SUPPORT_REASONING_EFFORT_MODELS) and its `litellm.extra_body` hook
+# accepts only `processing_mode`/`service_tier` — no supported path to
+# inject a custom `thinking_level=high` on Gemini here. TODO: revisit
+# when pr-agent adds Gemini 3.x thinking controls natively or when we
+# move to a fork that exposes the litellm thinking_config passthrough.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  # Cancel in-flight runs on push — only the latest commit's review matters.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qodo-deepseek:
+    name: Qodo review (DeepSeek R1)
+    runs-on: ubuntu-latest
+    # Cap at 15 min — a reasoning model call should never take more than
+    # a couple of minutes; anything beyond that is a hung connection
+    # burning runner time.
+    timeout-minutes: 15
+    # Skip drafts (noisy while drafting) and fork PRs (repository secrets
+    # are not exposed to fork PRs — the job would run and fail on empty
+    # DEEPSEEK_API_KEY, creating a red check for no reason).
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - name: PR Agent — DeepSeek R1 (reasoner)
+        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # deepseek-reasoner = R1, explicit chain-of-thought. Slower and
+          # pricier than deepseek-chat but actually reasons through the
+          # diff rather than pattern-matching on surface syntax.
+          CONFIG__MODEL: deepseek/deepseek-reasoner
+          CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-reasoner"]'
+          DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
+          # Default pr_actions excludes `synchronize` → subsequent pushes
+          # would be silently skipped. Include it so each new commit
+          # triggers a fresh review (aligned with the workflow's `on:`).
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
+          # With persistent_comment=true, both jobs detect each other's
+          # comment via the same HTML marker and the second run overwrites
+          # the first — we'd only ever see one of the two reviews. Disable
+          # persistence so each model's review lands in its own comment.
+          PR_REVIEWER__PERSISTENT_COMMENT: "false"
+          # Prefix every review with [DeepSeek] so the two jobs can be
+          # told apart in the PR timeline (both post as qodo-ai[bot]).
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[DeepSeek R1]'."
+
+  qodo-gemini:
+    name: Qodo review (Gemini 3.1 Pro)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - name: PR Agent — Gemini 3.1 Pro Preview (thinking)
+        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFIG__MODEL: gemini/gemini-3.1-pro-preview
+          CONFIG__FALLBACK_MODELS: '["gemini/gemini-3-pro-preview"]'
+          GOOGLE_AI_STUDIO__GEMINI_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
+          PR_REVIEWER__PERSISTENT_COMMENT: "false"
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[Gemini 3.1 Pro]'."
