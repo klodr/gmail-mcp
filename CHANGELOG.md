@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`read_email` now respects Gmail's 102 KB clip threshold** (upstream GongRzhe#33). Previously a multi-MB newsletter body was returned verbatim and blew past the 25k-token MCP response cap, making the tool unusable on Gmail content of that size. The handler now clips the body at 102 KB (104 448 bytes, matching Gmail's own web-UI threshold) and emits the `[Message clipped — N KB more. Gmail clips at 102 KB in its own UI. Call download_email(…) for the full payload …]` marker so an agent has a concrete next step.
+
+  Three new optional parameters on `ReadEmailSchema`:
+  - `format`: `"full"` (default) / `"summary"` (500-byte cap, no attachments) / `"headers_only"` (no body, no attachments).
+  - `maxBodyLength`: byte cap, default `104448` (102 KB), max `1048576` (1 MB), set to `0` to disable. Coerces from stringified digits for strict-JSON clients.
+  - `includeAttachments`: `true` by default; drop the metadata list when you know the message has many attachments and you don't want them in the response.
+
+  Truncation slices on a UTF-8 byte boundary and drops any trailing replacement character so a truncated emoji or accent doesn't leave a stray U+FFFD.
+
 ## [0.9.1] - 2026-04-22
 
 Single focus: move the whole toolchain off Node 20 ahead of its 2026-04-30 Active-LTS exit. Not a feature release — the `dist/index.js` behaviour is unchanged versus 0.9.0.
