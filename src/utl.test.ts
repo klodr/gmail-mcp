@@ -14,7 +14,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createEmailMessage, createEmailWithNodemailer } from "./utl.js";
+import { createEmailMessage, createEmailWithNodemailer, pickBody } from "./utl.js";
 
 // Resolve src directory
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -141,5 +141,57 @@ describe("createEmailWithNodemailer — recipient validation", () => {
         body: "x",
       }),
     ).rejects.toThrow(/Recipient email address is invalid/);
+  });
+});
+
+describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
+  it("picks text when both parts exist and text is substantive", () => {
+    const text = "Hi,\n\nThis is a real plain-text message with paragraphs and detail.\n\nBest,\nBob";
+    const html = "<html><body><p>Same message, HTML wrapped.</p></body></html>";
+    expect(pickBody(text, html)).toEqual({ body: text, source: "text" });
+  });
+
+  it("picks html when only html is provided", () => {
+    expect(pickBody("", "<p>hello</p>")).toEqual({ body: "<p>hello</p>", source: "html" });
+  });
+
+  it("picks text when only text is provided", () => {
+    expect(pickBody("hello", "")).toEqual({ body: "hello", source: "text" });
+  });
+
+  it("returns an empty-source marker when neither is provided", () => {
+    expect(pickBody("", "")).toEqual({ body: "", source: "empty" });
+  });
+
+  it("falls back to html when text is a 'view in browser' placeholder stub", () => {
+    const text = "View this email in your browser";
+    const html = "<html><body>The real content of the newsletter, with full story, links, images, etc.</body></html>";
+    expect(pickBody(text, html)).toEqual({ body: html, source: "html" });
+  });
+
+  it("falls back to html when text matches 'having trouble viewing' pattern", () => {
+    const text = "Having trouble reading this email? Click here.";
+    const html = "<div>Full body goes here</div>";
+    expect(pickBody(text, html).source).toBe("html");
+  });
+
+  it("falls back to html when text is very short and html is 3× longer", () => {
+    const text = "Hi there, see below.";
+    const html = "<p>Hi there,</p><p>The actual much longer message lives here in the HTML part, with all the relevant paragraphs the sender meant to include. Plenty of words to trigger the length heuristic.</p>";
+    expect(pickBody(text, html).source).toBe("html");
+  });
+
+  it("keeps text when it's short but html is not substantially longer (nothing to gain)", () => {
+    const text = "Hi there!";
+    const html = "<p>Hi there!</p>";
+    expect(pickBody(text, html).source).toBe("text");
+  });
+
+  it("does not flag a long text containing a placeholder-like phrase as a stub", () => {
+    // A text > 500 chars containing the phrase is almost certainly a
+    // legitimate body referring to browser view in passing, not a stub.
+    const text = "Hello,\n\n".padEnd(600, "x") + " view this email in your browser if links do not work properly.";
+    const html = "<p>html body</p>";
+    expect(pickBody(text, html).source).toBe("text");
   });
 });

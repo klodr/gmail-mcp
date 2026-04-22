@@ -257,6 +257,59 @@ export function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n\0]/g, "");
 }
 
+// "View this email in your browser" / "Please enable HTML" / similar
+// one-liners that many senders stuff into the text/plain part when the
+// real message is in text/html. Matching is conservative — we only flag
+// a body *shorter than 500 chars* and containing one of these markers.
+const PLACEHOLDER_PATTERNS = [
+  /view\s+(?:this|the)\s+(?:email|message|newsletter)\s+in\s+(?:your|a|the)\s+browser/i,
+  /having\s+trouble\s+(?:viewing|reading)\s+(?:this\s+)?(?:email|message)/i,
+  /can(?:no|')t\s+see\s+(?:this\s+)?(?:email|message)/i,
+  /please\s+enable\s+html/i,
+  /click\s+here\s+to\s+view/i,
+  /trouble\s+viewing\s+this\s+email/i,
+];
+
+function looksLikePlaceholder(text: string): boolean {
+  if (text.length > 500) return false;
+  return PLACEHOLDER_PATTERNS.some((re) => re.test(text));
+}
+
+/**
+ * Choose which body to present to the caller / LLM when Gmail returns
+ * both a text/plain and a text/html alternative.
+ *
+ * Default preference is plain text — smaller token footprint, cleaner
+ * for an LLM to parse. But many senders ship a placeholder stub in the
+ * plain part ("view this email in your browser…") and put the actual
+ * content in HTML; picking text blindly in that case strips the message
+ * down to a single link. Two fall-through rules catch that:
+ *
+ *   - If the text body matches one of the known placeholder patterns
+ *     (short + contains a browser-redirect phrase), fall back to html.
+ *   - If the text body is very short (< 150 chars trimmed) AND the html
+ *     body is at least 3× longer, assume text is a stub and fall back
+ *     to html.
+ *
+ * Returns `{ body, source }` so the caller can annotate the output
+ * with a "[Note: email was HTML-formatted…]" header when we didn't
+ * pick text. Upstream reports this as GongRzhe/Gmail-MCP-Server#87.
+ */
+export function pickBody(text: string, html: string): { body: string; source: "text" | "html" | "empty" } {
+  if (!text && !html) return { body: "", source: "empty" };
+  if (!text) return { body: html, source: "html" };
+  if (!html) return { body: text, source: "text" };
+
+  const trimmedTextLen = text.trim().length;
+  if (looksLikePlaceholder(text)) {
+    return { body: html, source: "html" };
+  }
+  if (trimmedTextLen < 150 && html.length > trimmedTextLen * 3) {
+    return { body: html, source: "html" };
+  }
+  return { body: text, source: "text" };
+}
+
 /**
  * Shape of every validated tool-input that reaches the MIME builders.
  * Matches the subset of fields from SendEmailSchema / ReplyAllSchema /

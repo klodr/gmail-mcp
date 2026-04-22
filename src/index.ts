@@ -22,6 +22,7 @@ import {
   resolveDownloadSavePath,
   getDownloadDir,
   safeWriteFile,
+  pickBody,
   ValidatedEmailArgs,
 } from "./utl.js";
 import {
@@ -765,11 +766,13 @@ async function main() {
           );
           const attachments = extractAttachments(response.data.payload as GmailMessagePart);
 
-          // Use plain text content if available, otherwise use HTML content
-          const body = text || html || "";
+          // Use plain text by default, but fall back to HTML when text is a
+          // placeholder stub ("view in browser…") or suspiciously short
+          // relative to the HTML body. pickBody centralises that heuristic.
+          const { body, source } = pickBody(text, html);
           const contentTypeNote =
-            !text && html
-              ? "[Note: This email is HTML-formatted. Plain text version not available.]\n\n"
+            source === "html"
+              ? "[Note: This email is HTML-formatted. Rendering the HTML body because the plain-text part was empty or a placeholder stub.]\n\n"
               : "";
 
           // Add attachment info to output if any are present
@@ -1493,7 +1496,7 @@ async function main() {
             let body = "";
             if (validatedArgs.format !== "minimal") {
               const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
-              body = text || html || "";
+              body = pickBody(text, html).body;
             }
 
             // Extract attachment metadata
@@ -1686,7 +1689,7 @@ async function main() {
                 const date = headers.find((h) => h.name?.toLowerCase() === "date")?.value || "";
 
                 const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
-                const body = text || html || "";
+                const body = pickBody(text, html).body;
 
                 // Extract attachment metadata
                 const attachments: EmailAttachment[] = [];
