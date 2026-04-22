@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.klodr/gmail-mcp",
+  "description": "Gmail MCP server — scope-gated tools (read-only / send-only / modify) with attachment and download path jails, OAuth credentials hardened to 0o600, supply-chain hardening (Sigstore attestations + SPDX/CycloneDX SBOMs + npm provenance).",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/klodr/gmail-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@klodr/gmail-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "GMAIL_OAUTH_PATH",
+          "description": "Absolute path to the Google OAuth2 client keys file (gcp-oauth.keys.json). Defaults to ~/.gmail-mcp/gcp-oauth.keys.json.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GMAIL_CREDENTIALS_PATH",
+          "description": "Absolute path to the persisted OAuth credentials file (refresh token + granted scopes). Defaults to ~/.gmail-mcp/credentials.json.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GMAIL_MCP_ATTACHMENT_DIR",
+          "description": "Directory from which outgoing attachments may be read. Enforced as a realpath jail (symlinks to outside are rejected). Defaults to ~/GmailAttachments/.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "GMAIL_MCP_DOWNLOAD_DIR",
+          "description": "Directory where downloaded emails and attachments are written. Opens the leaf with O_NOFOLLOW to defeat symlink-based jail escapes. Defaults to ~/GmailDownloads/.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

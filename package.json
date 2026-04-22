@@ -18,7 +18,8 @@
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "version": "node scripts/sync-version.mjs && git add server.json src/index.ts"
   },
   "files": [
     "dist",
