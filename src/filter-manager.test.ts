@@ -36,11 +36,7 @@ describe("createFilter", () => {
   it("posts { criteria, action } to the API verbatim", async () => {
     const { gmail, filters } = mockGmail();
     filters.create.mockResolvedValue({ data: { id: "F1" } });
-    const out = await createFilter(
-      gmail,
-      { from: "alice@example.com" },
-      { addLabelIds: ["L1"] },
-    );
+    const out = await createFilter(gmail, { from: "alice@example.com" }, { addLabelIds: ["L1"] });
     expect(out).toEqual({ id: "F1" });
     expect(filters.create).toHaveBeenCalledWith({
       userId: "me",
@@ -54,9 +50,7 @@ describe("createFilter", () => {
   it("reports a specific message on 400 (invalid filter)", async () => {
     const { gmail, filters } = mockGmail();
     filters.create.mockRejectedValue(apiErr(400, "Invalid criteria"));
-    await expect(createFilter(gmail, {}, {})).rejects.toThrow(
-      /Invalid filter criteria or action/,
-    );
+    await expect(createFilter(gmail, {}, {})).rejects.toThrow(/Invalid filter criteria or action/);
   });
 
   it("wraps other failures generically", async () => {
@@ -103,9 +97,7 @@ describe("getFilter", () => {
   it("reports a specific 'not found' message on 404", async () => {
     const { gmail, filters } = mockGmail();
     filters.get.mockRejectedValue(apiErr(404, "not found"));
-    await expect(getFilter(gmail, "ghost")).rejects.toThrow(
-      /Filter with ID "ghost" not found/,
-    );
+    await expect(getFilter(gmail, "ghost")).rejects.toThrow(/Filter with ID "ghost" not found/);
   });
 
   it("wraps other failures", async () => {
@@ -126,9 +118,7 @@ describe("deleteFilter", () => {
   it("reports a specific 'not found' message on 404", async () => {
     const { gmail, filters } = mockGmail();
     filters.delete.mockRejectedValue(apiErr(404, "not found"));
-    await expect(deleteFilter(gmail, "ghost")).rejects.toThrow(
-      /Filter with ID "ghost" not found/,
-    );
+    await expect(deleteFilter(gmail, "ghost")).rejects.toThrow(/Filter with ID "ghost" not found/);
   });
 
   it("wraps other failures", async () => {

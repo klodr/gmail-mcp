@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vitest.config.ts` now passes `coverage.include: ["src/**/*.ts"]` so untested files appear as 0% in the report instead of being silently omitted.
 - `SECURITY.md` sections documenting OAuth-keys 0o600 guarantee and the no-silent-overwrite behaviour of `safeWriteFile`.
 - README comparison table now includes a **Testing** section (test count + statement coverage across the three forks) and annotates each Node.js floor with its LTS/EOL status.
-- `ROADMAP.md` entry: raising `src/index.ts` coverage (currently 0% — 25 MCP handlers + OAuth callback path) is now a tracked v1.0.0-blocking item.
+- `ROADMAP.md` entry: raising `src/index.ts` coverage (currently 0% — the single `CallToolRequestSchema` dispatcher + its 25 tool cases + the OAuth callback path) is now a tracked v1.0.0-blocking item.
 - `Dockerfile` restored (removed in 0.1.0) alongside a dedicated `docker.yml` CI workflow for container builds; the ROADMAP's Node-22 migration step now pins a Dockerfile digest as part of its scope. `docker-compose.yml` stays out of the repo.
 
 ### Security
