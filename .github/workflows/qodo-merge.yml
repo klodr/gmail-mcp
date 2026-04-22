@@ -1,17 +1,24 @@
 name: Qodo Merge (dual reviewer)
 
 # Runs two parallel AI reviews via qodo-ai/pr-agent — one with DeepSeek
-# (distinct lineage from CodeRabbit's GPT base) and one with Gemini 2.5 Pro
-# (Google US/EU residency). Both post under `qodo-ai[bot]` with a distinct
-# `[DeepSeek]` / `[Gemini]` prefix so they can be disambiguated in the UI.
+# R1 (reasoner) and one with Gemini 3.1 Pro Preview (thinking mode).
+# Both post under `qodo-ai[bot]` with a distinct `[DeepSeek]` / `[Gemini]`
+# prefix so they can be disambiguated in the UI.
 #
 # Intentional complement to CodeRabbit: triangulates findings with 3
-# independent model families (GPT, DeepSeek, Gemini) rather than re-reading
-# the same diff with the same lineage. See project_qodo_dual_reviewer_plan.md.
+# independent model families (GPT via CR, DeepSeek R1, Gemini 3.1 Pro)
+# rather than re-reading the same diff with the same lineage.
+# See project_qodo_dual_reviewer_plan.md.
 #
 # Scope: only the /review tool is enabled — /describe would overwrite the
 # author's PR description, /improve produces commitable suggestions which
 # block merges for a solo maintainer (see feedback_coderabbit_no_auto_commit).
+#
+# Reasoning budget: both models are explicit reasoning models with
+# `CONFIG__REASONING_EFFORT=high` so they spend actual thinking tokens
+# on the diff instead of glancing at it. Takes longer (~40-90s/job) and
+# costs more per review, but that's the whole point of running a second
+# reviewer tier — otherwise we're paying for a glorified grep.
 
 on:
   pull_request:
@@ -29,18 +36,22 @@ concurrency:
 
 jobs:
   qodo-deepseek:
-    name: Qodo review (DeepSeek)
+    name: Qodo review (DeepSeek R1)
     runs-on: ubuntu-latest
     # Skip drafts unless explicitly marked ready; they're noisy and the
     # API cost isn't useful while the PR is still being drafted.
     if: ${{ !github.event.pull_request.draft }}
     steps:
-      - name: PR Agent — DeepSeek
+      - name: PR Agent — DeepSeek R1 (reasoner)
         uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CONFIG__MODEL: deepseek/deepseek-chat
-          CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-chat"]'
+          # deepseek-reasoner = R1, explicit chain-of-thought. Slower and
+          # pricier than deepseek-chat but actually reasons through the
+          # diff rather than pattern-matching on surface syntax.
+          CONFIG__MODEL: deepseek/deepseek-reasoner
+          CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-reasoner"]'
+          CONFIG__REASONING_EFFORT: high
           DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
@@ -56,27 +67,24 @@ jobs:
           PR_REVIEWER__PERSISTENT_COMMENT: "false"
           # Prefix every review with [DeepSeek] so the two jobs can be
           # told apart in the PR timeline (both post as qodo-ai[bot]).
-          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[DeepSeek]'."
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[DeepSeek R1]'."
 
   qodo-gemini:
-    name: Qodo review (Gemini)
+    name: Qodo review (Gemini 3.1 Pro)
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft }}
     steps:
-      - name: PR Agent — Gemini
+      - name: PR Agent — Gemini 3.1 Pro Preview (thinking)
         uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG__MODEL: gemini/gemini-3.1-pro-preview
           CONFIG__FALLBACK_MODELS: '["gemini/gemini-3-pro-preview"]'
+          CONFIG__REASONING_EFFORT: high
           GOOGLE_AI_STUDIO__GEMINI_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
           GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
-          # With persistent_comment=true, both jobs detect each other's
-          # comment via the same HTML marker and the second run overwrites
-          # the first — we'd only ever see one of the two reviews. Disable
-          # persistence so each model's review lands in its own comment.
           PR_REVIEWER__PERSISTENT_COMMENT: "false"
-          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[Gemini]'."
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[Gemini 3.1 Pro]'."
