@@ -42,9 +42,14 @@ jobs:
   qodo-deepseek:
     name: Qodo review (DeepSeek R1)
     runs-on: ubuntu-latest
-    # Skip drafts unless explicitly marked ready; they're noisy and the
-    # API cost isn't useful while the PR is still being drafted.
-    if: ${{ !github.event.pull_request.draft }}
+    # Cap at 15 min — a reasoning model call should never take more than
+    # a couple of minutes; anything beyond that is a hung connection
+    # burning runner time.
+    timeout-minutes: 15
+    # Skip drafts (noisy while drafting) and fork PRs (repository secrets
+    # are not exposed to fork PRs — the job would run and fail on empty
+    # DEEPSEEK_API_KEY, creating a red check for no reason).
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: PR Agent — DeepSeek R1 (reasoner)
         uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
@@ -75,7 +80,8 @@ jobs:
   qodo-gemini:
     name: Qodo review (Gemini 3.1 Pro)
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
+    timeout-minutes: 15
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: PR Agent — Gemini 3.1 Pro Preview (thinking)
         uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
