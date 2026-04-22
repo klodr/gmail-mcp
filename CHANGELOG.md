@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Outgoing `From:` header now carries the display name** (upstream GongRzhe#77). When the caller doesn't pass an explicit `from`, `send_email` / `draft_email` / `reply_all` resolved it to the literal string `"me"` which Gmail accepts on the envelope side but renders as a bare email address in the recipient's inbox — `bob@example.com` instead of `Bob Smith <bob@example.com>`.
+
+  The new `src/sender-resolver.ts` module resolves a proper `"DisplayName <email>"` once per process via `users.settings.sendAs.list` (falls back to `users.getProfile` on `gmail.send`-only scope, then to the old `"me"` sentinel as a last resort). Result is cached across sends; the `"me"` sentinel is intentionally NOT cached so a process that re-auths to a broader scope picks up the display name on the next send without restart.
+
 ## [0.9.1] - 2026-04-22
 
 Single focus: move the whole toolchain off Node 20 ahead of its 2026-04-30 Active-LTS exit. Not a feature release — the `dist/index.js` behaviour is unchanged versus 0.9.0.
