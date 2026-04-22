@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/klodr/gmail-mcp/security/advisories/new
+    about: Do NOT open a public issue for security findings. Use the private advisory channel — the maintainer acknowledges within 48h.
+  - name: Install guide for AI agents
+    url: https://github.com/klodr/gmail-mcp/blob/main/llms-install.md
+    about: Before filing a setup bug, make sure the LLM-readable install guide was followed.
+  - name: Scope / OAuth question
+    url: https://github.com/klodr/gmail-mcp#oauth-scopes
+    about: The README documents which tools each Gmail scope unlocks.

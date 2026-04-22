@@ -1,0 +1,93 @@
+name: Bug report
+description: Something is not working as expected in the MCP server.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Before you submit, please
+        make sure the report does not contain any secrets
+        (`gcp-oauth.keys.json`, `credentials.json`, OAuth refresh tokens,
+        message bodies). Redact them if they appear in your logs or config
+        snippets.
+
+        Security vulnerabilities — DO NOT file them here. Report privately
+        at https://github.com/klodr/gmail-mcp/security/advisories/new.
+
+  - type: input
+    id: version
+    attributes:
+      label: MCP server version
+      description: "Output of `npx @klodr/gmail-mcp --version` or the version in your `package.json`."
+      placeholder: "e.g. 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: "Output of `node --version`. The project requires ≥ 20.11."
+      placeholder: "e.g. v20.11.1"
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: MCP client
+      description: "Which client is consuming the server?"
+      placeholder: "e.g. Claude Desktop 0.7, Claude Code, Cursor, Continue, OpenClaw…"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scopes
+    attributes:
+      label: OAuth scopes granted
+      description: "From the `auth` step — check all that apply."
+      multiple: true
+      options:
+        - gmail.readonly
+        - gmail.modify
+        - gmail.compose
+        - gmail.send
+        - gmail.labels
+        - gmail.settings.basic
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+      placeholder: "e.g. calling `send_email` with a valid attachment path returns a message ID."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include the exact error message if there is one.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Exact tool call payload or shell command, with secrets redacted.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: stderr output from the MCP server or the MCP client's console. Redact any OAuth tokens.
+      render: text
+    validations:
+      required: false
