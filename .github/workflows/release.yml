@@ -67,6 +67,14 @@ jobs:
         env:
           NODE_ENV: production
 
+      # npm ci above runs without NODE_ENV=production, so it installs the
+      # devDependencies we need to build. Now that dist/index.js is ready,
+      # prune them so the SBOM reflects the RUNTIME dependency tree, not
+      # the build toolchain — otherwise downstream scanners flag tsup /
+      # typescript / vitest CVEs that can't reach a consumer's process.
+      - name: Prune devDependencies before SBOM generation
+        run: npm prune --omit=dev
+
       # Extract the CHANGELOG section for this version. Fail fast if missing,
       # so we never publish a version with no notes.
       - name: Extract changelog section for ${{ github.ref_name }}
@@ -123,7 +131,46 @@ jobs:
         with:
           subject-path: dist/index.js
 
-      - name: Attach signed artifacts to the GitHub Release
+      # SBOMs of the runtime dependency tree (devDependencies pruned above).
+      # syft walks the lockfile + node_modules and produces SPDX (json) +
+      # CycloneDX (json) — both shipped so downstream consumers can pick
+      # whichever their scanner speaks.
+      - name: Generate SPDX SBOM (SPDX 2.3 JSON)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate CycloneDX SBOM (1.6 JSON)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/sbom.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      # Sign both SBOMs with Sigstore (keyless, via GitHub OIDC) so
+      # downstream consumers can prove the SBOM came from THIS
+      # release-on-this-repo, not a trojaned copy. We use actions/attest
+      # (the direct action) — actions/attest-sbom is now a deprecated
+      # compatibility wrapper per GitHub's own docs.
+      - name: Sign SPDX SBOM attestation
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: dist/index.js
+          sbom-path: dist/sbom.spdx.json
+
+      - name: Sign CycloneDX SBOM attestation
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: dist/index.js
+          sbom-path: dist/sbom.cdx.json
+
+      - name: Attach signed artifacts + SBOMs to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -131,6 +178,8 @@ jobs:
         run: |
           test -n "${BUNDLE_PATH:-}" || { echo "Missing attestation bundle-path output"; exit 1; }
           test -f "$BUNDLE_PATH" || { echo "Bundle file not found: $BUNDLE_PATH"; exit 1; }
+          test -f dist/sbom.spdx.json || { echo "SPDX SBOM missing"; exit 1; }
+          test -f dist/sbom.cdx.json || { echo "CycloneDX SBOM missing"; exit 1; }
           # The Sigstore bundle (.sigstore) satisfies Scorecard's "signed" check (8/10).
           cp "$BUNDLE_PATH" dist/index.js.sigstore
           # The DSSE envelope inside the bundle IS the SLSA in-toto attestation.
@@ -147,10 +196,17 @@ jobs:
             dist/index.js \
             dist/index.js.sigstore \
             dist/index.js.intoto.jsonl \
+            dist/sbom.spdx.json \
+            dist/sbom.cdx.json \
             --repo "${{ github.repository }}" \
             --clobber
 
+      # --ignore-scripts: `npm prune --omit=dev` above removed tsc + tsup,
+      # which would break the `prepublishOnly: npm run build` lifecycle
+      # hook if npm publish re-ran it here. The explicit build earlier in
+      # this job already produced a fresh dist/, so skipping lifecycle
+      # scripts at publish time is safe and correct.
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
