@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  closeSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SENSITIVE_KEYS, logAudit, redactSensitive } from "./audit-log.js";
@@ -100,9 +108,20 @@ describe("audit-log logAudit", () => {
     const path = join(tmpDir, "audit.jsonl");
     process.env.GMAIL_MCP_AUDIT_LOG = path;
     logAudit("send_email", { to: ["a@b.com"], access_token: "secret" }, "ok");
-    const stat = statSync(path);
-    expect(stat.mode & 0o777).toBe(0o600);
-    const content = readFileSync(path, "utf8");
+    // Open once and run both fstat + read via the same file descriptor
+    // so CodeQL's TOCTOU check is satisfied (no window between the mode
+    // check and the content read where the file could be swapped).
+    const fd = openSync(path, "r");
+    let content: string;
+    try {
+      const stat = fstatSync(fd);
+      expect(stat.mode & 0o777).toBe(0o600);
+      const buf = Buffer.alloc(stat.size);
+      readSync(fd, buf, 0, stat.size, 0);
+      content = buf.toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
     const entries = content.trim().split("\n");
     expect(entries).toHaveLength(1);
     const first = entries[0];
