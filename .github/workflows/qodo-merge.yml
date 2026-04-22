@@ -45,6 +45,10 @@ jobs:
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
+          # Default pr_actions excludes `synchronize` → subsequent pushes
+          # would be silently skipped. Include it so each new commit
+          # triggers a fresh review (aligned with the workflow's `on:`).
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
           # Prefix every review with [DeepSeek] so the two jobs can be
           # told apart in the PR timeline (both post as qodo-ai[bot]).
           PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[DeepSeek]'."
@@ -64,4 +68,5 @@ jobs:
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
           PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[Gemini]'."
