@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tool arguments now tolerate JSON-stringified values from strict-JSON MCP clients** (upstream GongRzhe#95 / #96). Some MCP clients — the Claude Code SDK is the one the upstream issues are written against — serialize tool parameters strictly as JSON, so an `array` field arrives as the literal string `'["a","b"]'` and a `number` field as the digit string `"10"`. Bare `z.array(...)` / `z.number()` schemas then reject the call with "Expected array, received string" and the tool becomes unusable from that client.
+
+  Every array-typed field (`to` / `cc` / `bcc` / `attachments` / `labelIds` / `addLabelIds` / `removeLabelIds` / `messageIds` across send, modify, batch-modify, batch-delete) now accepts either a native array or a JSON-stringified array literal (the string must start with `[` to trigger the `JSON.parse` fast-path — a plain comma-separated list like `"foo,bar"` still surfaces Zod's "expected: array" error, which is more useful to the caller than an opaque "Unexpected token" from a parse attempt). Every numeric field (`maxResults`, `batchSize`, `size`, `sizeInBytes`) now uses `z.coerce.number()` which accepts stringified digits natively in Zod 4.
+
+  Regression tests in `src/tools-coercion.test.ts` pin the new behaviour so a future refactor dropping the helpers back to `z.array(...)` / `z.number()` fails immediately.
+
 ## [0.9.1] - 2026-04-22
 
 Single focus: move the whole toolchain off Node 20 ahead of its 2026-04-30 Active-LTS exit. Not a feature release — the `dist/index.js` behaviour is unchanged versus 0.9.0.
