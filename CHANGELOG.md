@@ -20,7 +20,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 - **Attachment jail** (`GMAIL_MCP_ATTACHMENT_DIR`, default `~/GmailAttachments/`, mode `0o700`). Every attachment path passed to `send_email` / `draft_email` / `reply_all` is `realpath`-canonicalized and rejected if it escapes the jail. Symlink-to-outside is rejected. Closes the headline prompt-injection exfiltration vector (a crafted inbound email instructing the agent to attach `~/.ssh/id_rsa` etc.).
 - **Download jail** (`GMAIL_MCP_DOWNLOAD_DIR`, default `~/GmailDownloads/`, mode `0o700`). `download_email` and `download_attachment` write exclusively inside this directory. The leaf is opened with `O_NOFOLLOW` so a pre-existing symlink at the destination cannot be used to escape. Post-`mkdir` the resolved path is re-verified against the jail root (TOCTOU defense).
-- **Per-bucket write rate limiter** (`GMAIL_MCP_RATE_LIMIT_<bucket>=D/day,M/month`, kill-switch `GMAIL_MCP_RATE_LIMIT_DISABLE=true`). Defaults: `send` 400/6000, `delete` 200/2000, `modify` 500/5000, `drafts` 300/3000, `labels` 50/500, `filters` 20/200. State persisted in `GMAIL_MCP_STATE_DIR/ratelimit.json` (mode `0o600`). The retry-after value is computed via `Math.min` over the window to stay correct across concurrent processes.
+- **Outbound email cap** — `send_email` (and the `reply_all` variant) is now hard-limited to **400 emails/day and 6000/month per install**. An attempt beyond the cap is rejected locally with a `retry_after` hint rather than ever reaching Gmail, so a prompt-injected agent cannot quietly burn the account's Gmail send quota (2000/day for standard accounts, 500/day for trial) before the operator notices.
+- **Per-bucket write rate limiter** (`GMAIL_MCP_RATE_LIMIT_<bucket>=D/day,M/month`, kill-switch `GMAIL_MCP_RATE_LIMIT_DISABLE=true`). The send cap above is the headline case; the full default matrix is `send` 400/6000, `delete` 200/2000, `modify` 500/5000, `drafts` 300/3000, `labels` 50/500, `filters` 20/200 — every write verb has its own bucket so a loop on one doesn't eat the budget of another. State persisted in `GMAIL_MCP_STATE_DIR/ratelimit.json` (mode `0o600`). The retry-after value is computed via `Math.min` over the window to stay correct across concurrent processes.
 - **Opt-in redacted JSONL audit log** (`GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl`, mode `0o600`). Every tool call is appended with redacted args; keys on an allowlist pass through, everything else is elided with a length marker, credentials are replaced with `[REDACTED]`. Off by default.
 - **Zod schema bounds**: `SearchEmailsSchema.maxResults` ≤ 500, `ListInboxThreadsSchema.maxResults` ≤ 500, `GetInboxWithThreadsSchema.maxResults` ≤ 500 (≤ 100 when `expandThreads=true`), `Batch*EmailsSchema.messageIds` ≤ 1000, `Batch*EmailsSchema.batchSize` ≤ 100. Blocks resource-exhaustion requests.
 - **`GmailIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/)`** applied to every Gmail ID field (`messageId`, `threadId`, `labelId`, `attachmentId`, `filterId`, array variants) in `src/tools.ts`. Blocks megabyte-sized IDs that would burn a round-trip and leak their prefix through the batch-error logger.
@@ -37,22 +38,24 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 #### Supply-chain & release
 
 - **Sigstore-signed `dist/index.js` + SLSA in-toto attestation** on every release tag; npm publishes with provenance.
+- **SBOMs on every release**: SPDX 2.3 and CycloneDX 1.5, each uploaded as a Sigstore bundle so auditors can verify the bill-of-materials came from this repo's release workflow and nothing else.
 - **Single-file `tsup` ESM bundle** — smaller tarball, easier Sigstore verification than a `tsc` tree.
 - **OpenSSF Scorecard** weekly scan + badge.
 - **Socket Security** supply-chain alerts on every PR.
 - **CodeRabbit** assertive reviews on every PR.
 - **Qodo Merge dual reviewer** workflow — `qodo-ai/pr-agent@v0.34` pinned by SHA, two parallel jobs running DeepSeek R1 (reasoner) + Gemini 3.1 Pro Preview (thinking). Triangulates CR's GPT lineage with two independent model families. Skips drafts and fork PRs; 15-min timeout; `persistent_comment=false` so each model's review lands in its own comment.
 - **CodeQL Advanced** (`javascript-typescript` + `actions` categories).
+- **Dependabot** watching `npm` and `github-actions` ecosystems.
 - **Shell-injection-safe GitHub Actions workflows** across the board.
 - **Docker build workflow** (`docker.yml`) — `Dockerfile` kept in-tree alongside the `npx` install path; the ROADMAP's Node-22 migration step pins a Dockerfile digest as part of its scope.
-- `.github/FUNDING.yml` (GitHub Sponsors, Patreon, Ko-fi) and matching README badges.
+- `CODEOWNERS`, issue and pull-request templates, `.github/FUNDING.yml` (GitHub Sponsors, Patreon, Ko-fi), matching README badges.
 
 #### Test surface
 
-- Unit and property tests for `gmail-errors.ts`, `scopes.ts`, `label-manager.ts`, `filter-manager.ts`, `rate-limit.ts`, `audit-log.ts`, `prompts.ts`. 260+ tests, statement coverage across `src/**` at **>42%** (floor, not exact).
+- **Statement coverage more than doubled vs. the parent fork**: 16.14% on `ArtyMcLabin/Gmail-MCP-Server` (97 tests) → **>42%** here (260+ tests), and the absolute number moves in lock-step — `vitest.config.ts` now forces `coverage.include: ["src/**/*.ts"]` so untested files register as 0% instead of being silently excluded by v8 and inflating the headline number.
+- Unit and property tests added for `gmail-errors.ts`, `scopes.ts`, `label-manager.ts`, `filter-manager.ts`, `rate-limit.ts`, `audit-log.ts`, `prompts.ts`.
 - **Fast-check property-based fuzz suite** on the redaction / sanitizer paths.
 - **Hardening-specific test file** covering jails, CRLF, `O_EXCL` / `O_NOFOLLOW`, boundary crypto.
-- `vitest.config.ts` now passes `coverage.include: ["src/**/*.ts"]` so untested files appear as 0% in the report instead of being silently omitted by v8.
 - TOCTOU-safe file reads in rate-limit + audit-log tests via `openSync + fstatSync + readSync` on a single fd (closes a CodeQL class).
 
 #### Documentation
