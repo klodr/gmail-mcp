@@ -467,13 +467,24 @@ async function main() {
   // the client a programmatic path to prompt the user to re-auth.
   // Fire-and-forget: the check must not delay `server.connect()`.
   oauth2Client.getAccessToken().catch((err: unknown) => {
-    /* v8 ignore next 4 -- requires a live OAuth2Client with a
-       revoked refresh token to exercise; the same code path is
-       covered by isInvalidGrantError / buildInvalidGrantPayload
-       unit tests in src/gmail-errors.test.ts. */
+    /* v8 ignore next 8 -- requires a live OAuth2Client exercising
+       either a revoked refresh token or a transient transport
+       failure to fire; the invalid_grant path is covered by
+       isInvalidGrantError / buildInvalidGrantPayload unit tests in
+       src/gmail-errors.test.ts, the fallback log is plain
+       console.error with no branching logic worth asserting. */
     if (isInvalidGrantError(err)) {
       const payload = buildInvalidGrantPayload(CREDENTIALS_PATH);
       console.error(`[startup] ${payload.code}: ${payload.recovery_action}`);
+    } else {
+      // Non-invalid_grant errors (network failure, transient DNS,
+      // malformed credentials file surviving the JSON parse) are not
+      // fatal — the first real tool call will surface them through
+      // the CallToolRequestSchema catch block — but we log here so
+      // they show up at boot alongside the invalid_grant case
+      // rather than being silently swallowed (CR #51).
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[startup] getAccessToken probe failed: ${msg}`);
     }
   });
 
