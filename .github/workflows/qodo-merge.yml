@@ -78,12 +78,13 @@ jobs:
     if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: PR Agent — DeepSeek R1 (reasoner)
-        # klodr fork of qodo-ai/pr-agent v0.34 with one extra commit:
-        # `comment_tag` setting → each job gets its own persistent
-        # comment instead of both overwriting the same marker.
-        # Builds from source (action.yaml pins Dockerfile.github_action)
-        # so the patch is actually executed.
-        uses: klodr/pr-agent@57cd617bbfbbf2e8fd86b894b7e340e96735f1ea
+        # klodr fork of qodo-ai/pr-agent v0.34 adding a `comment_tag`
+        # setting (case-insensitive lookup so Dynaconf's uppercase
+        # env-var storage resolves correctly) → each job gets its own
+        # persistent comment instead of both overwriting the same
+        # marker. Builds from source (action.yaml pins
+        # Dockerfile.github_action) so the patch is actually executed.
+        uses: klodr/pr-agent@61a87db63855a6eea29684de1b0c9e894223cbb5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # deepseek-reasoner = R1, explicit chain-of-thought. Slower and
@@ -105,7 +106,7 @@ jobs:
     if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: PR Agent — Gemini 3.1 Pro Preview (thinking)
-        uses: klodr/pr-agent@57cd617bbfbbf2e8fd86b894b7e340e96735f1ea
+        uses: klodr/pr-agent@61a87db63855a6eea29684de1b0c9e894223cbb5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG__MODEL: gemini/gemini-3.1-pro-preview
