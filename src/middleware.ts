@@ -18,6 +18,7 @@
  */
 import { type AuditResult, logAudit } from "./audit-log.js";
 import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
+import { sanitizeForLlm } from "./sanitize.js";
 
 /**
  * Tool-handler response shape — local subset of the SDK's `CallToolResult`
@@ -57,6 +58,26 @@ export type ToolResult = {
  * against the two remaining failure paths inside `logAudit`:
  * `JSON.stringify` on a circular `args` shape and the date formatter.
  */
+/**
+ * Defense-in-depth fence on every text content item emitted by a tool
+ * handler. Gmail responses carry attacker-controllable fields (subject,
+ * body, snippet, display names, attachment filenames) that land verbatim
+ * in the agent's context window. Strips control/zero-width characters
+ * and wraps the payload in `<untrusted-tool-output>` so the LLM treats
+ * it as DATA, not instructions — see `src/sanitize.ts` for rationale.
+ *
+ * Only `type: "text"` items are rewritten; non-text content (images,
+ * resources) flows through unchanged.
+ */
+function sanitizeToolResult(result: ToolResult): ToolResult {
+  return {
+    ...result,
+    content: result.content.map((item) =>
+      item.type === "text" ? { ...item, text: sanitizeForLlm(item.text) } : item,
+    ),
+  };
+}
+
 function safeLogAudit(name: string, args: unknown, result: AuditResult): void {
   try {
     logAudit(name, args, result);
@@ -106,10 +127,10 @@ export async function wrapToolHandler(
   } catch (err) {
     if (err instanceof RateLimitError) {
       safeLogAudit(name, args, "rate_limited");
-      return {
+      return sanitizeToolResult({
         content: [{ type: "text", text: formatRateLimitError(err) }],
         isError: true,
-      };
+      });
     }
     // Non-RateLimitError: defensive path (enforceRateLimit only
     // throws RateLimitError today, but if a future regression
@@ -134,7 +155,7 @@ export async function wrapToolHandler(
     // #48 — the prior inline audit at src/index.ts:1948 only saw
     // "error" on throws, missing the isError:true returns).
     if (result.isError) auditResult = "error";
-    return result;
+    return sanitizeToolResult(result);
   } catch (err) {
     auditResult = "error";
     throw err;
