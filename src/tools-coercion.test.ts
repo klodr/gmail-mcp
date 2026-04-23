@@ -90,3 +90,42 @@ describe("Schema coercion — JSON-stringified numbers are accepted", () => {
     expect(r.maxResults).toBe(10);
   });
 });
+
+describe("Schema coercion — non-string, non-number inputs are rejected (Qodo #40)", () => {
+  // `z.coerce.number()` is too permissive: it turns `true → 1`, `false → 0`,
+  // `null → 0`, `[] → 0`, which silently swallows malformed JSON from a
+  // loosely-typed caller. The `coerceInt` helper narrows coercion to the
+  // string-encoded-integer case only; every other type falls through to
+  // `z.number().int()` and is rejected.
+  it("boolean true is rejected (does NOT silently become 1)", () => {
+    expect(() =>
+      SearchEmailsSchema.parse({ query: "x", maxResults: true as unknown as number }),
+    ).toThrow(/"expected":\s*"number"/);
+  });
+
+  it("boolean false is rejected (does NOT silently become 0)", () => {
+    expect(() =>
+      SearchEmailsSchema.parse({ query: "x", maxResults: false as unknown as number }),
+    ).toThrow(/"expected":\s*"number"/);
+  });
+
+  it("null is rejected (does NOT silently become 0)", () => {
+    expect(() =>
+      SearchEmailsSchema.parse({ query: "x", maxResults: null as unknown as number }),
+    ).toThrow(/"expected":\s*"number"/);
+  });
+
+  it("empty array is rejected", () => {
+    expect(() =>
+      SearchEmailsSchema.parse({ query: "x", maxResults: [] as unknown as number }),
+    ).toThrow();
+  });
+
+  it("empty string is rejected", () => {
+    expect(() => SearchEmailsSchema.parse({ query: "x", maxResults: "" })).toThrow();
+  });
+
+  it("non-numeric string is rejected", () => {
+    expect(() => SearchEmailsSchema.parse({ query: "x", maxResults: "abc" })).toThrow();
+  });
+});

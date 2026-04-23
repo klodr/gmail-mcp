@@ -45,9 +45,36 @@ const coerceArray = <T extends z.ZodTypeAny>(inner: T, opts?: { max?: number }) 
   return z.preprocess(coerceArrayPreprocess, arr);
 };
 
-// `z.coerce.number()` returns a ZodNumber; wrap it so the call sites stay
-// readable: `coerceInt().min(1).max(500)` reads like the old idiom.
-const coerceInt = () => z.coerce.number().int();
+// Scoped integer coercion. `z.coerce.number()` is too permissive — it
+// converts `true → 1`, `false → 0`, `null → 0`, `[] → 0`, which silently
+// accepts malformed JSON from a loosely-typed caller. We only want to
+// rescue string-encoded integers from strict-JSON clients (Claude Code
+// SDK), not cross the type barrier.
+//
+// Preprocess passes numbers through untouched, coerces strings that
+// parse as finite numbers, and leaves every other type alone so the
+// inner `z.number().int()` rejects it with the expected "Expected
+// number" error rather than silently widening.
+//
+// Bounds are declared via the options bag (same pattern as coerceArray)
+// because `z.preprocess(fn, z.number().int())` returns a ZodPipe whose
+// `.min()` / `.max()` are not directly chainable.
+const coerceIntPreprocess = (val: unknown): unknown => {
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed === "") return val;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : val;
+  }
+  return val;
+};
+
+const coerceInt = (opts?: { min?: number; max?: number }) => {
+  let inner = z.number().int();
+  if (opts?.min !== undefined) inner = inner.min(opts.min);
+  if (opts?.max !== undefined) inner = inner.max(opts.max);
+  return z.preprocess(coerceIntPreprocess, inner);
+};
 
 // Schema definitions
 export const SendEmailSchema = z.object({
@@ -100,11 +127,7 @@ export const ReadEmailSchema = z.object({
     .describe(
       "Response depth: 'full' (default — headers + body + attachment list), 'summary' (headers + first 500 bytes of body, no attachments), 'headers_only' (no body, no attachments). Pick the lightest format that answers your question to keep the conversation's context budget for other calls.",
     ),
-  maxBodyLength: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(1_048_576)
+  maxBodyLength: coerceInt({ min: 0, max: 1_048_576 })
     .optional()
     .default(GMAIL_CLIP_BYTES)
     .describe(
@@ -121,9 +144,7 @@ export const ReadEmailSchema = z.object({
 
 export const SearchEmailsSchema = z.object({
   query: z.string().describe("Gmail search query (e.g., 'from:example@gmail.com')"),
-  maxResults: coerceInt()
-    .min(1)
-    .max(500)
+  maxResults: coerceInt({ min: 1, max: 500 })
     .optional()
     .describe("Maximum number of results to return (1-500, default 10)"),
 });
@@ -204,9 +225,7 @@ export const BatchModifyEmailsSchema = z.object({
   removeLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from all messages"),
-  batchSize: coerceInt()
-    .min(1)
-    .max(100)
+  batchSize: coerceInt({ min: 1, max: 100 })
     .optional()
     .default(50)
     .describe("Messages per batch (1-100, default 50)"),
@@ -216,9 +235,7 @@ export const BatchDeleteEmailsSchema = z.object({
   messageIds: coerceArray(GmailIdSchema, { max: 1000 }).describe(
     "List of message IDs to delete (max 1000 per call)",
   ),
-  batchSize: coerceInt()
-    .min(1)
-    .max(100)
+  batchSize: coerceInt({ min: 1, max: 100 })
     .optional()
     .default(50)
     .describe("Messages per batch (1-100, default 50)"),
@@ -362,9 +379,7 @@ export const ListInboxThreadsSchema = z.object({
     .optional()
     .default("in:inbox")
     .describe("Gmail search query (default: 'in:inbox')"),
-  maxResults: coerceInt()
-    .min(1)
-    .max(500)
+  maxResults: coerceInt({ min: 1, max: 500 })
     .optional()
     .default(50)
     .describe("Maximum number of threads to return (1-500, default 50)"),
@@ -377,9 +392,7 @@ export const GetInboxWithThreadsSchema = z
       .optional()
       .default("in:inbox")
       .describe("Gmail search query (default: 'in:inbox')"),
-    maxResults: coerceInt()
-      .min(1)
-      .max(500)
+    maxResults: coerceInt({ min: 1, max: 500 })
       .optional()
       .default(50)
       .describe(
