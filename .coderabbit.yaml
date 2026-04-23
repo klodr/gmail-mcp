@@ -58,6 +58,19 @@ reviews:
     # review counts — the bot cannot auto-approve around them.
     override_requested_reviewers_only: true
 
+  # CodeRabbit's "Generate unit tests (beta)" finishing-touch adds
+  # interactive checkboxes to review comments that, when clicked, open
+  # a sub-PR or commit generated tests to the current branch. On a
+  # solo-maintainer repo where every commit must be authored by the
+  # human signing under DCO (the `Signed-off-by:` trailer is added via
+  # a global `prepare-commit-msg` hook), bot-authored test commits
+  # break the sign-off chain and put a second contributor identity on
+  # the branch that has to be cleaned up. Disable at config level so
+  # reviewers aren't tempted to click the checkbox.
+  finishing_touches:
+    unit_tests:
+      mode: disabled
+
   path_instructions:
     - path: "src/tools.ts"
       instructions: |
