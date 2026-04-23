@@ -139,3 +139,69 @@ describe("Schema coercion — non-string, non-number inputs are rejected (Qodo #
     expect(() => SearchEmailsSchema.parse({ query: "x", maxResults: "abc" })).toThrow();
   });
 });
+
+describe("FilePathSchema — attachment path hardening (CR #40 outside-diff)", () => {
+  // The attachment jail in src/utl.ts does the load-bearing realpath check,
+  // but FilePathSchema rejects the degenerate shapes at the Zod layer so
+  // downstream filename logs can't carry CRLF/NUL injection.
+  it("accepts a normal absolute path", () => {
+    const r = SendEmailSchema.parse({
+      to: ["a@example.com"],
+      subject: "x",
+      body: "y",
+      attachments: ["/Users/me/GmailAttachments/file.pdf"],
+    });
+    expect(r.attachments).toEqual(["/Users/me/GmailAttachments/file.pdf"]);
+  });
+
+  it("rejects an empty string path", () => {
+    expect(() =>
+      SendEmailSchema.parse({ to: ["a@example.com"], subject: "x", body: "y", attachments: [""] }),
+    ).toThrow();
+  });
+
+  it("rejects a path containing a NUL byte", () => {
+    expect(() =>
+      SendEmailSchema.parse({
+        to: ["a@example.com"],
+        subject: "x",
+        body: "y",
+        attachments: ["/tmp/evil\x00.pdf"],
+      }),
+    ).toThrow(/NUL or newline/);
+  });
+
+  it("rejects a path containing CR", () => {
+    expect(() =>
+      SendEmailSchema.parse({
+        to: ["a@example.com"],
+        subject: "x",
+        body: "y",
+        attachments: ["/tmp/inject\rHeader: value.pdf"],
+      }),
+    ).toThrow(/NUL or newline/);
+  });
+
+  it("rejects a path containing LF", () => {
+    expect(() =>
+      SendEmailSchema.parse({
+        to: ["a@example.com"],
+        subject: "x",
+        body: "y",
+        attachments: ["/tmp/inject\nHeader: value.pdf"],
+      }),
+    ).toThrow(/NUL or newline/);
+  });
+
+  it("rejects an absurdly long path (>4096 chars)", () => {
+    const longPath = "/tmp/" + "a".repeat(4100);
+    expect(() =>
+      SendEmailSchema.parse({
+        to: ["a@example.com"],
+        subject: "x",
+        body: "y",
+        attachments: [longPath],
+      }),
+    ).toThrow();
+  });
+});
