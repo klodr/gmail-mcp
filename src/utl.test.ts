@@ -183,6 +183,17 @@ describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
     expect(pickBody(text, html).source).toBe("html");
   });
 
+  it("falls back to html on smart-apostrophe `can't` placeholder (U+2019)", () => {
+    // Regression: many senders render the plain-text stub using the
+    // Unicode right single quotation mark (U+2019 — "smart apostrophe")
+    // instead of the ASCII `'`. The PLACEHOLDER_PATTERNS regex must
+    // accept both, or the heuristic silently lets a single-line stub
+    // through.
+    const text = "Can’t see this email? Click the link.";
+    const html = "<p>actual body</p>";
+    expect(pickBody(text, html).source).toBe("html");
+  });
+
   it("falls back to html when text is very short and html is 3× longer", () => {
     const text = "Hi there, see below.";
     const html =
