@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.klodr/gmail-mcp",
   "description": "Gmail MCP server — scope-gated tools (read-only / send-only / modify) with attachment and download path jails, OAuth credentials hardened to 0o600, supply-chain hardening (Sigstore attestations + SPDX/CycloneDX SBOMs + npm provenance).",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "repository": {
     "url": "https://github.com/klodr/gmail-mcp",
     "source": "github"
@@ -11,7 +11,7 @@
     {
       "registryType": "npm",
       "identifier": "@klodr/gmail-mcp",
-      "version": "0.9.1",
+      "version": "0.9.2",
       "transport": {
         "type": "stdio"
       },
