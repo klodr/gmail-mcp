@@ -64,6 +64,16 @@ describe("Schema coercion — JSON-stringified arrays are accepted", () => {
       /"expected":\s*"array"/,
     );
   });
+
+  it("array-looking but malformed JSON strings pass through on parse failure", () => {
+    // Covers the `catch { return val; }` path in coerceArrayPreprocess:
+    // the string starts with `[` so JSON.parse is attempted, it throws,
+    // preprocess returns the original string, and z.array() surfaces
+    // the cleaner "expected: array" error rather than a raw parse error.
+    expect(() => SendEmailSchema.parse({ to: "[broken", subject: "x", body: "y" })).toThrow(
+      /"expected":\s*"array"/,
+    );
+  });
 });
 
 describe("Schema coercion — JSON-stringified numbers are accepted", () => {
