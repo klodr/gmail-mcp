@@ -55,7 +55,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=22.11"
+    "node": ">=22.22"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
