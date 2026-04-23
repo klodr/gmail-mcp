@@ -25,7 +25,11 @@ function mockGmail(opts: {
               throw e;
             }
             return {
-              data: { sendAs: (opts.sendAs ?? null) as SenderResolverGmailClient extends infer _ ? never : never },
+              data: {
+                sendAs: (opts.sendAs ?? null) as SenderResolverGmailClient extends infer _
+                  ? never
+                  : never,
+              },
             } as unknown as Awaited<
               ReturnType<SenderResolverGmailClient["users"]["settings"]["sendAs"]["list"]>
             >;

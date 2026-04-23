@@ -30,12 +30,14 @@ export interface SenderResolverGmailClient {
       sendAs: {
         list: (params: { userId: string }) => Promise<{
           data: {
-            sendAs?: {
-              sendAsEmail?: string | null;
-              displayName?: string | null;
-              isDefault?: boolean | null;
-              isPrimary?: boolean | null;
-            }[] | null;
+            sendAs?:
+              | {
+                  sendAsEmail?: string | null;
+                  displayName?: string | null;
+                  isDefault?: boolean | null;
+                  isPrimary?: boolean | null;
+                }[]
+              | null;
           };
         }>;
       };
