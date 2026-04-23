@@ -85,8 +85,38 @@ export const SendEmailSchema = z.object({
     .describe("List of file paths to attach to the email"),
 });
 
+// Gmail's own web UI clips message bodies at ~102 KB of combined text/HTML
+// (images excluded). Matching that threshold means the LLM sees the same
+// payload a human opening the message would see — identical UX. The
+// `[Message clipped]` marker we emit matches Gmail's own label verbatim.
+const GMAIL_CLIP_BYTES = 102 * 1024; // 104_448
+
 export const ReadEmailSchema = z.object({
   messageId: GmailIdSchema.describe("ID of the email message to retrieve"),
+  format: z
+    .enum(["full", "summary", "headers_only"])
+    .optional()
+    .default("full")
+    .describe(
+      "Response depth: 'full' (default — headers + body + attachment list), 'summary' (headers + first 500 bytes of body, no attachments), 'headers_only' (no body, no attachments). Pick the lightest format that answers your question to keep the conversation's context budget for other calls.",
+    ),
+  maxBodyLength: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(1_048_576)
+    .optional()
+    .default(GMAIL_CLIP_BYTES)
+    .describe(
+      "Maximum body size in bytes. 0 disables truncation. Default 104448 (102 KB) matches Gmail's web UI clipping threshold so the response mirrors what a human opening the message would see, and the emitted '[Message clipped]' marker matches Gmail's own label. Lower the cap (e.g. 10000) when sampling many messages in a single conversation to preserve the LLM's context budget; raise it (up to 1 MB) or set 0 when you specifically need the unredacted payload.",
+    ),
+  includeAttachments: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      "Include the attachment metadata list (filename / MIME / size / ID). Set to false to shrink the response when you already know the message has many attachments and aren't going to act on them.",
+    ),
 });
 
 export const SearchEmailsSchema = z.object({
