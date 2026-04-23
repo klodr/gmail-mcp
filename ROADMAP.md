@@ -10,6 +10,18 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 - **v1.0.0 on npm** — cut the first tagged release of `@klodr/gmail-mcp` once the audit and the parity + ergonomics items below land on `main`; every release is signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance.
 - **Recipient pairing gate** — add a `pair_recipient` tool and a `~/.gmail-mcp/paired.json` allowlist so `send_email` / `reply_all` / `draft_email` refuse to email an address the human has never approved, capping the blast radius of a prompt-injected `send_email` call.
 - **Migrate `Server` (legacy) → `McpServer` (ergonomic SDK API)** — the server is instantiated via the low-level `new Server(..., { capabilities: { tools: {} } })` pattern inherited from the GongRzhe → ArtyMcLabin fork chain. `CallToolRequestSchema` dispatches through a 1300-line switch over 25 tool cases, capabilities are declared by hand, and Zod → JSON Schema conversion is explicit. The modern `McpServer` API (already used by mercury-invoicing-mcp and faxdrop-mcp) replaces all of that with `server.registerTool(name, { description, inputSchema }, handler)` and `server.registerPrompt(...)` — capabilities auto-declared, dispatch/validation handled by the SDK, shorter error surface. The migration folds naturally into the **Complete code audit** item above: extract each tool-case into its own handler module (→ testable directly, unblocks the 70%+ coverage target), then register them against an `McpServer`. Hold until those two items are scheduled together.
+- **Graceful `invalid_grant` handling** — when Google rejects the refresh token (user revoked consent, the OAuth app was disabled, the token was reissued elsewhere), every tool currently fails with a raw `invalid_grant` from `google-auth-library` that propagates as a generic MCP error. Catch that specific failure at the client layer and surface a stable structured payload so clients / agents can branch on `code` rather than parsing free text. Contract:
+
+  ```json
+  {
+    "code": "INVALID_GRANT",
+    "message": "The Gmail refresh token was rejected by Google. It was likely revoked by the user, expired after 6 months of inactivity, or reissued elsewhere.",
+    "recovery_action": "Re-run `npx @klodr/gmail-mcp auth` to reauthorise.",
+    "credential_path": "~/.gmail-mcp/credentials.json"
+  }
+  ```
+
+  Client guidance: branch on `code === "INVALID_GRANT"`, render `message` in any human-facing surface, surface `recovery_action` as the next-step CTA (copy-pasteable command), and include `credential_path` only when the operator needs to know which file to delete or relocate. Also emit a single log line on startup if the stored token fails the `/oauth2/v2/userinfo` smoke test, so the failure shows up once at boot rather than on the first real tool call.
 
 ## v0.10.0 — Parity release
 
