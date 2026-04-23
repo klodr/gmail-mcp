@@ -74,3 +74,17 @@ jobs:
           fail_ci_if_error: true
           slug: klodr/gmail-mcp
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results to Codecov (Test Analytics)
+        # Explicit `always()` bypasses the implicit `success()` check so
+        # failed test runs still upload their JUnit report — that's the
+        # case where the flaky-test dashboard is most useful. `!cancelled()`
+        # keeps us from pushing phantom results for a cancelled workflow.
+        if: ${{ always() && matrix.node == '22' && !cancelled() }}
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        with:
+          report_type: test_results
+          files: ./test-results.junit.xml
+          fail_ci_if_error: false
+          slug: klodr/gmail-mcp
+          token: ${{ secrets.CODECOV_TOKEN }}
