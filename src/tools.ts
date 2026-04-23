@@ -10,6 +10,22 @@ const GmailIdSchema = z
   .max(256)
   .regex(/^[A-Za-z0-9_-]+$/);
 
+// User-supplied filesystem paths. The attachment jail in `src/utl.ts`
+// (assertAttachmentPathAllowed) is the load-bearing check at runtime,
+// but a schema-level guard rejects the worst shapes before Zod would
+// otherwise accept them — empty strings, absurdly long payloads,
+// CRLF/NUL injection into a downstream filename log. 4096 chars is the
+// effective filesystem path limit on every Linux we ship to; macOS is
+// 1024 but we accept the wider bound rather than special-casing.
+const FilePathSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine(
+    (p) => !/[\0\r\n]/.test(p),
+    "Path must not contain NUL or newline characters",
+  );
+
 // Some MCP clients (Claude Code SDK is the one that put the bug in sharp
 // relief — upstream GongRzhe#95/#96) serialize tool arguments with strict
 // JSON so an `array` parameter arrives as the literal string `'["a","b"]'`
@@ -111,7 +127,7 @@ export const SendEmailSchema = z.object({
     .max(998)
     .optional()
     .describe("RFC 5322 Message-ID being replied to (e.g. <abc@host>, max 998 chars)"),
-  attachments: coerceArray(z.string())
+  attachments: coerceArray(FilePathSchema)
     .optional()
     .describe("List of file paths to attach to the email"),
 });
@@ -421,7 +437,7 @@ export const ReplyAllSchema = z.object({
     .optional()
     .default("text/plain")
     .describe("Email content type"),
-  attachments: coerceArray(z.string())
+  attachments: coerceArray(FilePathSchema)
     .optional()
     .describe("List of file paths to attach to the reply"),
 });
