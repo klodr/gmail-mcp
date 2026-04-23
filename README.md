@@ -90,7 +90,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | `CONTRIBUTING.md` | ❌ | ❌ | ✅ |
 | `.github/FUNDING.yml` | ❌ | ❌ | ✅ |
 
-The klodr fork is the only one of the three with **(a)** source-path jails that make prompt-injection attachment exfiltration inert, **(b)** a modern supply chain (Scorecard, Socket, Sigstore), and **(c)** an in-repo review policy (`.coderabbit.yaml`) that every PR must pass before merge.
+`klodr/gmail-mcp` is the only one of the three with **(a)** source-path jails that make prompt-injection attachment exfiltration inert, **(b)** a modern supply chain (Scorecard, Socket, Sigstore), and **(c)** an in-repo review policy (`.coderabbit.yaml`) that every PR must pass before merge.
 
 ## Installation
 
@@ -203,7 +203,7 @@ See [ROADMAP.md](./ROADMAP.md).
 
 ## Ecosystem
 
-The wider Gmail-MCP landscape — 29 standalone repositories and 323 forks of the original GongRzhe server — is reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md). That page covers which ideas we borrowed, which we chose not to, and where klodr sits on the maturity axes.
+The wider Gmail-MCP landscape — 29 standalone repositories and 323 forks of the original GongRzhe server — is reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md). That page covers which ideas we borrowed, which we chose not to, and where `klodr/gmail-mcp` sits on the maturity axes.
 
 ## Contributing
 
@@ -223,9 +223,9 @@ MIT — see [LICENSE](./LICENSE).
 
 ## History
 
-This repository is the klodr maintenance fork of a two-step upstream chain:
+`klodr/gmail-mcp` is the maintenance fork of a two-step upstream chain:
 
 - **[GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server)** — the original server. Unmaintained since August 2025 (7+ months with zero maintainer activity and 72+ unmerged pull requests).
 - **[ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server)** — Arty MacKiewicz's active fork, which merged a pile of long-pending community PRs: reply threading ([#91](https://github.com/GongRzhe/Gmail-MCP-Server/pull/91)), reply-all ([#3](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/3) by @MaxGhenis), `list_filters` fix ([#4](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/4) by @nicholas-anthony-ai), `--scopes` flag ([#6](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/6) by @tansanDOTeth), CI/CD hardening ([#9](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/9)) + security hardening ([#10](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/10)) + dependency CVE fixes ([#11](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/11)) by @JF10R, tool annotations ([#14](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/14) by @bryankthompson), `download_email` ([#13](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/13) by @icanhasjonas).
 
-This klodr fork carries all of the above forward and adds the supply-chain / path-jail / review-policy layer (see comparison table above). Credit to every PR author along the chain.
+`klodr/gmail-mcp` carries all of the above forward and adds the supply-chain / path-jail / review-policy layer (see comparison table above). Credit to every PR author along the chain.

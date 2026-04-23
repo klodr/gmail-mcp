@@ -88,7 +88,7 @@ Sorted by stars, snapshot `2026-04-23`.
 | Fork | Stars | Commits ahead | What they changed |
 |---|---:|---:|---|
 | [oO/Gmail-MCP-Server](https://github.com/oO/Gmail-MCP-Server) | 1 | 1 | Refactor to a "Gateway + Skills" pattern — collapses the 24 atomic tools into 3 polymorphic ones (`google_mail`, `google_settings`, `google_calendar`) with an `action` parameter. Reduces the `ListTools` catalog size by ~87%. |
-| [alexknowshtml/Gmail-MCP-Server](https://github.com/alexknowshtml/Gmail-MCP-Server) | 1 | 4 | Fixes a `list_filters` bug: the Gmail API returns `response.data.filter` (singular), not `.filters`. This fix is already carried in klodr via the ArtyMcLabin chain. |
+| [alexknowshtml/Gmail-MCP-Server](https://github.com/alexknowshtml/Gmail-MCP-Server) | 1 | 4 | Fixes a `list_filters` bug: the Gmail API returns `response.data.filter` (singular), not `.filters`. This fix is already carried in `klodr/gmail-mcp` via the ArtyMcLabin chain. |
 | [Abdullah-MotiWala/Gmail-MCP-Server](https://github.com/Abdullah-MotiWala/Gmail-MCP-Server) | 1 | 2 | Personal adaptation for TypingMind — narrow-purpose. |
 
 310+ forks show `ahead_by=0`: default clones never modified. Nothing to harvest there.
