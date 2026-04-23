@@ -20,15 +20,6 @@ import { type AuditResult, logAudit } from "./audit-log.js";
 import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
 
 /**
- * Shape of a single MCP tool handler response.
- *
- * `structuredContent` is the MCP 2025-06-18+ parseable JSON form; it is
- * not populated by the current Gmail handlers (`content[0].text` still
- * carries the JSON-or-plaintext payload) but the type is declared up
- * front so the later sanitizeForLlm / structuredContent layer can
- * start returning it without changing the callsite signature.
- */
-/**
  * Tool-handler response shape — local subset of the SDK's `CallToolResult`
  * (see `@modelcontextprotocol/sdk/types.js`).
  *
@@ -50,6 +41,29 @@ export type ToolResult = {
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
+
+/**
+ * `logAudit` that never throws — wraps the call in a try/catch and
+ * routes any audit failure to stderr. Used on every code path in
+ * `wrapToolHandler` where a throw from the audit log would override a
+ * more-important exception: the `finally` (whose throw overrides the
+ * handler's throw per JS/TS semantics), the rate-limit branch (whose
+ * return would be replaced by the audit throw), and the non-
+ * `RateLimitError` re-throw (where the audit event itself must not
+ * mask the underlying bug).
+ *
+ * `logAudit` already swallows its own `appendFileSync` failures
+ * (`src/audit-log.ts` wraps the syscall), so this is defence in depth
+ * against the two remaining failure paths inside `logAudit`:
+ * `JSON.stringify` on a circular `args` shape and the date formatter.
+ */
+function safeLogAudit(name: string, args: unknown, result: AuditResult): void {
+  try {
+    logAudit(name, args, result);
+  } catch (auditErr) {
+    console.error(`[middleware] audit log failed for ${name}:`, (auditErr as Error).message);
+  }
+}
 
 /**
  * Wrap a tool handler with rate-limit + audit-log middleware.
@@ -86,16 +100,22 @@ export function wrapToolHandler(
       enforceRateLimit(name);
     } catch (err) {
       if (err instanceof RateLimitError) {
-        logAudit(name, args, "rate_limited");
+        safeLogAudit(name, args, "rate_limited");
         return {
           content: [{ type: "text", text: formatRateLimitError(err) }],
           isError: true,
         };
       }
-      /* v8 ignore next -- defensive: enforceRateLimit only throws
-         RateLimitError today; this re-throw guards against a future
-         regression that would surface as a programming bug, not a
-         runtime path we can exercise from a unit test. */
+      // Non-RateLimitError: defensive path (enforceRateLimit only
+      // throws RateLimitError today, but if a future regression
+      // surfaces a different error here we still want the audit
+      // trail to show it before the re-throw propagates).
+      /* v8 ignore next 2 -- defensive: enforceRateLimit only throws
+         RateLimitError today; this path guards against a future
+         regression, not a runtime path we can exercise from a unit
+         test. */
+      safeLogAudit(name, args, "error");
+      /* v8 ignore next */
       throw err;
     }
 
@@ -106,7 +126,7 @@ export function wrapToolHandler(
       auditResult = "error";
       throw err;
     } finally {
-      logAudit(name, args, auditResult);
+      safeLogAudit(name, args, auditResult);
     }
   })();
 }
