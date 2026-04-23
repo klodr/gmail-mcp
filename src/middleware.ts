@@ -89,7 +89,11 @@ export function isDryRun(): boolean {
  */
 export type ToolResult = {
   content: { type: string; text: string }[];
-  structuredContent?: Record<string, unknown>;
+  // Permit both record and array payloads: the attached-structured-content
+  // helper lifts any JSON object OR array, matching the MCP spec's
+  // tolerance for top-level arrays on tools that return lists. Clients
+  // narrow via `Array.isArray(…)` or a shape guard (CR finding on #53).
+  structuredContent?: Record<string, unknown> | unknown[];
   isError?: boolean;
 };
 
@@ -108,6 +112,45 @@ export type ToolResult = {
  * against the two remaining failure paths inside `logAudit`:
  * `JSON.stringify` on a circular `args` shape and the date formatter.
  */
+/**
+ * Auto-attach `structuredContent` when a handler emits a JSON-stringified
+ * text block but did not explicitly set `structuredContent` itself.
+ * The MCP 2025-06-18 spec marks `structuredContent` as the channel
+ * programmatic consumers (registries, test harnesses, other MCPs) read
+ * for typed access to the tool result; the text block remains the
+ * human-readable surface.
+ *
+ * Only object / array JSON payloads are lifted — primitives (strings,
+ * numbers, booleans) are rejected because Dynaconf-style record typing
+ * would not round-trip them meaningfully, and a bare number in
+ * structuredContent conveys no more than the text block already does.
+ *
+ * Handlers that want full control (dry-run, rate-limit error, custom
+ * typed payload) pass `structuredContent` themselves; this function
+ * never overwrites an already-set value.
+ */
+function attachStructuredContent(result: ToolResult): ToolResult {
+  if (result.structuredContent !== undefined) return result;
+  const first = result.content[0];
+  if (!first || first.type !== "text" || typeof first.text !== "string") return result;
+  try {
+    const parsed: unknown = JSON.parse(first.text);
+    // `typeof null === "object"` in JS — exclude nulls explicitly so a
+    // JSON `"null"` payload stays on the text channel only (matches the
+    // "primitives skipped" test contract). Both records and arrays are
+    // lifted since structuredContent tolerates either.
+    if (parsed !== null && typeof parsed === "object") {
+      return {
+        ...result,
+        structuredContent: parsed as Record<string, unknown> | unknown[],
+      };
+    }
+  } catch {
+    // text is not JSON — leave the ToolResult untouched.
+  }
+  return result;
+}
+
 function safeLogAudit(name: string, args: unknown, result: AuditResult): void {
   try {
     logAudit(name, args, result);
@@ -175,10 +218,10 @@ export async function wrapToolHandler(
   } catch (err) {
     if (err instanceof RateLimitError) {
       safeLogAudit(name, args, "rate_limited");
-      return {
+      return attachStructuredContent({
         content: [{ type: "text", text: formatRateLimitError(err) }],
         isError: true,
-      };
+      });
     }
     // Non-RateLimitError: defensive path (enforceRateLimit only
     // throws RateLimitError today, but if a future regression
@@ -203,7 +246,7 @@ export async function wrapToolHandler(
     // #48 — the prior inline audit at src/index.ts:1948 only saw
     // "error" on throws, missing the isError:true returns).
     if (result.isError) auditResult = "error";
-    return result;
+    return attachStructuredContent(result);
   } catch (err) {
     auditResult = "error";
     throw err;
