@@ -96,51 +96,49 @@ function safeLogAudit(name: string, args: unknown, result: AuditResult): void {
  * `error` from the finally), so the observable audit trail is
  * unchanged once the wire-up PR lands.
  */
-export function wrapToolHandler(
+export async function wrapToolHandler(
   name: string,
   args: unknown,
   handler: () => Promise<ToolResult>,
 ): Promise<ToolResult> {
-  return (async () => {
-    try {
-      enforceRateLimit(name);
-    } catch (err) {
-      if (err instanceof RateLimitError) {
-        safeLogAudit(name, args, "rate_limited");
-        return {
-          content: [{ type: "text", text: formatRateLimitError(err) }],
-          isError: true,
-        };
-      }
-      // Non-RateLimitError: defensive path (enforceRateLimit only
-      // throws RateLimitError today, but if a future regression
-      // surfaces a different error here we still want the audit
-      // trail to show it before the re-throw propagates).
-      /* v8 ignore next 2 -- defensive: enforceRateLimit only throws
-         RateLimitError today; this path guards against a future
-         regression, not a runtime path we can exercise from a unit
-         test. */
-      safeLogAudit(name, args, "error");
-      /* v8 ignore next */
-      throw err;
+  try {
+    enforceRateLimit(name);
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      safeLogAudit(name, args, "rate_limited");
+      return {
+        content: [{ type: "text", text: formatRateLimitError(err) }],
+        isError: true,
+      };
     }
+    // Non-RateLimitError: defensive path (enforceRateLimit only
+    // throws RateLimitError today, but if a future regression
+    // surfaces a different error here we still want the audit
+    // trail to show it before the re-throw propagates).
+    /* v8 ignore next 2 -- defensive: enforceRateLimit only throws
+       RateLimitError today; this path guards against a future
+       regression, not a runtime path we can exercise from a unit
+       test. */
+    safeLogAudit(name, args, "error");
+    /* v8 ignore next */
+    throw err;
+  }
 
-    let auditResult: AuditResult = "ok";
-    try {
-      const result = await handler();
-      // Business errors returned via `isError: true` (vs thrown) are
-      // also audited as "error" so the audit log distinguishes a
-      // successful call from one that surfaced a handler-side failure
-      // through the MCP protocol's isError channel (Qodo finding on
-      // #48 — the prior inline audit at src/index.ts:1948 only saw
-      // "error" on throws, missing the isError:true returns).
-      if (result.isError) auditResult = "error";
-      return result;
-    } catch (err) {
-      auditResult = "error";
-      throw err;
-    } finally {
-      safeLogAudit(name, args, auditResult);
-    }
-  })();
+  let auditResult: AuditResult = "ok";
+  try {
+    const result = await handler();
+    // Business errors returned via `isError: true` (vs thrown) are
+    // also audited as "error" so the audit log distinguishes a
+    // successful call from one that surfaced a handler-side failure
+    // through the MCP protocol's isError channel (Qodo finding on
+    // #48 — the prior inline audit at src/index.ts:1948 only saw
+    // "error" on throws, missing the isError:true returns).
+    if (result.isError) auditResult = "error";
+    return result;
+  } catch (err) {
+    auditResult = "error";
+    throw err;
+  } finally {
+    safeLogAudit(name, args, auditResult);
+  }
 }
