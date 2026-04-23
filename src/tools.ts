@@ -10,9 +10,92 @@ const GmailIdSchema = z
   .max(256)
   .regex(/^[A-Za-z0-9_-]+$/);
 
+// User-supplied filesystem paths. The attachment jail in `src/utl.ts`
+// (assertAttachmentPathAllowed) is the load-bearing check at runtime,
+// but a schema-level guard rejects the worst shapes before Zod would
+// otherwise accept them — empty strings, absurdly long payloads,
+// CRLF/NUL injection into a downstream filename log. 4096 chars is the
+// effective filesystem path limit on every Linux we ship to; macOS is
+// 1024 but we accept the wider bound rather than special-casing.
+const FilePathSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((p) => !/[\0\r\n]/.test(p), "Path must not contain NUL or newline characters");
+
+// Some MCP clients (Claude Code SDK is the one that put the bug in sharp
+// relief — upstream GongRzhe#95/#96) serialize tool arguments with strict
+// JSON so an `array` parameter arrives as the literal string `'["a","b"]'`
+// and a `number` parameter as `'10'`. A bare `z.array(...)` / `z.number()`
+// then rejects the call with "Expected array, received string".
+//
+// Workaround: preprocess to accept the JSON-stringified form too.
+// `z.coerce.number()` already handles strings natively in Zod 4, so we only
+// need a helper for array-like fields.
+// `z.preprocess(..., z.array(inner))` returns a ZodPipe whose output type
+// is a plain array and which does NOT expose `.max()` / `.min()` on the
+// pipe itself. Pushing the length bound into the inner schema keeps the
+// preprocess wrapper transparent to the call site, so fields can still
+// declare `coerceArray(X, { max: 1000 })`.
+const coerceArrayPreprocess = (val: unknown) => {
+  if (typeof val !== "string") return val;
+  // Only try JSON.parse on a value that at least looks like an array
+  // literal, otherwise `"foo,bar"` would not round-trip and the error
+  // from z.array() would shift from "Expected array, received string"
+  // to the equally-misleading "Unexpected token f in JSON".
+  const trimmed = val.trim();
+  if (!trimmed.startsWith("[")) return val;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? parsed : val;
+  } catch {
+    return val;
+  }
+};
+
+const coerceArray = <T extends z.ZodTypeAny>(inner: T, opts?: { max?: number }) => {
+  const arr = opts?.max !== undefined ? z.array(inner).max(opts.max) : z.array(inner);
+  return z.preprocess(coerceArrayPreprocess, arr);
+};
+
+// Scoped integer coercion. `z.coerce.number()` is too permissive — it
+// converts `true → 1`, `false → 0`, `null → 0`, `[] → 0`, which silently
+// accepts malformed JSON from a loosely-typed caller. We only want to
+// rescue string-encoded integers from strict-JSON clients (Claude Code
+// SDK), not cross the type barrier.
+//
+// Preprocess passes numbers through untouched, coerces strings that
+// parse as finite numbers, and leaves every other type alone so the
+// inner `z.number().int()` rejects it with the expected "Expected
+// number" error rather than silently widening.
+//
+// Bounds are declared via the options bag (same pattern as coerceArray)
+// because `z.preprocess(fn, z.number().int())` returns a ZodPipe whose
+// `.min()` / `.max()` are not directly chainable.
+const coerceIntPreprocess = (val: unknown): unknown => {
+  if (typeof val === "string") {
+    // Strict decimal-integer match only. The naive `Number(trimmed)`
+    // would silently accept scientific notation (`"1e2"` → 100) and
+    // hex (`"0x10"` → 16), both well beyond the "stringified digits
+    // from a strict-JSON client" contract we advertise. A regex keeps
+    // the coercion surface narrow and predictable.
+    const trimmed = val.trim();
+    if (!/^-?\d+$/.test(trimmed)) return val;
+    return Number(trimmed);
+  }
+  return val;
+};
+
+const coerceInt = (opts?: { min?: number; max?: number }) => {
+  let inner = z.number().int();
+  if (opts?.min !== undefined) inner = inner.min(opts.min);
+  if (opts?.max !== undefined) inner = inner.max(opts.max);
+  return z.preprocess(coerceIntPreprocess, inner);
+};
+
 // Schema definitions
 export const SendEmailSchema = z.object({
-  to: z.array(z.string()).describe("List of recipient email addresses"),
+  to: coerceArray(z.string()).describe("List of recipient email addresses"),
   subject: z.string().describe("Email subject"),
   body: z
     .string()
@@ -29,8 +112,8 @@ export const SendEmailSchema = z.object({
     .optional()
     .default("text/plain")
     .describe("Email content type"),
-  cc: z.array(z.string()).optional().describe("List of CC recipients"),
-  bcc: z.array(z.string()).optional().describe("List of BCC recipients"),
+  cc: coerceArray(z.string()).optional().describe("List of CC recipients"),
+  bcc: coerceArray(z.string()).optional().describe("List of BCC recipients"),
   threadId: GmailIdSchema.optional().describe("Thread ID to reply to"),
   // inReplyTo is an RFC 5322 Message-ID (e.g. `<abc@host>`), not a
   // Gmail API ID — different charset, kept out of GmailIdSchema. Bound
@@ -41,7 +124,9 @@ export const SendEmailSchema = z.object({
     .max(998)
     .optional()
     .describe("RFC 5322 Message-ID being replied to (e.g. <abc@host>, max 998 chars)"),
-  attachments: z.array(z.string()).optional().describe("List of file paths to attach to the email"),
+  attachments: coerceArray(FilePathSchema)
+    .optional()
+    .describe("List of file paths to attach to the email"),
 });
 
 // Gmail's own web UI clips message bodies at ~102 KB of combined text/HTML
@@ -59,11 +144,7 @@ export const ReadEmailSchema = z.object({
     .describe(
       "Response depth: 'full' (default — headers + body + attachment list), 'summary' (headers + first 500 bytes of body, no attachments), 'headers_only' (no body, no attachments). Pick the lightest format that answers your question to keep the conversation's context budget for other calls.",
     ),
-  maxBodyLength: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(1_048_576)
+  maxBodyLength: coerceInt({ min: 0, max: 1_048_576 })
     .optional()
     .default(GMAIL_CLIP_BYTES)
     .describe(
@@ -80,24 +161,18 @@ export const ReadEmailSchema = z.object({
 
 export const SearchEmailsSchema = z.object({
   query: z.string().describe("Gmail search query (e.g., 'from:example@gmail.com')"),
-  maxResults: z
-    .number()
-    .int()
-    .min(1)
-    .max(500)
+  maxResults: coerceInt({ min: 1, max: 500 })
     .optional()
     .describe("Maximum number of results to return (1-500, default 10)"),
 });
 
 export const ModifyEmailSchema = z.object({
   messageId: GmailIdSchema.describe("ID of the email message to modify"),
-  labelIds: z.array(GmailIdSchema).optional().describe("List of label IDs to apply"),
-  addLabelIds: z
-    .array(GmailIdSchema)
+  labelIds: coerceArray(GmailIdSchema).optional().describe("List of label IDs to apply"),
+  addLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to add to the message"),
-  removeLabelIds: z
-    .array(GmailIdSchema)
+  removeLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from the message"),
 });
@@ -158,38 +233,26 @@ export const GetOrCreateLabelSchema = z
   .describe("Gets an existing label by name or creates it if it doesn't exist");
 
 export const BatchModifyEmailsSchema = z.object({
-  messageIds: z
-    .array(GmailIdSchema)
-    .max(1000)
-    .describe("List of message IDs to modify (max 1000 per call)"),
-  addLabelIds: z
-    .array(GmailIdSchema)
+  messageIds: coerceArray(GmailIdSchema, { max: 1000 }).describe(
+    "List of message IDs to modify (max 1000 per call)",
+  ),
+  addLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to add to all messages"),
-  removeLabelIds: z
-    .array(GmailIdSchema)
+  removeLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from all messages"),
-  batchSize: z
-    .number()
-    .int()
-    .min(1)
-    .max(100)
+  batchSize: coerceInt({ min: 1, max: 100 })
     .optional()
     .default(50)
     .describe("Messages per batch (1-100, default 50)"),
 });
 
 export const BatchDeleteEmailsSchema = z.object({
-  messageIds: z
-    .array(GmailIdSchema)
-    .max(1000)
-    .describe("List of message IDs to delete (max 1000 per call)"),
-  batchSize: z
-    .number()
-    .int()
-    .min(1)
-    .max(100)
+  messageIds: coerceArray(GmailIdSchema, { max: 1000 }).describe(
+    "List of message IDs to delete (max 1000 per call)",
+  ),
+  batchSize: coerceInt({ min: 1, max: 100 })
     .optional()
     .default(50)
     .describe("Messages per batch (1-100, default 50)"),
@@ -206,7 +269,7 @@ export const CreateFilterSchema = z
         negatedQuery: z.string().optional().describe("Text that must NOT be present"),
         hasAttachment: z.boolean().optional().describe("Whether to match emails with attachments"),
         excludeChats: z.boolean().optional().describe("Whether to exclude chat messages"),
-        size: z.number().optional().describe("Email size in bytes"),
+        size: coerceInt({ min: 0 }).optional().describe("Email size in bytes"),
         sizeComparison: z
           .enum(["unspecified", "smaller", "larger"])
           .optional()
@@ -215,12 +278,10 @@ export const CreateFilterSchema = z
       .describe("Criteria for matching emails"),
     action: z
       .object({
-        addLabelIds: z
-          .array(GmailIdSchema)
+        addLabelIds: coerceArray(GmailIdSchema)
           .optional()
           .describe("Label IDs to add to matching emails"),
-        removeLabelIds: z
-          .array(GmailIdSchema)
+        removeLabelIds: coerceArray(GmailIdSchema)
           .optional()
           .describe("Label IDs to remove from matching emails"),
         forward: z.string().optional().describe("Email address to forward matching emails to"),
@@ -267,11 +328,10 @@ export const CreateFilterFromTemplateSchema = z
           .string()
           .optional()
           .describe("Mailing list identifier (for mailingList template)"),
-        sizeInBytes: z
-          .number()
+        sizeInBytes: coerceInt({ min: 0 })
           .optional()
           .describe("Size threshold in bytes (for largeEmails template)"),
-        labelIds: z.array(GmailIdSchema).optional().describe("Label IDs to apply"),
+        labelIds: coerceArray(GmailIdSchema).optional().describe("Label IDs to apply"),
         archive: z.boolean().optional().describe("Whether to archive (skip inbox)"),
         markAsRead: z.boolean().optional().describe("Whether to mark as read"),
         markImportant: z.boolean().optional().describe("Whether to mark as important"),
@@ -307,12 +367,10 @@ export const DownloadEmailSchema = z.object({
 
 export const ModifyThreadSchema = z.object({
   threadId: GmailIdSchema.describe("ID of the Gmail thread to modify"),
-  addLabelIds: z
-    .array(GmailIdSchema)
+  addLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to add to all messages in the thread"),
-  removeLabelIds: z
-    .array(GmailIdSchema)
+  removeLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from all messages in the thread"),
 });
@@ -333,11 +391,7 @@ export const ListInboxThreadsSchema = z.object({
     .optional()
     .default("in:inbox")
     .describe("Gmail search query (default: 'in:inbox')"),
-  maxResults: z
-    .number()
-    .int()
-    .min(1)
-    .max(500)
+  maxResults: coerceInt({ min: 1, max: 500 })
     .optional()
     .default(50)
     .describe("Maximum number of threads to return (1-500, default 50)"),
@@ -350,11 +404,7 @@ export const GetInboxWithThreadsSchema = z
       .optional()
       .default("in:inbox")
       .describe("Gmail search query (default: 'in:inbox')"),
-    maxResults: z
-      .number()
-      .int()
-      .min(1)
-      .max(500)
+    maxResults: coerceInt({ min: 1, max: 500 })
       .optional()
       .default(50)
       .describe(
@@ -384,7 +434,9 @@ export const ReplyAllSchema = z.object({
     .optional()
     .default("text/plain")
     .describe("Email content type"),
-  attachments: z.array(z.string()).optional().describe("List of file paths to attach to the reply"),
+  attachments: coerceArray(FilePathSchema)
+    .optional()
+    .describe("List of file paths to attach to the reply"),
 });
 
 // Tool definition type
