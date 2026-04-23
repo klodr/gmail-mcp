@@ -35,7 +35,7 @@ Response target: **acknowledgment within 48 hours**, fix or mitigation plan with
 
 ## Supported runtimes
 
-`@klodr/gmail-mcp` supports **Node.js ≥ 22.22** (the current Maintenance LTS patch train for the Node 22 "Jod" line, in maintenance through 2027-04-30). The 0.x series on npm previously shipped with `>=20.11`, then `>=22.11`; releases cut from 2026-04-23 onward require Node ≥ 22.22 so users pick up the seven CVEs addressed in the 22.22.x security release (two high-severity: TLS/SNI callback handling and HTTP header validation; three medium, two low). Older pinned versions of the package remain installable but will not receive back-ported security fixes.
+`@klodr/gmail-mcp` supports **Node.js ≥ 22.22.2** (the patched release on the Node 22 "Jod" Maintenance LTS, in maintenance through 2027-04-30). The floor is pinned to the exact patch — not just `22.22.x` — because the seven CVEs landed in `22.22.2` specifically (two high-severity: TLS/SNI callback handling and HTTP header validation; three medium, two low); `22.22.0` and `22.22.1` predate those fixes. The 0.x series on npm previously shipped with `>=20.11`, then `>=22.11`. Older pinned versions of the package remain installable but will not receive back-ported security fixes.
 
 ## Verifying releases
 

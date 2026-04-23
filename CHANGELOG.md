@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Node.js floor bumped to `>=22.22`** (was `>=22.11`). Node 22.22.2 ships security fixes for seven CVEs, including two high-severity ones (TLS/SNI callback handling and HTTP header validation). The 22.22.x line is the current in-maintenance LTS patch train; pinning the floor there gives users a known-patched runtime instead of the pre-CVE 22.11 baseline. Aligned with the sibling repos `klodr/faxdrop-mcp`, `klodr/mercury-invoicing-mcp`, and the private `klodr/relayfi-mcp`, all moving to `>=22.22` in the same pass. Also updates `SECURITY.md` "Supported runtimes", `llms-install.md` prerequisite, and `.github/dependabot.yml` `@types/node` major-clamp comment to the new floor.
+- **Node.js floor pinned to exact `>=22.22.2`** (was `>=22.22`, originally `>=22.11`). The previous `>=22.22` range accepted `22.22.0` and `22.22.1`, which predate the seven CVEs fixed in `22.22.2` (two high-severity: TLS/SNI callback handling and HTTP header validation; three medium, two low). Pinning to the exact patch closes the gap so a fresh `npm install` cannot land on a pre-CVE runtime. Aligned with `klodr/faxdrop-mcp` (shipped in PR #71), `klodr/mercury-invoicing-mcp`, and the private `klodr/relayfi-mcp`. Also updates `SECURITY.md` "Supported runtimes", `llms-install.md` prerequisite, and `.github/dependabot.yml` `@types/node` major-clamp comment.
 
 ### Fixed
 
