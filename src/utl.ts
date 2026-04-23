@@ -257,6 +257,96 @@ export function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n\0]/g, "");
 }
 
+// "View this email in your browser" / "Please enable HTML" / similar
+// one-liners that many senders stuff into the text/plain part when the
+// real message is in text/html. Matching is conservative — we only flag
+// a body *shorter than 500 chars* and containing one of these markers.
+const PLACEHOLDER_PATTERNS = [
+  /view\s+(?:this|the)\s+(?:email|message|newsletter)\s+in\s+(?:your|a|the)\s+browser/i,
+  /having\s+trouble\s+(?:viewing|reading)\s+(?:this\s+)?(?:email|message)/i,
+  /can(?:no|['’])t\s+see\s+(?:this\s+)?(?:email|message)/i,
+  /please\s+enable\s+html/i,
+  /click\s+here\s+to\s+view/i,
+  /trouble\s+viewing\s+this\s+email/i,
+];
+
+function looksLikePlaceholder(text: string): boolean {
+  // Use trimmed length so 501 chars of padding whitespace around a
+  // `view in browser` stub still trips the check. The 500-char cap is
+  // about the substantive body, not the outer whitespace (Qodo #41).
+  if (text.trim().length > 500) return false;
+  return PLACEHOLDER_PATTERNS.some((re) => re.test(text));
+}
+
+/**
+ * Choose which body to present to the caller / LLM when Gmail returns
+ * both a text/plain and a text/html alternative.
+ *
+ * Default preference is plain text — smaller token footprint, cleaner
+ * for an LLM to parse. But many senders ship a placeholder stub in the
+ * plain part ("view this email in your browser…") and put the actual
+ * content in HTML; picking text blindly in that case strips the message
+ * down to a single link. Two fall-through rules catch that:
+ *
+ *   - If the text body matches one of the known placeholder patterns
+ *     (short + contains a browser-redirect phrase), fall back to html.
+ *   - If the text body is very short (< 150 chars trimmed) AND the html
+ *     body is at least 3× longer, assume text is a stub and fall back
+ *     to html.
+ *
+ * Returns `{ body, source }` so the caller can annotate the output
+ * with a "[Note: email was HTML-formatted…]" header when we didn't
+ * pick text. Upstream reports this as GongRzhe/Gmail-MCP-Server#87.
+ */
+export function pickBody(
+  text: string,
+  html: string,
+): { body: string; source: "text" | "html" | "empty" } {
+  if (!text && !html) return { body: "", source: "empty" };
+  if (!text) return { body: html, source: "html" };
+  if (!html) return { body: text, source: "text" };
+
+  const trimmedTextLen = text.trim().length;
+  if (looksLikePlaceholder(text)) {
+    return { body: html, source: "html" };
+  }
+  // Tightened from 3× to 5× so a normal short reply with a branded HTML
+  // signature (plain 20 chars + HTML 200 chars) isn't misrouted to HTML.
+  // The genuine stubs this catches are viewer-redirects that embed a
+  // tiny text blurb while the whole marketing body lives in HTML — those
+  // consistently exceed a 5× ratio (Qodo #41).
+  if (trimmedTextLen < 150 && html.length > trimmedTextLen * 5) {
+    return { body: html, source: "html" };
+  }
+  return { body: text, source: "text" };
+}
+
+/**
+ * Prefix string prepended to a body when pickBody fell back to the HTML
+ * part. Shared across read_email, get_thread, and get_inbox_with_threads
+ * so the three surfaces annotate HTML-fallback bodies identically — an
+ * LLM reading any of them sees the same marker and can calibrate its
+ * parsing accordingly.
+ */
+export const HTML_FALLBACK_NOTE =
+  "[Note: This email is HTML-formatted. Rendering the HTML body because the plain-text part was empty or a placeholder stub.]\n\n";
+
+/**
+ * Pick a body and annotate it if HTML was chosen. Convenience wrapper
+ * over `pickBody` for the handlers that return the body inlined (rather
+ * than split into body + contentTypeNote, like read_email does).
+ */
+export function pickBodyAnnotated(
+  text: string,
+  html: string,
+): { body: string; source: "text" | "html" | "empty" } {
+  const picked = pickBody(text, html);
+  return {
+    body: picked.source === "html" ? HTML_FALLBACK_NOTE + picked.body : picked.body,
+    source: picked.source,
+  };
+}
+
 /**
  * Shape of every validated tool-input that reaches the MIME builders.
  * Matches the subset of fields from SendEmailSchema / ReplyAllSchema /

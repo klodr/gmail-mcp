@@ -14,7 +14,13 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createEmailMessage, createEmailWithNodemailer } from "./utl.js";
+import {
+  createEmailMessage,
+  createEmailWithNodemailer,
+  pickBody,
+  pickBodyAnnotated,
+  HTML_FALLBACK_NOTE,
+} from "./utl.js";
 
 // Resolve src directory
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -141,5 +147,129 @@ describe("createEmailWithNodemailer — recipient validation", () => {
         body: "x",
       }),
     ).rejects.toThrow(/Recipient email address is invalid/);
+  });
+});
+
+describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
+  it("picks text when both parts exist and text is substantive", () => {
+    const text =
+      "Hi,\n\nThis is a real plain-text message with paragraphs and detail.\n\nBest,\nBob";
+    const html = "<html><body><p>Same message, HTML wrapped.</p></body></html>";
+    expect(pickBody(text, html)).toEqual({ body: text, source: "text" });
+  });
+
+  it("picks html when only html is provided", () => {
+    expect(pickBody("", "<p>hello</p>")).toEqual({ body: "<p>hello</p>", source: "html" });
+  });
+
+  it("picks text when only text is provided", () => {
+    expect(pickBody("hello", "")).toEqual({ body: "hello", source: "text" });
+  });
+
+  it("returns an empty-source marker when neither is provided", () => {
+    expect(pickBody("", "")).toEqual({ body: "", source: "empty" });
+  });
+
+  it("falls back to html when text is a 'view in browser' placeholder stub", () => {
+    const text = "View this email in your browser";
+    const html =
+      "<html><body>The real content of the newsletter, with full story, links, images, etc.</body></html>";
+    expect(pickBody(text, html)).toEqual({ body: html, source: "html" });
+  });
+
+  it("falls back to html when text matches 'having trouble viewing' pattern", () => {
+    const text = "Having trouble reading this email? Click here.";
+    const html = "<div>Full body goes here</div>";
+    expect(pickBody(text, html).source).toBe("html");
+  });
+
+  it("falls back to html on smart-apostrophe `can't` placeholder (U+2019)", () => {
+    // Regression: many senders render the plain-text stub using the
+    // Unicode right single quotation mark (U+2019 — "smart apostrophe")
+    // instead of the ASCII `'`. The PLACEHOLDER_PATTERNS regex must
+    // accept both, or the heuristic silently lets a single-line stub
+    // through.
+    const text = "Can’t see this email? Click the link.";
+    const html = "<p>actual body</p>";
+    expect(pickBody(text, html).source).toBe("html");
+  });
+
+  it("falls back to html when text is very short and html is >5× longer", () => {
+    const text = "Hi there, see below.";
+    const html =
+      "<p>Hi there,</p><p>The actual much longer message lives here in the HTML part, with all the relevant paragraphs the sender meant to include. Plenty of words to trigger the length heuristic.</p>";
+    expect(pickBody(text, html).source).toBe("html");
+  });
+
+  it("keeps text when it's short but html is not substantially longer (nothing to gain)", () => {
+    const text = "Hi there!";
+    const html = "<p>Hi there!</p>";
+    expect(pickBody(text, html).source).toBe("text");
+  });
+
+  it("keeps text for a normal short reply with a branded HTML signature (Qodo #41)", () => {
+    // The old 3× threshold misrouted plain replies like "Yes. -- John"
+    // (20 chars) paired with a bloated HTML signature (200 chars =
+    // 10× ratio but 5× in this shorter-signature case) to HTML, losing
+    // the substance. Tightened to 5× so the 4× ratio stays on text.
+    const text = "Yes, sounds good. Thanks, John.";
+    // 4× the text length — was flipping to HTML under the old 3× rule;
+    // should stay as text under 5×.
+    const html =
+      "<div style='font-family:Arial;font-size:10pt'>Yes, sounds good. Thanks, John.</div>";
+    expect(pickBody(text, html).source).toBe("text");
+  });
+
+  it("trims whitespace padding before the 500-char placeholder check (Qodo #41)", () => {
+    // 501 chars of leading whitespace + a short placeholder used to
+    // bypass looksLikePlaceholder because text.length > 500 short-
+    // circuited. Now the trim happens first.
+    const text = " ".repeat(510) + "View this email in your browser";
+    const html = "<p>real body here, lots of content</p>".repeat(10);
+    expect(pickBody(text, html).source).toBe("html");
+  });
+
+  it("does not flag a long text containing a placeholder-like phrase as a stub", () => {
+    // A text > 500 chars containing the phrase is almost certainly a
+    // legitimate body referring to browser view in passing, not a stub.
+    const text =
+      "Hello,\n\n".padEnd(600, "x") +
+      " view this email in your browser if links do not work properly.";
+    const html = "<p>html body</p>";
+    expect(pickBody(text, html).source).toBe("text");
+  });
+});
+
+describe("pickBodyAnnotated — HTML fallback marker (Qodo #41)", () => {
+  // The three reading surfaces (read_email, get_thread, get_inbox_with_threads)
+  // must all prepend the same marker when pickBody falls back to the HTML
+  // part, so a consumer LLM sees a consistent annotation regardless of
+  // which reader returned the body.
+  it("prepends HTML_FALLBACK_NOTE when source is html", () => {
+    const { body, source } = pickBodyAnnotated("", "<p>html body</p>");
+    expect(source).toBe("html");
+    expect(body.startsWith(HTML_FALLBACK_NOTE)).toBe(true);
+    expect(body.endsWith("<p>html body</p>")).toBe(true);
+  });
+
+  it("returns the plain-text body unchanged when source is text", () => {
+    const { body, source } = pickBodyAnnotated("hello world", "<p>hello</p>");
+    expect(source).toBe("text");
+    expect(body).toBe("hello world");
+    expect(body.startsWith(HTML_FALLBACK_NOTE)).toBe(false);
+  });
+
+  it("returns an empty body (no marker) when both parts are empty", () => {
+    const { body, source } = pickBodyAnnotated("", "");
+    expect(source).toBe("empty");
+    expect(body).toBe("");
+  });
+
+  it("falls back with marker on a placeholder-stub plain-text part", () => {
+    const text = "View this email in your browser";
+    const html = "<p>the real content, much longer</p>".repeat(10);
+    const { body, source } = pickBodyAnnotated(text, html);
+    expect(source).toBe("html");
+    expect(body.startsWith(HTML_FALLBACK_NOTE)).toBe(true);
   });
 });
