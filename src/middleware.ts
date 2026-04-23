@@ -18,6 +18,7 @@
  */
 import { type AuditResult, logAudit, redactSensitive } from "./audit-log.js";
 import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
+import { sanitizeForLlm } from "./sanitize.js";
 
 /**
  * Tool names that mutate Gmail state (outbound mail, label / filter /
@@ -121,13 +122,17 @@ export type ToolResult = {
  * human-readable surface.
  *
  * Only object / array JSON payloads are lifted — primitives (strings,
- * numbers, booleans) are rejected because Dynaconf-style record typing
- * would not round-trip them meaningfully, and a bare number in
- * structuredContent conveys no more than the text block already does.
+ * numbers, booleans) are rejected because they would not round-trip
+ * meaningfully through a typed consumer, and the text block already
+ * exposes the scalar.
  *
  * Handlers that want full control (dry-run, rate-limit error, custom
  * typed payload) pass `structuredContent` themselves; this function
  * never overwrites an already-set value.
+ *
+ * IMPORTANT: must run BEFORE `sanitizeToolResult` — once the text is
+ * wrapped in the `<untrusted-tool-output>` fence, `JSON.parse` on it
+ * throws and no structured content would be lifted.
  */
 function attachStructuredContent(result: ToolResult): ToolResult {
   if (result.structuredContent !== undefined) return result;
@@ -149,6 +154,27 @@ function attachStructuredContent(result: ToolResult): ToolResult {
     // text is not JSON — leave the ToolResult untouched.
   }
   return result;
+}
+
+/**
+ * Defense-in-depth fence on every text content item emitted by a tool
+ * handler. Gmail responses carry attacker-controllable fields (subject,
+ * body, snippet, display names, attachment filenames) that land verbatim
+ * in the agent's context window. Strips control/zero-width characters
+ * and wraps the payload in `<untrusted-tool-output>` so the LLM treats
+ * it as DATA, not instructions — see `src/sanitize.ts` for rationale.
+ *
+ * Only `type: "text"` items are rewritten; non-text content (images,
+ * resources) flows through unchanged. `structuredContent` is never
+ * touched — it is the programmatic-consumer channel and stays raw.
+ */
+function sanitizeToolResult(result: ToolResult): ToolResult {
+  return {
+    ...result,
+    content: result.content.map((item) =>
+      item.type === "text" ? { ...item, text: sanitizeForLlm(item.text) } : item,
+    ),
+  };
 }
 
 function safeLogAudit(name: string, args: unknown, result: AuditResult): void {
@@ -207,10 +233,14 @@ export async function wrapToolHandler(
       note: "GMAIL_MCP_DRY_RUN=true; no Gmail API call was made. Sensitive fields are redacted.",
     };
     safeLogAudit(name, args, "dry-run");
-    return {
+    // Route the preview through the same sanitize fence as a real
+    // response — the echoed `wouldCallWith` carries attacker-
+    // controllable arg values (recipient, subject, body) and we want
+    // the LLM to treat them as DATA even in a preview.
+    return sanitizeToolResult({
       content: [{ type: "text", text: JSON.stringify(dryPayload, null, 2) }],
       structuredContent: dryPayload,
-    };
+    });
   }
 
   try {
@@ -218,10 +248,12 @@ export async function wrapToolHandler(
   } catch (err) {
     if (err instanceof RateLimitError) {
       safeLogAudit(name, args, "rate_limited");
-      return attachStructuredContent({
-        content: [{ type: "text", text: formatRateLimitError(err) }],
-        isError: true,
-      });
+      return sanitizeToolResult(
+        attachStructuredContent({
+          content: [{ type: "text", text: formatRateLimitError(err) }],
+          isError: true,
+        }),
+      );
     }
     // Non-RateLimitError: defensive path (enforceRateLimit only
     // throws RateLimitError today, but if a future regression
@@ -246,7 +278,7 @@ export async function wrapToolHandler(
     // #48 — the prior inline audit at src/index.ts:1948 only saw
     // "error" on throws, missing the isError:true returns).
     if (result.isError) auditResult = "error";
-    return attachStructuredContent(result);
+    return sanitizeToolResult(attachStructuredContent(result));
   } catch (err) {
     auditResult = "error";
     throw err;
