@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`src/middleware.ts` — extracted rate-limit + audit-log helper** (`wrapToolHandler`). Mirrors the design already shipped in `mercury-invoicing-mcp/src/middleware.ts:359` and `faxdrop-mcp/src/middleware.ts:203`. The helper preserves the observable audit trail of the current inline wiring in `src/index.ts` (three terminal states: `ok`, `error`, `rate_limited`) and the `mcp_safeguard` / `mcp_rate_limit_*_exceeded` error-payload shape, so the wire-up PR can be reviewed as a pure structural refactor on top of an already-merged and tested helper. Unblocks the v0.10.0 parity layers (`AbortSignal.timeout`, `sanitizeForLlm` fence, dry-run, `structuredContent`) without having to duplicate glue code in every switch case. Covered by 6 unit tests in `src/middleware.test.ts`.
+
 ## [0.9.2] - 2026-04-23
 
 ### Changed
