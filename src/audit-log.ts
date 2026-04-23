@@ -83,7 +83,7 @@ export function redactSensitive(value: unknown): unknown {
   return out;
 }
 
-export type AuditResult = "ok" | "error" | "rate_limited";
+export type AuditResult = "ok" | "error" | "rate_limited" | "dry-run";
 
 export function logAudit(toolName: string, args: unknown, result: AuditResult): void {
   const path = process.env.GMAIL_MCP_AUDIT_LOG;
