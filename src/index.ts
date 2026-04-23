@@ -86,6 +86,7 @@ import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./
 import { logAudit } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
 import { wrapToolHandler } from "./middleware.js";
+import { buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
 import { resolveDefaultSender } from "./sender-resolver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -455,6 +456,26 @@ async function main() {
 
   // Initialize Gmail API
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+  // Startup smoke test: request an access token up-front. If the
+  // stored refresh token was revoked / expired / reissued elsewhere,
+  // google-auth-library throws `invalid_grant` here — surface a
+  // single structured log line so the failure appears at boot
+  // rather than on the first real tool call. The MCP stays up so
+  // tools still return the same `code: "INVALID_GRANT"` payload
+  // (see catch block in the CallToolRequestSchema handler), giving
+  // the client a programmatic path to prompt the user to re-auth.
+  // Fire-and-forget: the check must not delay `server.connect()`.
+  oauth2Client.getAccessToken().catch((err: unknown) => {
+    /* v8 ignore next 4 -- requires a live OAuth2Client with a
+       revoked refresh token to exercise; the same code path is
+       covered by isInvalidGrantError / buildInvalidGrantPayload
+       unit tests in src/gmail-errors.test.ts. */
+    if (isInvalidGrantError(err)) {
+      const payload = buildInvalidGrantPayload(CREDENTIALS_PATH);
+      console.error(`[startup] ${payload.code}: ${payload.recovery_action}`);
+    }
+  });
 
   // Server implementation
   const server = new Server(
@@ -1970,6 +1991,25 @@ async function main() {
       // and re-thrown. Format the failure as a user-readable MCP
       // response here (behaviour preserved from the prior inline
       // catch).
+      //
+      // Special-case `invalid_grant` before the generic fallback:
+      // google-auth-library throws when the stored refresh token is
+      // rejected (user revoked consent, 6-month inactivity expiry,
+      // token reissued elsewhere). Surface a stable structured
+      // payload so clients can branch on `code === "INVALID_GRANT"`
+      // and present the recovery action, rather than parsing a
+      // free-text Gmail message.
+      if (isInvalidGrantError(error)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(buildInvalidGrantPayload(CREDENTIALS_PATH), null, 2),
+            },
+          ],
+          isError: true,
+        };
+      }
       const msg = error instanceof Error ? error.message : String(error);
       return {
         content: [
