@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **60-second hard timeout on every Gmail API call** — `google.options({ timeout: 60_000 })` is now applied before the `gmail` client is constructed, so every `gmail.users.*` call inherits the cap via gaxios. Without this, a slow Gmail response would hang the MCP stdio session with no way for the client to recover short of killing the process (v0.10.0 parity item — mercury has a 30 s cap at `src/client.ts:72`, faxdrop relies on upstream response headers). **60 s rather than 30 s** because gmail has two slow-path surfaces mercury lacks: a 25 MB attachment upload on `send_email` (base64-encoded + single POST) routinely pushes past 30 s on a mid-tier mobile uplink, and non-US clients add 200–500 ms per round-trip compounded across gaxios's internal redirects. The ceiling is tunable further via the `GMAIL_MCP_TIMEOUT_MS` env var for mailboxes where a single `messages.list` with a heavy `q:` legitimately runs long.
+
 ### Added
 
 - **Codecov Test Analytics wiring** — vitest emits a `test-results.junit.xml` alongside its default human reporter, and CI uploads it via `codecov/codecov-action@v6.0.0` (pinned by SHA) invoked with `report_type: test_results`. Gives us the "Tests" dashboard on codecov.io: per-suite flaky-test detection, slowest tests, per-test failure history. Upload runs only on the Node 22 matrix leg with `if: ${{ always() && matrix.node == '22' && !cancelled() }}` so failed test runs still surface the report (where flaky-test data is most useful) while cancelled workflows don't push phantom results. XML file is in `.gitignore` and absent from `package.json#files` — it never ships to npm. Mirrors the wiring already shipped in sibling repos `klodr/mercury-invoicing-mcp` (v0.9.2) and `klodr/faxdrop-mcp` (v0.3.8).
