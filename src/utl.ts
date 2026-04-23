@@ -295,7 +295,10 @@ function looksLikePlaceholder(text: string): boolean {
  * with a "[Note: email was HTML-formatted…]" header when we didn't
  * pick text. Upstream reports this as GongRzhe/Gmail-MCP-Server#87.
  */
-export function pickBody(text: string, html: string): { body: string; source: "text" | "html" | "empty" } {
+export function pickBody(
+  text: string,
+  html: string,
+): { body: string; source: "text" | "html" | "empty" } {
   if (!text && !html) return { body: "", source: "empty" };
   if (!text) return { body: html, source: "html" };
   if (!html) return { body: text, source: "text" };

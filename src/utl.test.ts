@@ -146,7 +146,8 @@ describe("createEmailWithNodemailer — recipient validation", () => {
 
 describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
   it("picks text when both parts exist and text is substantive", () => {
-    const text = "Hi,\n\nThis is a real plain-text message with paragraphs and detail.\n\nBest,\nBob";
+    const text =
+      "Hi,\n\nThis is a real plain-text message with paragraphs and detail.\n\nBest,\nBob";
     const html = "<html><body><p>Same message, HTML wrapped.</p></body></html>";
     expect(pickBody(text, html)).toEqual({ body: text, source: "text" });
   });
@@ -165,7 +166,8 @@ describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
 
   it("falls back to html when text is a 'view in browser' placeholder stub", () => {
     const text = "View this email in your browser";
-    const html = "<html><body>The real content of the newsletter, with full story, links, images, etc.</body></html>";
+    const html =
+      "<html><body>The real content of the newsletter, with full story, links, images, etc.</body></html>";
     expect(pickBody(text, html)).toEqual({ body: html, source: "html" });
   });
 
@@ -177,7 +179,8 @@ describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
 
   it("falls back to html when text is very short and html is 3× longer", () => {
     const text = "Hi there, see below.";
-    const html = "<p>Hi there,</p><p>The actual much longer message lives here in the HTML part, with all the relevant paragraphs the sender meant to include. Plenty of words to trigger the length heuristic.</p>";
+    const html =
+      "<p>Hi there,</p><p>The actual much longer message lives here in the HTML part, with all the relevant paragraphs the sender meant to include. Plenty of words to trigger the length heuristic.</p>";
     expect(pickBody(text, html).source).toBe("html");
   });
 
@@ -190,7 +193,9 @@ describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
   it("does not flag a long text containing a placeholder-like phrase as a stub", () => {
     // A text > 500 chars containing the phrase is almost certainly a
     // legitimate body referring to browser view in passing, not a stub.
-    const text = "Hello,\n\n".padEnd(600, "x") + " view this email in your browser if links do not work properly.";
+    const text =
+      "Hello,\n\n".padEnd(600, "x") +
+      " view this email in your browser if links do not work properly.";
     const html = "<p>html body</p>";
     expect(pickBody(text, html).source).toBe("text");
   });
