@@ -21,9 +21,17 @@ describe("SCOPE_MAP / SCOPE_REVERSE_MAP invariants", () => {
     expect(Object.keys(SCOPE_REVERSE_MAP).length).toBe(Object.keys(SCOPE_MAP).length);
   });
 
-  it("every URL uses the https googleapis origin", () => {
-    for (const url of Object.values(SCOPE_MAP)) {
-      expect(url.startsWith("https://www.googleapis.com/auth/")).toBe(true);
+  it("every URL uses an https Google scope origin", () => {
+    // The vast majority sit under https://www.googleapis.com/auth/. The
+    // single exception is the legacy mail.google.com scope, which Google
+    // exposes as the bare https://mail.google.com/ URL — it's the only
+    // scope that authorizes permanent delete (users.messages.delete).
+    for (const [name, url] of Object.entries(SCOPE_MAP)) {
+      if (name === "mail.google.com") {
+        expect(url).toBe("https://mail.google.com/");
+      } else {
+        expect(url.startsWith("https://www.googleapis.com/auth/")).toBe(true);
+      }
     }
   });
 
@@ -31,6 +39,12 @@ describe("SCOPE_MAP / SCOPE_REVERSE_MAP invariants", () => {
     for (const scope of DEFAULT_SCOPES) {
       expect(SCOPE_MAP[scope]).toBeDefined();
     }
+  });
+
+  it("mail.google.com resolves to the legacy bare URL (only scope authorizing permanent delete)", () => {
+    expect(SCOPE_MAP["mail.google.com"]).toBe("https://mail.google.com/");
+    expect(scopeNameToUrl("mail.google.com")).toBe("https://mail.google.com/");
+    expect(scopeUrlToName("https://mail.google.com/")).toBe("mail.google.com");
   });
 });
 

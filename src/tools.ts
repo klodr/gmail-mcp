@@ -498,9 +498,13 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: "delete_email",
-    description: "Permanently deletes an email",
+    description: "Permanently deletes an email (purges from Trash)",
     schema: DeleteEmailSchema,
-    scopes: ["gmail.modify"],
+    // Permanent delete requires the full mail.google.com scope.
+    // gmail.modify is enough for trashing (modify_email) but the
+    // users.messages.delete endpoint specifically rejects it with
+    // HTTP 403 "Insufficient Permission".
+    scopes: ["mail.google.com"],
     annotations: { title: "Delete Email", destructiveHint: true },
   },
   {
@@ -512,9 +516,10 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: "batch_delete_emails",
-    description: "Permanently deletes multiple emails in batches",
+    description: "Permanently deletes multiple emails in batches (purges from Trash)",
     schema: BatchDeleteEmailsSchema,
-    scopes: ["gmail.modify"],
+    // Same scope requirement as delete_email — see comment above.
+    scopes: ["mail.google.com"],
     annotations: { title: "Batch Delete Emails", destructiveHint: true },
   },
 
