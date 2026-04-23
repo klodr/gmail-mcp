@@ -14,7 +14,13 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createEmailMessage, createEmailWithNodemailer, pickBody } from "./utl.js";
+import {
+  createEmailMessage,
+  createEmailWithNodemailer,
+  pickBody,
+  pickBodyAnnotated,
+  HTML_FALLBACK_NOTE,
+} from "./utl.js";
 
 // Resolve src directory
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -198,5 +204,39 @@ describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
       " view this email in your browser if links do not work properly.";
     const html = "<p>html body</p>";
     expect(pickBody(text, html).source).toBe("text");
+  });
+});
+
+describe("pickBodyAnnotated — HTML fallback marker (Qodo #41)", () => {
+  // The three reading surfaces (read_email, get_thread, get_inbox_with_threads)
+  // must all prepend the same marker when pickBody falls back to the HTML
+  // part, so a consumer LLM sees a consistent annotation regardless of
+  // which reader returned the body.
+  it("prepends HTML_FALLBACK_NOTE when source is html", () => {
+    const { body, source } = pickBodyAnnotated("", "<p>html body</p>");
+    expect(source).toBe("html");
+    expect(body.startsWith(HTML_FALLBACK_NOTE)).toBe(true);
+    expect(body.endsWith("<p>html body</p>")).toBe(true);
+  });
+
+  it("returns the plain-text body unchanged when source is text", () => {
+    const { body, source } = pickBodyAnnotated("hello world", "<p>hello</p>");
+    expect(source).toBe("text");
+    expect(body).toBe("hello world");
+    expect(body.startsWith(HTML_FALLBACK_NOTE)).toBe(false);
+  });
+
+  it("returns an empty body (no marker) when both parts are empty", () => {
+    const { body, source } = pickBodyAnnotated("", "");
+    expect(source).toBe("empty");
+    expect(body).toBe("");
+  });
+
+  it("falls back with marker on a placeholder-stub plain-text part", () => {
+    const text = "View this email in your browser";
+    const html = "<p>the real content, much longer</p>".repeat(10);
+    const { body, source } = pickBodyAnnotated(text, html);
+    expect(source).toBe("html");
+    expect(body.startsWith(HTML_FALLBACK_NOTE)).toBe(true);
   });
 });

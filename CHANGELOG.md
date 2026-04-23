@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HTML-fallback marker is now consistent across all three reading surfaces** (Qodo finding on PR #41). When `pickBody` falls back to the HTML part (empty text, placeholder stub, or text-much-shorter-than-html heuristic), `read_email` prepends a `[Note: This email is HTML-formatted. Rendering the HTML body because the plain-text part was empty or a placeholder stub.]` marker so the LLM can calibrate its parsing. Before this fix, `get_thread` and `get_inbox_with_threads` used the same `pickBody` heuristic but silently returned the HTML body with no marker — an agent reading a thread saw different output shape for the same underlying message depending on which tool it called. Both handlers now use the new `pickBodyAnnotated` helper from `src/utl.ts` which bakes the marker in; the marker string itself is exported as `HTML_FALLBACK_NOTE` so a future change is a single-line edit.
+
 ### Added
 
 - **`read_email` now respects Gmail's 102 KB clip threshold** (upstream GongRzhe#33). Previously a multi-MB newsletter body was returned verbatim and blew past the 25k-token MCP response cap, making the tool unusable on Gmail content of that size. The handler now clips the body at 102 KB (104 448 bytes, matching Gmail's own web-UI threshold) and emits the `[Message clipped — N KB more. Gmail clips at 102 KB in its own UI. Call download_email(…) for the full payload …]` marker so an agent has a concrete next step.

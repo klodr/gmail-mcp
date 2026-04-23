@@ -314,6 +314,32 @@ export function pickBody(
 }
 
 /**
+ * Prefix string prepended to a body when pickBody fell back to the HTML
+ * part. Shared across read_email, get_thread, and get_inbox_with_threads
+ * so the three surfaces annotate HTML-fallback bodies identically — an
+ * LLM reading any of them sees the same marker and can calibrate its
+ * parsing accordingly.
+ */
+export const HTML_FALLBACK_NOTE =
+  "[Note: This email is HTML-formatted. Rendering the HTML body because the plain-text part was empty or a placeholder stub.]\n\n";
+
+/**
+ * Pick a body and annotate it if HTML was chosen. Convenience wrapper
+ * over `pickBody` for the handlers that return the body inlined (rather
+ * than split into body + contentTypeNote, like read_email does).
+ */
+export function pickBodyAnnotated(
+  text: string,
+  html: string,
+): { body: string; source: "text" | "html" | "empty" } {
+  const picked = pickBody(text, html);
+  return {
+    body: picked.source === "html" ? HTML_FALLBACK_NOTE + picked.body : picked.body,
+    source: picked.source,
+  };
+}
+
+/**
  * Shape of every validated tool-input that reaches the MIME builders.
  * Matches the subset of fields from SendEmailSchema / ReplyAllSchema /
  * DraftEmailSchema that createEmailMessage + createEmailWithNodemailer

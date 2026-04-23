@@ -23,6 +23,8 @@ import {
   getDownloadDir,
   safeWriteFile,
   pickBody,
+  pickBodyAnnotated,
+  HTML_FALLBACK_NOTE,
   ValidatedEmailArgs,
 } from "./utl.js";
 import {
@@ -781,11 +783,12 @@ async function main() {
           // Use plain text by default, but fall back to HTML when text is a
           // placeholder stub ("view in browser…") or suspiciously short
           // relative to the HTML body. pickBody centralises that heuristic.
+          // read_email keeps the note separate from the body so the body's
+          // byte cap (see below) is measured against the actual content, not
+          // the marker — get_thread / get_inbox_with_threads inline the
+          // marker via pickBodyAnnotated since they don't truncate.
           const { body, source } = pickBody(text, html);
-          const contentTypeNote =
-            source === "html"
-              ? "[Note: This email is HTML-formatted. Rendering the HTML body because the plain-text part was empty or a placeholder stub.]\n\n"
-              : "";
+          const contentTypeNote = source === "html" ? HTML_FALLBACK_NOTE : "";
 
           // Summary mode clamps the body at 500 bytes regardless of
           // maxBodyLength. Full mode uses maxBodyLength (0 disables).
@@ -1538,11 +1541,14 @@ async function main() {
             const bcc = headers.find((h) => h.name?.toLowerCase() === "bcc")?.value || "";
             const date = headers.find((h) => h.name?.toLowerCase() === "date")?.value || "";
 
-            // Extract body content
+            // Extract body content. pickBodyAnnotated prepends the same
+            // "[Note: This email is HTML-formatted…]" marker that read_email
+            // uses when pickBody falls back to the HTML part, so a thread
+            // message carries the identical annotation.
             let body = "";
             if (validatedArgs.format !== "minimal") {
               const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
-              body = pickBody(text, html).body;
+              body = pickBodyAnnotated(text, html).body;
             }
 
             // Extract attachment metadata
@@ -1735,7 +1741,8 @@ async function main() {
                 const date = headers.find((h) => h.name?.toLowerCase() === "date")?.value || "";
 
                 const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
-                const body = pickBody(text, html).body;
+                // Same HTML-fallback note as `read_email` / `get_thread`.
+                const body = pickBodyAnnotated(text, html).body;
 
                 // Extract attachment metadata
                 const attachments: EmailAttachment[] = [];
