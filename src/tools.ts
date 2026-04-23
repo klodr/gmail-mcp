@@ -61,10 +61,14 @@ const coerceArray = <T extends z.ZodTypeAny>(inner: T, opts?: { max?: number }) 
 // `.min()` / `.max()` are not directly chainable.
 const coerceIntPreprocess = (val: unknown): unknown => {
   if (typeof val === "string") {
+    // Strict decimal-integer match only. The naive `Number(trimmed)`
+    // would silently accept scientific notation (`"1e2"` → 100) and
+    // hex (`"0x10"` → 16), both well beyond the "stringified digits
+    // from a strict-JSON client" contract we advertise. A regex keeps
+    // the coercion surface narrow and predictable.
     const trimmed = val.trim();
-    if (trimmed === "") return val;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : val;
+    if (!/^-?\d+$/.test(trimmed)) return val;
+    return Number(trimmed);
   }
   return val;
 };
@@ -252,7 +256,7 @@ export const CreateFilterSchema = z
         negatedQuery: z.string().optional().describe("Text that must NOT be present"),
         hasAttachment: z.boolean().optional().describe("Whether to match emails with attachments"),
         excludeChats: z.boolean().optional().describe("Whether to exclude chat messages"),
-        size: z.coerce.number().optional().describe("Email size in bytes"),
+        size: coerceInt().optional().describe("Email size in bytes"),
         sizeComparison: z
           .enum(["unspecified", "smaller", "larger"])
           .optional()
@@ -261,12 +265,10 @@ export const CreateFilterSchema = z
       .describe("Criteria for matching emails"),
     action: z
       .object({
-        addLabelIds: z
-          .array(GmailIdSchema)
+        addLabelIds: coerceArray(GmailIdSchema)
           .optional()
           .describe("Label IDs to add to matching emails"),
-        removeLabelIds: z
-          .array(GmailIdSchema)
+        removeLabelIds: coerceArray(GmailIdSchema)
           .optional()
           .describe("Label IDs to remove from matching emails"),
         forward: z.string().optional().describe("Email address to forward matching emails to"),
@@ -313,8 +315,7 @@ export const CreateFilterFromTemplateSchema = z
           .string()
           .optional()
           .describe("Mailing list identifier (for mailingList template)"),
-        sizeInBytes: z.coerce
-          .number()
+        sizeInBytes: coerceInt()
           .optional()
           .describe("Size threshold in bytes (for largeEmails template)"),
         labelIds: coerceArray(GmailIdSchema).optional().describe("Label IDs to apply"),
@@ -353,12 +354,10 @@ export const DownloadEmailSchema = z.object({
 
 export const ModifyThreadSchema = z.object({
   threadId: GmailIdSchema.describe("ID of the Gmail thread to modify"),
-  addLabelIds: z
-    .array(GmailIdSchema)
+  addLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to add to all messages in the thread"),
-  removeLabelIds: z
-    .array(GmailIdSchema)
+  removeLabelIds: coerceArray(GmailIdSchema)
     .optional()
     .describe("List of label IDs to remove from all messages in the thread"),
 });
