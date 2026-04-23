@@ -24,13 +24,11 @@ function mockGmail(opts: {
               e.code = 403;
               throw e;
             }
-            return {
-              data: {
-                sendAs: (opts.sendAs ?? null) as SenderResolverGmailClient extends infer _
-                  ? never
-                  : never,
-              },
-            } as unknown as Awaited<
+            // Cast through `unknown` to the googleapis return type. The
+            // clever `T extends infer _ ? never : never` hack was more
+            // obscure than useful — a plain double-cast with a short
+            // comment is easier to maintain.
+            return { data: { sendAs: opts.sendAs ?? null } } as unknown as Awaited<
               ReturnType<SenderResolverGmailClient["users"]["settings"]["sendAs"]["list"]>
             >;
           },
@@ -189,5 +187,39 @@ describe("resolveDefaultSender — upstream GongRzhe#77", () => {
     // Both cache hits round-trip cleanly to the SAME respective value.
     expect(await resolveDefaultSender(alice)).toBe("Alice <alice@example.com>");
     expect(await resolveDefaultSender(bob)).toBe("Bob <bob@example.com>");
+  });
+
+  it("dedups concurrent cold-cache calls into a single round-trip (Qodo #42)", async () => {
+    // On cold cache, two simultaneous callers must share the same
+    // in-flight promise rather than each firing their own sendAs.list.
+    let sendAsCalls = 0;
+    const gmail: SenderResolverGmailClient = {
+      users: {
+        settings: {
+          sendAs: {
+            list: async () => {
+              sendAsCalls++;
+              await new Promise((r) => setTimeout(r, 20));
+              return {
+                data: { sendAs: [{ sendAsEmail: "x@example.com", isDefault: true }] },
+              } as unknown as Awaited<
+                ReturnType<SenderResolverGmailClient["users"]["settings"]["sendAs"]["list"]>
+              >;
+            },
+          },
+        },
+        getProfile: async () => ({ data: {} }),
+      },
+    };
+
+    const [a, b, c] = await Promise.all([
+      resolveDefaultSender(gmail),
+      resolveDefaultSender(gmail),
+      resolveDefaultSender(gmail),
+    ]);
+    expect(a).toBe("x@example.com");
+    expect(b).toBe("x@example.com");
+    expect(c).toBe("x@example.com");
+    expect(sendAsCalls).toBe(1);
   });
 });

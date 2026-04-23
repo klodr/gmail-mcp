@@ -63,45 +63,63 @@ export interface SenderResolverGmailClient {
 // replacing it (WeakMap has no `.clear()`).
 let cache = new WeakMap<SenderResolverGmailClient, string>();
 
+// In-flight dedup: concurrent cold-cache calls on the same client all
+// return the SAME in-progress promise instead of each firing their own
+// sendAs.list / getProfile round-trip. A second `let` so reset works.
+let inFlight = new WeakMap<SenderResolverGmailClient, Promise<string>>();
+
 export async function resolveDefaultSender(gmail: SenderResolverGmailClient): Promise<string> {
   const hit = cache.get(gmail);
   if (hit !== undefined) return hit;
 
-  try {
-    const sendAsResp = await gmail.users.settings.sendAs.list({ userId: "me" });
-    const entries = sendAsResp.data.sendAs ?? [];
-    const primary =
-      entries.find((s) => s.isDefault === true) ??
-      entries.find((s) => s.isPrimary === true) ??
-      entries[0];
-    if (primary?.sendAsEmail) {
-      const name = primary.displayName?.trim();
-      const resolved = name ? `${name} <${primary.sendAsEmail}>` : primary.sendAsEmail;
-      cache.set(gmail, resolved);
-      return resolved;
-    }
-  } catch {
-    // Scope doesn't grant settings.basic — fall through.
-  }
+  const pending = inFlight.get(gmail);
+  if (pending) return pending;
 
-  try {
-    const profileResp = await gmail.users.getProfile({ userId: "me" });
-    if (profileResp.data.emailAddress) {
-      const resolved = profileResp.data.emailAddress;
-      cache.set(gmail, resolved);
-      return resolved;
+  const task = (async (): Promise<string> => {
+    try {
+      const sendAsResp = await gmail.users.settings.sendAs.list({ userId: "me" });
+      const entries = sendAsResp.data.sendAs ?? [];
+      const primary =
+        entries.find((s) => s.isDefault === true) ??
+        entries.find((s) => s.isPrimary === true) ??
+        entries[0];
+      if (primary?.sendAsEmail) {
+        const name = primary.displayName?.trim();
+        const resolved = name ? `${name} <${primary.sendAsEmail}>` : primary.sendAsEmail;
+        cache.set(gmail, resolved);
+        return resolved;
+      }
+    } catch {
+      // Scope doesn't grant settings.basic — fall through.
     }
-  } catch {
-    // Fall through to "me".
-  }
 
-  // Don't cache — a process that re-auths this client to a broader
-  // scope should pick up the display name on the next call without a
-  // restart.
-  return "me";
+    try {
+      const profileResp = await gmail.users.getProfile({ userId: "me" });
+      if (profileResp.data.emailAddress) {
+        const resolved = profileResp.data.emailAddress;
+        cache.set(gmail, resolved);
+        return resolved;
+      }
+    } catch {
+      // Fall through to "me".
+    }
+
+    // Don't cache — a process that re-auths this client to a broader
+    // scope should pick up the display name on the next call without a
+    // restart.
+    return "me";
+  })();
+
+  inFlight.set(gmail, task);
+  try {
+    return await task;
+  } finally {
+    inFlight.delete(gmail);
+  }
 }
 
-/** Test-only: reset the cache between cases. */
+/** Test-only: reset the cache + inFlight between cases. */
 export function _resetDefaultSenderCache(): void {
   cache = new WeakMap();
+  inFlight = new WeakMap();
 }
