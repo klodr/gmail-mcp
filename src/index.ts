@@ -753,6 +753,13 @@ async function main() {
 
         case "read_email": {
           const validatedArgs = ReadEmailSchema.parse(args);
+          // Fetch the full message even when the caller asked for
+          // `headers_only` — the Gmail API's `format: "metadata"`
+          // would skip body+attachment parsing server-side, but in
+          // our handler we already parse both after the fetch, so the
+          // bandwidth save isn't worth the extra code path. The
+          // truncation below is what keeps the MCP response under
+          // 25k tokens.
           const response = await gmail.users.messages.get({
             userId: "me",
             id: validatedArgs.messageId,
@@ -761,10 +768,15 @@ async function main() {
 
           const { subject, from, to, date, rfcMessageId } = extractHeaders(response.data.payload);
           const threadId = response.data.threadId || "";
+          const headerBlock = `Thread ID: ${threadId}\nMessage-ID: ${rfcMessageId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}`;
+
+          if (validatedArgs.format === "headers_only") {
+            return { content: [{ type: "text", text: headerBlock }] };
+          }
+
           const { text, html } = extractEmailContent(
             (response.data.payload as GmailMessagePart) || {},
           );
-          const attachments = extractAttachments(response.data.payload as GmailMessagePart);
 
           // Use plain text by default, but fall back to HTML when text is a
           // placeholder stub ("view in browser…") or suspiciously short
@@ -775,7 +787,41 @@ async function main() {
               ? "[Note: This email is HTML-formatted. Rendering the HTML body because the plain-text part was empty or a placeholder stub.]\n\n"
               : "";
 
-          // Add attachment info to output if any are present
+          // Summary mode clamps the body at 500 bytes regardless of
+          // maxBodyLength. Full mode uses maxBodyLength (0 disables).
+          // Byte-based cap so the threshold lines up with Gmail's own
+          // "[Message clipped]" rule (which is byte-based on the raw
+          // text+HTML) and so multi-byte characters don't quietly
+          // balloon the char-count past the MCP response cap.
+          const bodyBytes = Buffer.byteLength(body, "utf-8");
+          const hardCap = validatedArgs.format === "summary" ? 500 : validatedArgs.maxBodyLength;
+          let displayBody = body;
+          let truncationNote = "";
+          if (hardCap > 0 && bodyBytes > hardCap) {
+            // Slice on a byte boundary, then let TextDecoder drop any
+            // trailing incomplete multi-byte sequence — that way a
+            // truncated emoji or accent doesn't produce an invisible
+            // replacement character in the output.
+            const buf = Buffer.from(body, "utf-8").subarray(0, hardCap);
+            displayBody = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(buf);
+            // Trim the last char if it came back as U+FFFD from a
+            // partial code point at the cut point.
+            if (displayBody.endsWith("�")) {
+              displayBody = displayBody.slice(0, -1);
+            }
+            const remainingBytes = bodyBytes - hardCap;
+            const remainingKB = Math.round((remainingBytes / 1024) * 10) / 10;
+            const marker =
+              validatedArgs.format === "summary"
+                ? `\n\n[Summary truncated at 500 bytes — ${remainingKB.toLocaleString("en-US")} KB more.]`
+                : `\n\n[Message clipped — ${remainingKB.toLocaleString("en-US")} KB more. Gmail clips at 102 KB in its own UI. Call download_email(messageId: "${validatedArgs.messageId}") to save the full payload to disk, or re-call read_email with maxBodyLength: 0 to disable truncation.]`;
+            truncationNote = marker;
+          }
+
+          const attachments =
+            validatedArgs.includeAttachments && validatedArgs.format !== "summary"
+              ? extractAttachments(response.data.payload as GmailMessagePart)
+              : [];
           const attachmentInfo =
             attachments.length > 0
               ? `\n\nAttachments (${attachments.length}):\n` +
@@ -791,7 +837,7 @@ async function main() {
             content: [
               {
                 type: "text",
-                text: `Thread ID: ${threadId}\nMessage-ID: ${rfcMessageId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}\n\n${contentTypeNote}${body}${attachmentInfo}`,
+                text: `${headerBlock}\n\n${contentTypeNote}${displayBody}${truncationNote}${attachmentInfo}`,
               },
             ],
           };
