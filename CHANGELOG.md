@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`read_email` now respects Gmail's 102 KB clip threshold** (upstream GongRzhe#33). Previously a multi-MB newsletter body was returned verbatim and blew past the 25k-token MCP response cap, making the tool unusable on Gmail content of that size. The handler now clips the body at 102 KB (104 448 bytes, matching Gmail's own web-UI threshold) and emits the `[Message clipped — N KB more. Gmail clips at 102 KB in its own UI. Call download_email(…) for the full payload …]` marker so an agent has a concrete next step.
+
+  Three new optional parameters on `ReadEmailSchema`:
+  - `format`: `"full"` (default) / `"summary"` (500-byte cap, no attachments) / `"headers_only"` (no body, no attachments).
+  - `maxBodyLength`: byte cap, default `104448` (102 KB), max `1048576` (1 MB), set to `0` to disable. Coerces from stringified digits for strict-JSON clients.
+  - `includeAttachments`: `true` by default; drop the metadata list when you know the message has many attachments and you don't want them in the response.
+
+  Truncation slices on a UTF-8 byte boundary and drops any trailing replacement character so a truncated emoji or accent doesn't leave a stray U+FFFD.
+
 ### Fixed
 
 - **`delete_email` / `batch_delete_emails` required scope corrected to `mail.google.com`** (upstream GongRzhe#47). The two tools were gated on `gmail.modify`, but the Google API `users.messages.delete` endpoint specifically rejects `gmail.modify` with HTTP 403 "Insufficient Permission" — only the legacy `mail.google.com` scope authorizes permanent delete (`gmail.modify` stops at moving to Trash). The bug was silently carried from upstream: the tool was advertised to LLMs but every invocation failed at Google. Users who need permanent delete now authenticate with `--scopes=mail.google.com,gmail.settings.basic` (or add `mail.google.com` to their existing scopes). Users who don't need it keep the default `gmail.modify` floor and the two delete tools are correctly filtered out of the registered tool list at startup.
@@ -14,11 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.1] - 2026-04-22
 
-Single focus: move the whole toolchain off Node 20 ahead of its 2026-04-30 Active-LTS exit. Not a feature release — the `dist/index.js` behaviour is unchanged versus 0.9.0.
+Single focus: move the whole toolchain off Node 20 ahead of its 2026-04-30 end-of-life. Not a feature release — the `dist/index.js` behaviour is unchanged versus 0.9.0.
 
 ### Changed (BREAKING)
 
-- **Node.js floor: `>=22`** (was `>=20.11`). Node 20 reaches end of Active LTS on 2026-04-30; keeping the floor there would ship 0.9.0-era packages on an unmaintained runtime the day after. Active-LTS Node 22 runs maintenance until 2027-04-30, which gives a year of headroom before the next cadence bump.
+- **Node.js floor: `>=22`** (was `>=20.11`). Node 20 reaches end-of-life on 2026-04-30; keeping the floor there would ship 0.9.0-era packages on an unmaintained runtime the day after. Node 22 is in Maintenance LTS through 2027-04-30, which gives a year of headroom before the next cadence bump.
 - **Compile target: `ES2024`** (was `ES2022`). Node 22 implements the full ES2024 surface (`Object.groupBy`, `Map.groupBy`, `Promise.withResolvers`, iterator helpers, etc.) — the TypeScript `target` and `lib` now match, so stdlib additions don't need polyfills.
 - **Bundle target: `tsup target: node22`** (was `node20`). Without this the bundler was still down-levelling Node 22 intrinsics (WebCrypto globals, `AbortSignal.any`) and the shipped `dist/index.js` wasn't actually taking advantage of the higher floor we just set.
 
