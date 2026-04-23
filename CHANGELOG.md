@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`download_email` parallelises the Gmail metadata + raw-EML fetches** when `format: "eml"` is requested. The prior implementation awaited `format: "full"` first, then awaited `format: "raw"` serially — two sequential round-trips to Gmail for every EML download. `Promise.all` now issues both in parallel, halving the user-visible latency on EML saves. `json` / `txt` / `html` paths are unchanged — they never needed the second fetch.
+- **`attachStructuredContent` pre-filters non-JSON text before `JSON.parse`** — the middleware hot-path now checks the first non-whitespace character against `{` / `[` and short-circuits when it is neither, instead of relying on `try/catch` to reject plain-prose tool responses. Equivalent semantics; cheaper on tools that do not emit JSON (read_email text, summary-style outputs). `src/middleware.test.ts` contract unchanged.
+- **Three error-surface catches in `src/index.ts`** (`send_email` attachments logging, `download_email`, `download_attachment`) now consume `asGmailApiError` from `src/gmail-errors.ts` instead of open-coding `error instanceof Error ? error.message : String(error)`. User-facing failure messages now include the Gmail HTTP status when available (`"Failed to download email (HTTP 404): Message not found"`), matching the pattern already in `src/label-manager.ts` and `src/filter-manager.ts`.
+
 ## [0.10.0] - 2026-04-23
 
 ### Fixed

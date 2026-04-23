@@ -138,6 +138,13 @@ function attachStructuredContent(result: ToolResult): ToolResult {
   if (result.structuredContent !== undefined) return result;
   const first = result.content[0];
   if (!first || first.type !== "text" || typeof first.text !== "string") return result;
+  // Cheap pre-filter: only object/array JSON payloads are lifted anyway,
+  // so skip the `JSON.parse` + try/catch for every non-JSON text result
+  // (plain prose, human-readable tables, error messages). V8 try/catch is
+  // relatively cheap but still ~50-100× slower than a char test, and the
+  // hot path runs on EVERY tool response.
+  const leading = first.text.trimStart()[0];
+  if (leading !== "{" && leading !== "[") return result;
   try {
     const parsed: unknown = JSON.parse(first.text);
     // `typeof null === "object"` in JS — exclude nulls explicitly so a
@@ -151,7 +158,7 @@ function attachStructuredContent(result: ToolResult): ToolResult {
       };
     }
   } catch {
-    // text is not JSON — leave the ToolResult untouched.
+    // text started with { or [ but isn't valid JSON — leave the result untouched.
   }
   return result;
 }
