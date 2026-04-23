@@ -5,6 +5,8 @@ import {
   BatchModifyEmailsSchema,
   BatchDeleteEmailsSchema,
   ModifyEmailSchema,
+  CreateFilterSchema,
+  CreateFilterFromTemplateSchema,
 } from "./tools.js";
 
 // These tests guard against the regressions reported as
@@ -201,6 +203,54 @@ describe("FilePathSchema — attachment path hardening (CR #40 outside-diff)", (
         subject: "x",
         body: "y",
         attachments: [longPath],
+      }),
+    ).toThrow();
+  });
+});
+
+describe("CreateFilterSchema / CreateFilterFromTemplateSchema — byte-size coercion (Qodo #40)", () => {
+  // Qodo flagged that size / sizeInBytes were changed from z.coerce.number() to
+  // coerceInt() without direct test coverage. These tests pin the new
+  // behaviour: stringified integer bytes coerce, floats / non-numeric
+  // rejected, native integers pass through.
+  it("CreateFilterSchema.criteria.size accepts a stringified integer", () => {
+    const r = CreateFilterSchema.parse({
+      criteria: { size: "10485760" },
+      action: {},
+    });
+    expect(r.criteria.size).toBe(10485760);
+  });
+
+  it("CreateFilterSchema.criteria.size accepts a native integer", () => {
+    const r = CreateFilterSchema.parse({
+      criteria: { size: 5242880 },
+      action: {},
+    });
+    expect(r.criteria.size).toBe(5242880);
+  });
+
+  it("CreateFilterSchema.criteria.size rejects a float (byte counts are integers)", () => {
+    expect(() =>
+      CreateFilterSchema.parse({
+        criteria: { size: 1024.5 },
+        action: {},
+      }),
+    ).toThrow();
+  });
+
+  it("CreateFilterFromTemplateSchema.parameters.sizeInBytes accepts stringified int", () => {
+    const r = CreateFilterFromTemplateSchema.parse({
+      template: "largeEmails",
+      parameters: { sizeInBytes: "5242880" },
+    });
+    expect(r.parameters.sizeInBytes).toBe(5242880);
+  });
+
+  it("CreateFilterFromTemplateSchema.parameters.sizeInBytes rejects a float", () => {
+    expect(() =>
+      CreateFilterFromTemplateSchema.parse({
+        template: "largeEmails",
+        parameters: { sizeInBytes: 1024.5 },
       }),
     ).toThrow();
   });
