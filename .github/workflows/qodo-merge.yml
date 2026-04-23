@@ -68,11 +68,18 @@ jobs:
           # would be silently skipped. Include it so each new commit
           # triggers a fresh review (aligned with the workflow's `on:`).
           GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
-          # With persistent_comment=true, both jobs detect each other's
-          # comment via the same HTML marker and the second run overwrites
-          # the first — we'd only ever see one of the two reviews. Disable
-          # persistence so each model's review lands in its own comment.
-          PR_REVIEWER__PERSISTENT_COMMENT: "false"
+          # persistent_comment=true: each re-review overwrites the same
+          # comment instead of appending a new one to the timeline —
+          # matches CodeRabbit's "single rolling review" UX.
+          # KNOWN LIMITATION: pr-agent v0.34 uses one hardcoded HTML
+          # marker (`<!-- pr_reviewer_comment -->`) shared by both
+          # jobs, so the second job to finish overwrites the first.
+          # In practice we see whichever model ran last (usually
+          # DeepSeek R1, which is slower). To surface both distinctly
+          # we'd need to fork pr-agent for a per-model marker.
+          # Accepted trade-off for now: less timeline noise > seeing
+          # both model perspectives in every passage.
+          PR_REVIEWER__PERSISTENT_COMMENT: "true"
           # Qodo's ticket-compliance pass treats any GitHub `#N` mention
           # in the PR body as a ticket whose body carries binding
           # requirements. When a sibling PR cross-references a prior
@@ -106,7 +113,7 @@ jobs:
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
           GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
-          PR_REVIEWER__PERSISTENT_COMMENT: "false"
+          PR_REVIEWER__PERSISTENT_COMMENT: "true"
           # Same rationale as the DeepSeek leg — silence Qodo's ticket-
           # compliance false-positive on chained sibling PRs.
           PR_REVIEWER__REQUIRE_TICKET_ANALYSIS_REVIEW: "false"
