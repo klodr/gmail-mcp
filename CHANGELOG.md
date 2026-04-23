@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Node.js floor bumped to `>=22.22`** (was `>=22.11`). Node 22.22.2 ships security fixes for seven CVEs, including two high-severity ones (TLS/SNI callback handling and HTTP header validation). The 22.22.x line is the current in-maintenance LTS patch train; pinning the floor there gives users a known-patched runtime instead of the pre-CVE 22.11 baseline. Aligned with the sibling repos `klodr/faxdrop-mcp`, `klodr/mercury-invoicing-mcp`, and the private `klodr/relayfi-mcp`, all moving to `>=22.22` in the same pass. Also updates `SECURITY.md` "Supported runtimes", `llms-install.md` prerequisite, and `.github/dependabot.yml` `@types/node` major-clamp comment to the new floor.
+
 ### Fixed
 
 - **60-second hard timeout on every Gmail API call** — `google.options({ timeout: 60_000 })` is now applied before the `gmail` client is constructed, so every `gmail.users.*` call inherits the cap via gaxios. Without this, a slow Gmail response would hang the MCP stdio session with no way for the client to recover short of killing the process (v0.10.0 parity item — mercury has a 30 s cap at `src/client.ts:72`, faxdrop relies on upstream response headers). **60 s rather than 30 s** because gmail has two slow-path surfaces mercury lacks: a 25 MB attachment upload on `send_email` (base64-encoded + single POST) routinely pushes past 30 s on a mid-tier mobile uplink, and non-US clients add 200–500 ms per round-trip compounded across gaxios's internal redirects. The ceiling is tunable further via the `GMAIL_MCP_TIMEOUT_MS` env var for mailboxes where a single `messages.list` with a heavy `q:` legitimately runs long.
