@@ -29,7 +29,12 @@ import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-l
  * start returning it without changing the callsite signature.
  */
 export type ToolResult = {
-  content: { type: "text"; text: string }[];
+  // MCP spec allows `text` / `image` / `resource` on `content[].type`; the
+  // Gmail handlers emit only `text` today but the type is widened to
+  // `string` so the inline return-object literals in the switch
+  // (inferred as `{ type: string }` without an explicit `as const`)
+  // satisfy the signature without every callsite needing to annotate.
+  content: { type: string; text: string }[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };

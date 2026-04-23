@@ -83,9 +83,9 @@ import {
   ModifyThreadSchema,
 } from "./tools.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./email-export.js";
-import { logAudit, type AuditResult } from "./audit-log.js";
+import { logAudit } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
-import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
+import { wrapToolHandler } from "./middleware.js";
 import { resolveDefaultSender } from "./sender-resolver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -515,28 +515,11 @@ async function main() {
       };
     }
 
-    // MCP-side rate limit for write tools (send/delete/modify/drafts/labels/filters).
-    // Trips BEFORE the Gmail API call so a prompt-injected agent cannot burn
-    // through the upstream quota. Read tools are untracked here (Gmail's
-    // per-user-per-second quota handles those at the platform level).
-    try {
-      enforceRateLimit(name);
-    } catch (err) {
-      if (err instanceof RateLimitError) {
-        logAudit(name, args, "rate_limited");
-        return {
-          content: [{ type: "text", text: formatRateLimitError(err) }],
-          isError: true,
-        };
-      }
-      throw err;
-    }
-
-    // Opt-in JSONL audit log (GMAIL_MCP_AUDIT_LOG=/abs/path).
-    // `auditResult` starts as "ok" and is flipped to "error" in the
-    // catch block below or when a tool returns a business-error. The
-    // `finally` ensures the entry lands regardless of how we exit.
-    let auditResult: AuditResult = "ok";
+    // Rate-limit + audit-log are now handled by wrapToolHandler
+    // (src/middleware.ts). The helper trips rate-limit BEFORE the
+    // handler runs, maps RateLimitError → isError payload with the
+    // mcp_safeguard error-type, and logs audit in a `finally` with one
+    // of three states: "ok" | "error" | "rate_limited".
 
     async function handleEmailAction(
       action: "send" | "draft",
@@ -761,937 +744,889 @@ async function main() {
     }
 
     try {
-      switch (name) {
-        case "send_email":
-        case "draft_email": {
-          const validatedArgs = SendEmailSchema.parse(args);
-          const action = name === "send_email" ? "send" : "draft";
-          return await handleEmailAction(action, validatedArgs);
-        }
-
-        case "read_email": {
-          const validatedArgs = ReadEmailSchema.parse(args);
-          // Fetch the full message even when the caller asked for
-          // `headers_only` — the Gmail API's `format: "metadata"`
-          // would skip body+attachment parsing server-side, but in
-          // our handler we already parse both after the fetch, so the
-          // bandwidth save isn't worth the extra code path. The
-          // truncation below is what keeps the MCP response under
-          // 25k tokens.
-          const response = await gmail.users.messages.get({
-            userId: "me",
-            id: validatedArgs.messageId,
-            format: "full",
-          });
-
-          const { subject, from, to, date, rfcMessageId } = extractHeaders(response.data.payload);
-          const threadId = response.data.threadId || "";
-          const headerBlock = `Thread ID: ${threadId}\nMessage-ID: ${rfcMessageId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}`;
-
-          if (validatedArgs.format === "headers_only") {
-            return { content: [{ type: "text", text: headerBlock }] };
+      return await wrapToolHandler(name, args, async () => {
+        switch (name) {
+          case "send_email":
+          case "draft_email": {
+            const validatedArgs = SendEmailSchema.parse(args);
+            const action = name === "send_email" ? "send" : "draft";
+            return await handleEmailAction(action, validatedArgs);
           }
 
-          const { text, html } = extractEmailContent(
-            (response.data.payload as GmailMessagePart) || {},
-          );
-
-          // Use plain text by default, but fall back to HTML when text is a
-          // placeholder stub ("view in browser…") or suspiciously short
-          // relative to the HTML body. pickBody centralises that heuristic.
-          // read_email keeps the note separate from the body so the body's
-          // byte cap (see below) is measured against the actual content, not
-          // the marker — get_thread / get_inbox_with_threads inline the
-          // marker via pickBodyAnnotated since they don't truncate.
-          const { body, source } = pickBody(text, html);
-          const contentTypeNote = source === "html" ? HTML_FALLBACK_NOTE : "";
-
-          // Summary mode clamps the body at 500 bytes regardless of
-          // maxBodyLength. Full mode uses maxBodyLength (0 disables).
-          // Byte-based cap so the threshold lines up with Gmail's own
-          // "[Message clipped]" rule (which is byte-based on the raw
-          // text+HTML) and so multi-byte characters don't quietly
-          // balloon the char-count past the MCP response cap.
-          const bodyBytes = Buffer.byteLength(body, "utf-8");
-          const hardCap = validatedArgs.format === "summary" ? 500 : validatedArgs.maxBodyLength;
-          let displayBody = body;
-          let truncationNote = "";
-          if (hardCap > 0 && bodyBytes > hardCap) {
-            // Slice on a byte boundary, then let TextDecoder drop any
-            // trailing incomplete multi-byte sequence — that way a
-            // truncated emoji or accent doesn't produce an invisible
-            // replacement character in the output.
-            const buf = Buffer.from(body, "utf-8").subarray(0, hardCap);
-            displayBody = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(buf);
-            // Trim the last char if it came back as U+FFFD from a
-            // partial code point at the cut point.
-            if (displayBody.endsWith("�")) {
-              displayBody = displayBody.slice(0, -1);
-            }
-            const remainingBytes = bodyBytes - hardCap;
-            const remainingKB = Math.round((remainingBytes / 1024) * 10) / 10;
-            const marker =
-              validatedArgs.format === "summary"
-                ? `\n\n[Summary truncated at 500 bytes — ${remainingKB.toLocaleString("en-US")} KB more.]`
-                : `\n\n[Message clipped — ${remainingKB.toLocaleString("en-US")} KB more. Gmail clips at 102 KB in its own UI. Call download_email(messageId: "${validatedArgs.messageId}") to save the full payload to disk, or re-call read_email with maxBodyLength: 0 to disable truncation.]`;
-            truncationNote = marker;
-          }
-
-          const attachments =
-            validatedArgs.includeAttachments && validatedArgs.format !== "summary"
-              ? extractAttachments(response.data.payload as GmailMessagePart)
-              : [];
-          const attachmentInfo =
-            attachments.length > 0
-              ? `\n\nAttachments (${attachments.length}):\n` +
-                attachments
-                  .map(
-                    (a) =>
-                      `- ${a.filename} (${a.mimeType}, ${Math.round(a.size / 1024)} KB, ID: ${a.id})`,
-                  )
-                  .join("\n")
-              : "";
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `${headerBlock}\n\n${contentTypeNote}${displayBody}${truncationNote}${attachmentInfo}`,
-              },
-            ],
-          };
-        }
-
-        case "search_emails": {
-          const validatedArgs = SearchEmailsSchema.parse(args);
-          const response = await gmail.users.messages.list({
-            userId: "me",
-            q: validatedArgs.query,
-            maxResults: validatedArgs.maxResults || 10,
-          });
-
-          const messages = response.data.messages || [];
-          const results = await Promise.all(
-            messages.map(async (msg) => {
-              const detail = await gmail.users.messages.get({
-                userId: "me",
-                id: msg.id!,
-                format: "metadata",
-                metadataHeaders: ["Subject", "From", "Date"],
-              });
-              const headers = detail.data.payload?.headers || [];
-              return {
-                id: msg.id,
-                subject: headers.find((h) => h.name === "Subject")?.value || "",
-                from: headers.find((h) => h.name === "From")?.value || "",
-                date: headers.find((h) => h.name === "Date")?.value || "",
-              };
-            }),
-          );
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: results
-                  .map(
-                    (r) => `ID: ${r.id}\nSubject: ${r.subject}\nFrom: ${r.from}\nDate: ${r.date}\n`,
-                  )
-                  .join("\n"),
-              },
-            ],
-          };
-        }
-
-        case "download_email": {
-          const validatedArgs = DownloadEmailSchema.parse(args);
-          const { messageId, format } = validatedArgs;
-
-          try {
-            // Jail the savePath inside GMAIL_MCP_DOWNLOAD_DIR
-            // (default ~/GmailDownloads). Prevents a prompt-
-            // injected agent from writing downloaded emails into
-            // /etc/cron.d/, the user's shell rc file, etc.
-            const savePath = resolveDownloadSavePath(validatedArgs.savePath);
-
-            // Always fetch full message for metadata (needed for attachments list)
-            const fullResponse = await gmail.users.messages.get({
+          case "read_email": {
+            const validatedArgs = ReadEmailSchema.parse(args);
+            // Fetch the full message even when the caller asked for
+            // `headers_only` — the Gmail API's `format: "metadata"`
+            // would skip body+attachment parsing server-side, but in
+            // our handler we already parse both after the fetch, so the
+            // bandwidth save isn't worth the extra code path. The
+            // truncation below is what keeps the MCP response under
+            // 25k tokens.
+            const response = await gmail.users.messages.get({
               userId: "me",
-              id: messageId,
+              id: validatedArgs.messageId,
               format: "full",
             });
 
-            const { subject, from, date } = extractHeaders(fullResponse.data.payload);
-            const attachments = extractAttachments(fullResponse.data.payload as GmailMessagePart);
+            const { subject, from, to, date, rfcMessageId } = extractHeaders(response.data.payload);
+            const threadId = response.data.threadId || "";
+            const headerBlock = `Thread ID: ${threadId}\nMessage-ID: ${rfcMessageId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}`;
 
-            let content: string;
-
-            if (format === "eml") {
-              // For EML format, fetch raw RFC822 message
-              const rawResponse = await gmail.users.messages.get({
-                userId: "me",
-                id: messageId,
-                format: "raw",
-              });
-              content = Buffer.from(rawResponse.data.raw || "", "base64url").toString("utf-8");
-            } else {
-              // Extract email content for json/txt/html
-              const emailContent = extractEmailContent(
-                (fullResponse.data.payload as GmailMessagePart) || {},
-              );
-
-              if (format === "json") {
-                const jsonData = gmailMessageToJson(fullResponse.data, emailContent, attachments);
-                content = JSON.stringify(jsonData, null, 2);
-              } else if (format === "txt") {
-                content = emailToTxt(fullResponse.data, emailContent, attachments);
-              } else {
-                // html - just return the raw HTML content
-                content = emailToHtml(emailContent);
-              }
+            if (validatedArgs.format === "headers_only") {
+              return { content: [{ type: "text", text: headerBlock }] };
             }
 
-            // Write file via safeWriteFile (O_NOFOLLOW on the
-            // leaf, O_EXCL against silent overwrites) so a
-            // pre-existing symlink OR regular file at `fullPath`
-            // cannot be used to escape the jail that
-            // resolveDownloadSavePath already verified for
-            // the parent directory. On name collision, suffix
-            // ` (1)`, ` (2)`, … — matches browser behavior.
-            const filename = `${messageId}.${format}`;
-            const requestedPath = path.join(savePath, filename);
-            const writtenPath = safeWriteFile(requestedPath, content, { onCollision: "suffix" });
-            const stats = fs.statSync(writtenPath);
+            const { text, html } = extractEmailContent(
+              (response.data.payload as GmailMessagePart) || {},
+            );
 
-            // Return metadata with attachments
-            const result = {
-              status: "saved",
-              path: writtenPath,
-              size: stats.size,
-              messageId,
-              subject,
-              from,
-              date,
-              attachments,
-            };
+            // Use plain text by default, but fall back to HTML when text is a
+            // placeholder stub ("view in browser…") or suspiciously short
+            // relative to the HTML body. pickBody centralises that heuristic.
+            // read_email keeps the note separate from the body so the body's
+            // byte cap (see below) is measured against the actual content, not
+            // the marker — get_thread / get_inbox_with_threads inline the
+            // marker via pickBodyAnnotated since they don't truncate.
+            const { body, source } = pickBody(text, html);
+            const contentTypeNote = source === "html" ? HTML_FALLBACK_NOTE : "";
+
+            // Summary mode clamps the body at 500 bytes regardless of
+            // maxBodyLength. Full mode uses maxBodyLength (0 disables).
+            // Byte-based cap so the threshold lines up with Gmail's own
+            // "[Message clipped]" rule (which is byte-based on the raw
+            // text+HTML) and so multi-byte characters don't quietly
+            // balloon the char-count past the MCP response cap.
+            const bodyBytes = Buffer.byteLength(body, "utf-8");
+            const hardCap = validatedArgs.format === "summary" ? 500 : validatedArgs.maxBodyLength;
+            let displayBody = body;
+            let truncationNote = "";
+            if (hardCap > 0 && bodyBytes > hardCap) {
+              // Slice on a byte boundary, then let TextDecoder drop any
+              // trailing incomplete multi-byte sequence — that way a
+              // truncated emoji or accent doesn't produce an invisible
+              // replacement character in the output.
+              const buf = Buffer.from(body, "utf-8").subarray(0, hardCap);
+              displayBody = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(buf);
+              // Trim the last char if it came back as U+FFFD from a
+              // partial code point at the cut point.
+              if (displayBody.endsWith("�")) {
+                displayBody = displayBody.slice(0, -1);
+              }
+              const remainingBytes = bodyBytes - hardCap;
+              const remainingKB = Math.round((remainingBytes / 1024) * 10) / 10;
+              const marker =
+                validatedArgs.format === "summary"
+                  ? `\n\n[Summary truncated at 500 bytes — ${remainingKB.toLocaleString("en-US")} KB more.]`
+                  : `\n\n[Message clipped — ${remainingKB.toLocaleString("en-US")} KB more. Gmail clips at 102 KB in its own UI. Call download_email(messageId: "${validatedArgs.messageId}") to save the full payload to disk, or re-call read_email with maxBodyLength: 0 to disable truncation.]`;
+              truncationNote = marker;
+            }
+
+            const attachments =
+              validatedArgs.includeAttachments && validatedArgs.format !== "summary"
+                ? extractAttachments(response.data.payload as GmailMessagePart)
+                : [];
+            const attachmentInfo =
+              attachments.length > 0
+                ? `\n\nAttachments (${attachments.length}):\n` +
+                  attachments
+                    .map(
+                      (a) =>
+                        `- ${a.filename} (${a.mimeType}, ${Math.round(a.size / 1024)} KB, ID: ${a.id})`,
+                    )
+                    .join("\n")
+                : "";
 
             return {
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify(result, null, 2),
-                },
-              ],
-            };
-          } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : String(error);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Failed to download email: ${msg}`,
-                },
-              ],
-            };
-          }
-        }
-
-        // Updated implementation for the modify_email handler
-        case "modify_email": {
-          const validatedArgs = ModifyEmailSchema.parse(args);
-
-          // Prepare request body
-          const requestBody: Record<string, unknown> = {};
-
-          if (validatedArgs.labelIds) {
-            requestBody.addLabelIds = validatedArgs.labelIds;
-          }
-
-          if (validatedArgs.addLabelIds) {
-            requestBody.addLabelIds = validatedArgs.addLabelIds;
-          }
-
-          if (validatedArgs.removeLabelIds) {
-            requestBody.removeLabelIds = validatedArgs.removeLabelIds;
-          }
-
-          await gmail.users.messages.modify({
-            userId: "me",
-            id: validatedArgs.messageId,
-            requestBody: requestBody,
-          });
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Email ${validatedArgs.messageId} labels updated successfully`,
-              },
-            ],
-          };
-        }
-
-        case "delete_email": {
-          const validatedArgs = DeleteEmailSchema.parse(args);
-          await gmail.users.messages.delete({
-            userId: "me",
-            id: validatedArgs.messageId,
-          });
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Email ${validatedArgs.messageId} deleted successfully`,
-              },
-            ],
-          };
-        }
-
-        case "list_email_labels": {
-          const labelResults = await listLabels(gmail);
-          const systemLabels = labelResults.system;
-          const userLabels = labelResults.user;
-
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  `Found ${labelResults.count.total} labels (${labelResults.count.system} system, ${labelResults.count.user} user):\n\n` +
-                  "System Labels:\n" +
-                  systemLabels.map((l: GmailLabel) => `ID: ${l.id}\nName: ${l.name}\n`).join("\n") +
-                  "\nUser Labels:\n" +
-                  userLabels.map((l: GmailLabel) => `ID: ${l.id}\nName: ${l.name}\n`).join("\n"),
-              },
-            ],
-          };
-        }
-
-        case "batch_modify_emails": {
-          const validatedArgs = BatchModifyEmailsSchema.parse(args);
-          const messageIds = validatedArgs.messageIds;
-          const batchSize = validatedArgs.batchSize || 50;
-
-          // Prepare request body
-          const requestBody: Record<string, unknown> = {};
-
-          if (validatedArgs.addLabelIds) {
-            requestBody.addLabelIds = validatedArgs.addLabelIds;
-          }
-
-          if (validatedArgs.removeLabelIds) {
-            requestBody.removeLabelIds = validatedArgs.removeLabelIds;
-          }
-
-          // Process messages in batches
-          const { successes, failures } = await processBatches(
-            messageIds,
-            batchSize,
-            async (batch) => {
-              const results = await Promise.all(
-                batch.map(async (messageId) => {
-                  await gmail.users.messages.modify({
-                    userId: "me",
-                    id: messageId,
-                    requestBody: requestBody,
-                  });
-                  return { messageId, success: true };
-                }),
-              );
-              return results;
-            },
-          );
-
-          // Generate summary of the operation
-          const successCount = successes.length;
-          const failureCount = failures.length;
-
-          let resultText = `Batch label modification complete.\n`;
-          resultText += `Successfully processed: ${successCount} messages\n`;
-
-          if (failureCount > 0) {
-            resultText += `Failed to process: ${failureCount} messages\n\n`;
-            resultText += `Failed message IDs:\n`;
-            resultText += failures
-              .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
-              .join("\n");
-          }
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: resultText,
-              },
-            ],
-          };
-        }
-
-        case "batch_delete_emails": {
-          const validatedArgs = BatchDeleteEmailsSchema.parse(args);
-          const messageIds = validatedArgs.messageIds;
-          const batchSize = validatedArgs.batchSize || 50;
-
-          // Process messages in batches
-          const { successes, failures } = await processBatches(
-            messageIds,
-            batchSize,
-            async (batch) => {
-              const results = await Promise.all(
-                batch.map(async (messageId) => {
-                  await gmail.users.messages.delete({
-                    userId: "me",
-                    id: messageId,
-                  });
-                  return { messageId, success: true };
-                }),
-              );
-              return results;
-            },
-          );
-
-          // Generate summary of the operation
-          const successCount = successes.length;
-          const failureCount = failures.length;
-
-          let resultText = `Batch delete operation complete.\n`;
-          resultText += `Successfully deleted: ${successCount} messages\n`;
-
-          if (failureCount > 0) {
-            resultText += `Failed to delete: ${failureCount} messages\n\n`;
-            resultText += `Failed message IDs:\n`;
-            resultText += failures
-              .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
-              .join("\n");
-          }
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: resultText,
-              },
-            ],
-          };
-        }
-
-        // New label management handlers
-        case "create_label": {
-          const validatedArgs = CreateLabelSchema.parse(args);
-          const result = await createLabel(gmail, validatedArgs.name, {
-            messageListVisibility: validatedArgs.messageListVisibility,
-            labelListVisibility: validatedArgs.labelListVisibility,
-          });
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Label created successfully:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
-              },
-            ],
-          };
-        }
-
-        case "update_label": {
-          const validatedArgs = UpdateLabelSchema.parse(args);
-
-          // Prepare request body with only the fields that were provided
-          const updates: Record<string, unknown> = {};
-          if (validatedArgs.name) updates.name = validatedArgs.name;
-          if (validatedArgs.messageListVisibility)
-            updates.messageListVisibility = validatedArgs.messageListVisibility;
-          if (validatedArgs.labelListVisibility)
-            updates.labelListVisibility = validatedArgs.labelListVisibility;
-
-          const result = await updateLabel(gmail, validatedArgs.id, updates);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Label updated successfully:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
-              },
-            ],
-          };
-        }
-
-        case "delete_label": {
-          const validatedArgs = DeleteLabelSchema.parse(args);
-          const result = await deleteLabel(gmail, validatedArgs.id);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: result.message,
-              },
-            ],
-          };
-        }
-
-        case "get_or_create_label": {
-          const validatedArgs = GetOrCreateLabelSchema.parse(args);
-          const result = await getOrCreateLabel(gmail, validatedArgs.name, {
-            messageListVisibility: validatedArgs.messageListVisibility,
-            labelListVisibility: validatedArgs.labelListVisibility,
-          });
-
-          const action =
-            result.type === "user" && result.name === validatedArgs.name
-              ? "found existing"
-              : "created new";
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Successfully ${action} label:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
-              },
-            ],
-          };
-        }
-
-        // Filter management handlers
-        case "create_filter": {
-          const validatedArgs = CreateFilterSchema.parse(args);
-          const result = await createFilter(gmail, validatedArgs.criteria, validatedArgs.action);
-
-          // Format criteria for display
-          const criteriaText = Object.entries(validatedArgs.criteria)
-            .filter(([_, value]) => value !== undefined)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join(", ");
-
-          // Format actions for display
-          const actionText = Object.entries(validatedArgs.action)
-            .filter(
-              ([_, value]) =>
-                value !== undefined && (Array.isArray(value) ? value.length > 0 : true),
-            )
-            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
-            .join(", ");
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Filter created successfully:\nID: ${result.id}\nCriteria: ${criteriaText}\nActions: ${actionText}`,
-              },
-            ],
-          };
-        }
-
-        case "list_filters": {
-          const result = await listFilters(gmail);
-          const filters = result.filters;
-
-          if (filters.length === 0) {
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: "No filters found.",
+                  text: `${headerBlock}\n\n${contentTypeNote}${displayBody}${truncationNote}${attachmentInfo}`,
                 },
               ],
             };
           }
 
-          const filtersText = filters
-            .map((filter) => {
-              const criteriaEntries = Object.entries(filter.criteria || {})
-                .filter(([_, value]) => value !== undefined)
-                .map(([key, value]) => `${key}: ${value}`)
-                .join(", ");
-
-              const actionEntries = Object.entries(filter.action || {})
-                .filter(
-                  ([_, value]) =>
-                    value !== undefined && (Array.isArray(value) ? value.length > 0 : true),
-                )
-                .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
-                .join(", ");
-
-              return `ID: ${filter.id}\nCriteria: ${criteriaEntries}\nActions: ${actionEntries}\n`;
-            })
-            .join("\n");
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Found ${result.count} filters:\n\n${filtersText}`,
-              },
-            ],
-          };
-        }
-
-        case "get_filter": {
-          const validatedArgs = GetFilterSchema.parse(args);
-          const result = await getFilter(gmail, validatedArgs.filterId);
-
-          const criteriaText = Object.entries(result.criteria || {})
-            .filter(([_, value]) => value !== undefined)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join(", ");
-
-          const actionText = Object.entries(result.action || {})
-            .filter(
-              ([_, value]) =>
-                value !== undefined && (Array.isArray(value) ? value.length > 0 : true),
-            )
-            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
-            .join(", ");
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Filter details:\nID: ${result.id}\nCriteria: ${criteriaText}\nActions: ${actionText}`,
-              },
-            ],
-          };
-        }
-
-        case "delete_filter": {
-          const validatedArgs = DeleteFilterSchema.parse(args);
-          const result = await deleteFilter(gmail, validatedArgs.filterId);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: result.message,
-              },
-            ],
-          };
-        }
-
-        case "create_filter_from_template": {
-          const validatedArgs = CreateFilterFromTemplateSchema.parse(args);
-          const template = validatedArgs.template;
-          const params = validatedArgs.parameters;
-
-          let filterConfig;
-
-          switch (template) {
-            case "fromSender":
-              if (!params.senderEmail)
-                throw new Error("senderEmail is required for fromSender template");
-              filterConfig = filterTemplates.fromSender(
-                params.senderEmail,
-                params.labelIds,
-                params.archive,
-              );
-              break;
-            case "withSubject":
-              if (!params.subjectText)
-                throw new Error("subjectText is required for withSubject template");
-              filterConfig = filterTemplates.withSubject(
-                params.subjectText,
-                params.labelIds,
-                params.markAsRead,
-              );
-              break;
-            case "withAttachments":
-              filterConfig = filterTemplates.withAttachments(params.labelIds);
-              break;
-            case "largeEmails":
-              if (!params.sizeInBytes)
-                throw new Error("sizeInBytes is required for largeEmails template");
-              filterConfig = filterTemplates.largeEmails(params.sizeInBytes, params.labelIds);
-              break;
-            case "containingText":
-              if (!params.searchText)
-                throw new Error("searchText is required for containingText template");
-              filterConfig = filterTemplates.containingText(
-                params.searchText,
-                params.labelIds,
-                params.markImportant,
-              );
-              break;
-            case "mailingList":
-              if (!params.listIdentifier)
-                throw new Error("listIdentifier is required for mailingList template");
-              filterConfig = filterTemplates.mailingList(
-                params.listIdentifier,
-                params.labelIds,
-                params.archive,
-              );
-              break;
-            default:
-              throw new Error(`Unknown template: ${template}`);
-          }
-
-          const result = await createFilter(gmail, filterConfig.criteria, filterConfig.action);
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Filter created from template '${template}':\nID: ${result.id}\nTemplate used: ${template}`,
-              },
-            ],
-          };
-        }
-        case "download_attachment": {
-          const validatedArgs = DownloadAttachmentSchema.parse(args);
-
-          try {
-            // Get the attachment data from Gmail API
-            const attachmentResponse = await gmail.users.messages.attachments.get({
+          case "search_emails": {
+            const validatedArgs = SearchEmailsSchema.parse(args);
+            const response = await gmail.users.messages.list({
               userId: "me",
-              messageId: validatedArgs.messageId,
-              id: validatedArgs.attachmentId,
+              q: validatedArgs.query,
+              maxResults: validatedArgs.maxResults || 10,
             });
 
-            if (!attachmentResponse.data.data) {
-              throw new Error("No attachment data received");
-            }
+            const messages = response.data.messages || [];
+            const results = await Promise.all(
+              messages.map(async (msg) => {
+                const detail = await gmail.users.messages.get({
+                  userId: "me",
+                  id: msg.id!,
+                  format: "metadata",
+                  metadataHeaders: ["Subject", "From", "Date"],
+                });
+                const headers = detail.data.payload?.headers || [];
+                return {
+                  id: msg.id,
+                  subject: headers.find((h) => h.name === "Subject")?.value || "",
+                  from: headers.find((h) => h.name === "From")?.value || "",
+                  date: headers.find((h) => h.name === "Date")?.value || "",
+                };
+              }),
+            );
 
-            // Decode the base64 data
-            const data = attachmentResponse.data.data;
-            const buffer = Buffer.from(data, "base64url");
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: results
+                    .map(
+                      (r) =>
+                        `ID: ${r.id}\nSubject: ${r.subject}\nFrom: ${r.from}\nDate: ${r.date}\n`,
+                    )
+                    .join("\n"),
+                },
+              ],
+            };
+          }
 
-            // Jail the savePath inside GMAIL_MCP_DOWNLOAD_DIR
-            // (default ~/GmailDownloads). The previous behavior
-            // (fall back to process.cwd()) wrote attachments to
-            // the MCP server's working directory, which could be
-            // anywhere — including directories containing the
-            // user's source code or config files.
-            //
-            // Fall back to the *configured* jail root via
-            // getDownloadDir(), not a hardcoded ~/GmailDownloads
-            // — otherwise when the user sets GMAIL_MCP_DOWNLOAD_DIR
-            // to a custom path, the hardcoded default would be
-            // rejected by resolveDownloadSavePath() and the tool
-            // would break whenever savePath is omitted.
-            const savePath = resolveDownloadSavePath(validatedArgs.savePath ?? getDownloadDir());
-            let filename = validatedArgs.filename;
+          case "download_email": {
+            const validatedArgs = DownloadEmailSchema.parse(args);
+            const { messageId, format } = validatedArgs;
 
-            if (!filename) {
-              // Get original filename from message if not provided
-              const messageResponse = await gmail.users.messages.get({
+            try {
+              // Jail the savePath inside GMAIL_MCP_DOWNLOAD_DIR
+              // (default ~/GmailDownloads). Prevents a prompt-
+              // injected agent from writing downloaded emails into
+              // /etc/cron.d/, the user's shell rc file, etc.
+              const savePath = resolveDownloadSavePath(validatedArgs.savePath);
+
+              // Always fetch full message for metadata (needed for attachments list)
+              const fullResponse = await gmail.users.messages.get({
                 userId: "me",
-                id: validatedArgs.messageId,
+                id: messageId,
                 format: "full",
               });
 
-              // Find the attachment part to get original filename
-              const findAttachment = (part: GmailMessagePart): string | null => {
-                if (part.body && part.body.attachmentId === validatedArgs.attachmentId) {
-                  return part.filename || `attachment-${validatedArgs.attachmentId}`;
+              const { subject, from, date } = extractHeaders(fullResponse.data.payload);
+              const attachments = extractAttachments(fullResponse.data.payload as GmailMessagePart);
+
+              let content: string;
+
+              if (format === "eml") {
+                // For EML format, fetch raw RFC822 message
+                const rawResponse = await gmail.users.messages.get({
+                  userId: "me",
+                  id: messageId,
+                  format: "raw",
+                });
+                content = Buffer.from(rawResponse.data.raw || "", "base64url").toString("utf-8");
+              } else {
+                // Extract email content for json/txt/html
+                const emailContent = extractEmailContent(
+                  (fullResponse.data.payload as GmailMessagePart) || {},
+                );
+
+                if (format === "json") {
+                  const jsonData = gmailMessageToJson(fullResponse.data, emailContent, attachments);
+                  content = JSON.stringify(jsonData, null, 2);
+                } else if (format === "txt") {
+                  content = emailToTxt(fullResponse.data, emailContent, attachments);
+                } else {
+                  // html - just return the raw HTML content
+                  content = emailToHtml(emailContent);
                 }
-                if (part.parts) {
-                  for (const subpart of part.parts) {
-                    const found = findAttachment(subpart);
-                    if (found) return found;
-                  }
-                }
-                return null;
+              }
+
+              // Write file via safeWriteFile (O_NOFOLLOW on the
+              // leaf, O_EXCL against silent overwrites) so a
+              // pre-existing symlink OR regular file at `fullPath`
+              // cannot be used to escape the jail that
+              // resolveDownloadSavePath already verified for
+              // the parent directory. On name collision, suffix
+              // ` (1)`, ` (2)`, … — matches browser behavior.
+              const filename = `${messageId}.${format}`;
+              const requestedPath = path.join(savePath, filename);
+              const writtenPath = safeWriteFile(requestedPath, content, { onCollision: "suffix" });
+              const stats = fs.statSync(writtenPath);
+
+              // Return metadata with attachments
+              const result = {
+                status: "saved",
+                path: writtenPath,
+                size: stats.size,
+                messageId,
+                subject,
+                from,
+                date,
+                attachments,
               };
 
-              filename =
-                (messageResponse.data.payload
-                  ? findAttachment(messageResponse.data.payload)
-                  : null) || `attachment-${validatedArgs.attachmentId}`;
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(result, null, 2),
+                  },
+                ],
+              };
+            } catch (error: unknown) {
+              const msg = error instanceof Error ? error.message : String(error);
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Failed to download email: ${msg}`,
+                  },
+                ],
+              };
+            }
+          }
+
+          // Updated implementation for the modify_email handler
+          case "modify_email": {
+            const validatedArgs = ModifyEmailSchema.parse(args);
+
+            // Prepare request body
+            const requestBody: Record<string, unknown> = {};
+
+            if (validatedArgs.labelIds) {
+              requestBody.addLabelIds = validatedArgs.labelIds;
             }
 
-            // Sanitize filename to prevent path traversal
-            filename = path.basename(filename);
-
-            // savePath is already realpath-resolved inside the
-            // download jail by resolveDownloadSavePath above.
-            // Defense-in-depth: re-check the final path, then
-            // use safeWriteFile (O_NOFOLLOW on the leaf, O_EXCL
-            // against silent overwrites) so neither a pre-existing
-            // symlink NOR a pre-existing regular file at `fullPath`
-            // can be used to escape the jail or clobber a user
-            // file sharing the same name. On collision, suffix
-            // ` (1)`, ` (2)`, …
-            const fullPath = path.resolve(savePath, filename);
-            if (!fullPath.startsWith(savePath + path.sep) && fullPath !== savePath) {
-              throw new Error("Invalid filename: path traversal detected");
+            if (validatedArgs.addLabelIds) {
+              requestBody.addLabelIds = validatedArgs.addLabelIds;
             }
-            const writtenPath = safeWriteFile(fullPath, buffer, { onCollision: "suffix" });
+
+            if (validatedArgs.removeLabelIds) {
+              requestBody.removeLabelIds = validatedArgs.removeLabelIds;
+            }
+
+            await gmail.users.messages.modify({
+              userId: "me",
+              id: validatedArgs.messageId,
+              requestBody: requestBody,
+            });
 
             return {
               content: [
                 {
                   type: "text",
-                  text: `Attachment downloaded successfully:\nFile: ${path.basename(writtenPath)}\nSize: ${buffer.length} bytes\nSaved to: ${writtenPath}`,
-                },
-              ],
-            };
-          } catch (error: unknown) {
-            const msg = error instanceof Error ? error.message : String(error);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Failed to download attachment: ${msg}`,
+                  text: `Email ${validatedArgs.messageId} labels updated successfully`,
                 },
               ],
             };
           }
-        }
 
-        case "get_thread": {
-          const validatedArgs = GetThreadSchema.parse(args);
-          const threadResponse = await gmail.users.threads.get({
-            userId: "me",
-            id: validatedArgs.threadId,
-            format: validatedArgs.format || "full",
-          });
+          case "delete_email": {
+            const validatedArgs = DeleteEmailSchema.parse(args);
+            await gmail.users.messages.delete({
+              userId: "me",
+              id: validatedArgs.messageId,
+            });
 
-          const threadMessages = threadResponse.data.messages || [];
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Email ${validatedArgs.messageId} deleted successfully`,
+                },
+              ],
+            };
+          }
 
-          // Process each message in the thread (already chronological from API)
-          const messagesOutput = threadMessages.map((msg) => {
-            const headers = msg.payload?.headers || [];
-            const subject = headers.find((h) => h.name?.toLowerCase() === "subject")?.value || "";
-            const from = headers.find((h) => h.name?.toLowerCase() === "from")?.value || "";
-            const to = headers.find((h) => h.name?.toLowerCase() === "to")?.value || "";
-            const cc = headers.find((h) => h.name?.toLowerCase() === "cc")?.value || "";
-            const bcc = headers.find((h) => h.name?.toLowerCase() === "bcc")?.value || "";
-            const date = headers.find((h) => h.name?.toLowerCase() === "date")?.value || "";
+          case "list_email_labels": {
+            const labelResults = await listLabels(gmail);
+            const systemLabels = labelResults.system;
+            const userLabels = labelResults.user;
 
-            // Extract body content. pickBodyAnnotated prepends the same
-            // "[Note: This email is HTML-formatted…]" marker that read_email
-            // uses when pickBody falls back to the HTML part, so a thread
-            // message carries the identical annotation.
-            let body = "";
-            if (validatedArgs.format !== "minimal") {
-              const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
-              body = pickBodyAnnotated(text, html).body;
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `Found ${labelResults.count.total} labels (${labelResults.count.system} system, ${labelResults.count.user} user):\n\n` +
+                    "System Labels:\n" +
+                    systemLabels
+                      .map((l: GmailLabel) => `ID: ${l.id}\nName: ${l.name}\n`)
+                      .join("\n") +
+                    "\nUser Labels:\n" +
+                    userLabels.map((l: GmailLabel) => `ID: ${l.id}\nName: ${l.name}\n`).join("\n"),
+                },
+              ],
+            };
+          }
+
+          case "batch_modify_emails": {
+            const validatedArgs = BatchModifyEmailsSchema.parse(args);
+            const messageIds = validatedArgs.messageIds;
+            const batchSize = validatedArgs.batchSize || 50;
+
+            // Prepare request body
+            const requestBody: Record<string, unknown> = {};
+
+            if (validatedArgs.addLabelIds) {
+              requestBody.addLabelIds = validatedArgs.addLabelIds;
             }
 
-            // Extract attachment metadata
-            const attachments: EmailAttachment[] = [];
-            const processAttachmentParts = (part: GmailMessagePart) => {
-              if (part.body && part.body.attachmentId) {
-                const filename = part.filename || `attachment-${part.body.attachmentId}`;
-                attachments.push({
-                  id: part.body.attachmentId,
-                  filename: filename,
-                  mimeType: part.mimeType || "application/octet-stream",
-                  size: part.body.size || 0,
-                });
-              }
-              if (part.parts) {
-                part.parts.forEach((subpart: GmailMessagePart) => processAttachmentParts(subpart));
-              }
-            };
-            if (msg.payload) {
-              processAttachmentParts(msg.payload);
+            if (validatedArgs.removeLabelIds) {
+              requestBody.removeLabelIds = validatedArgs.removeLabelIds;
+            }
+
+            // Process messages in batches
+            const { successes, failures } = await processBatches(
+              messageIds,
+              batchSize,
+              async (batch) => {
+                const results = await Promise.all(
+                  batch.map(async (messageId) => {
+                    await gmail.users.messages.modify({
+                      userId: "me",
+                      id: messageId,
+                      requestBody: requestBody,
+                    });
+                    return { messageId, success: true };
+                  }),
+                );
+                return results;
+              },
+            );
+
+            // Generate summary of the operation
+            const successCount = successes.length;
+            const failureCount = failures.length;
+
+            let resultText = `Batch label modification complete.\n`;
+            resultText += `Successfully processed: ${successCount} messages\n`;
+
+            if (failureCount > 0) {
+              resultText += `Failed to process: ${failureCount} messages\n\n`;
+              resultText += `Failed message IDs:\n`;
+              resultText += failures
+                .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
+                .join("\n");
             }
 
             return {
-              messageId: msg.id || "",
-              threadId: msg.threadId || "",
-              from,
-              to,
-              cc,
-              bcc,
-              subject,
-              date,
-              body,
-              labelIds: msg.labelIds || [],
-              attachments: attachments.map((a) => ({
-                filename: a.filename,
-                mimeType: a.mimeType,
-                size: a.size,
-              })),
+              content: [
+                {
+                  type: "text",
+                  text: resultText,
+                },
+              ],
             };
-          });
+          }
 
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    threadId: validatedArgs.threadId,
-                    messageCount: messagesOutput.length,
-                    messages: messagesOutput,
-                  },
-                  null,
-                  2,
-                ),
+          case "batch_delete_emails": {
+            const validatedArgs = BatchDeleteEmailsSchema.parse(args);
+            const messageIds = validatedArgs.messageIds;
+            const batchSize = validatedArgs.batchSize || 50;
+
+            // Process messages in batches
+            const { successes, failures } = await processBatches(
+              messageIds,
+              batchSize,
+              async (batch) => {
+                const results = await Promise.all(
+                  batch.map(async (messageId) => {
+                    await gmail.users.messages.delete({
+                      userId: "me",
+                      id: messageId,
+                    });
+                    return { messageId, success: true };
+                  }),
+                );
+                return results;
               },
-            ],
-          };
-        }
+            );
 
-        case "list_inbox_threads": {
-          const validatedArgs = ListInboxThreadsSchema.parse(args);
-          const threadsResponse = await gmail.users.threads.list({
-            userId: "me",
-            q: validatedArgs.query || "in:inbox",
-            maxResults: validatedArgs.maxResults || 50,
-          });
+            // Generate summary of the operation
+            const successCount = successes.length;
+            const failureCount = failures.length;
 
-          const threads = threadsResponse.data.threads || [];
+            let resultText = `Batch delete operation complete.\n`;
+            resultText += `Successfully deleted: ${successCount} messages\n`;
 
-          // Fetch metadata for each thread to get message count and latest message info
-          const threadDetails = await Promise.all(
-            threads.map(async (thread) => {
-              const detail = await gmail.users.threads.get({
+            if (failureCount > 0) {
+              resultText += `Failed to delete: ${failureCount} messages\n\n`;
+              resultText += `Failed message IDs:\n`;
+              resultText += failures
+                .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
+                .join("\n");
+            }
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: resultText,
+                },
+              ],
+            };
+          }
+
+          // New label management handlers
+          case "create_label": {
+            const validatedArgs = CreateLabelSchema.parse(args);
+            const result = await createLabel(gmail, validatedArgs.name, {
+              messageListVisibility: validatedArgs.messageListVisibility,
+              labelListVisibility: validatedArgs.labelListVisibility,
+            });
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Label created successfully:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
+                },
+              ],
+            };
+          }
+
+          case "update_label": {
+            const validatedArgs = UpdateLabelSchema.parse(args);
+
+            // Prepare request body with only the fields that were provided
+            const updates: Record<string, unknown> = {};
+            if (validatedArgs.name) updates.name = validatedArgs.name;
+            if (validatedArgs.messageListVisibility)
+              updates.messageListVisibility = validatedArgs.messageListVisibility;
+            if (validatedArgs.labelListVisibility)
+              updates.labelListVisibility = validatedArgs.labelListVisibility;
+
+            const result = await updateLabel(gmail, validatedArgs.id, updates);
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Label updated successfully:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
+                },
+              ],
+            };
+          }
+
+          case "delete_label": {
+            const validatedArgs = DeleteLabelSchema.parse(args);
+            const result = await deleteLabel(gmail, validatedArgs.id);
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: result.message,
+                },
+              ],
+            };
+          }
+
+          case "get_or_create_label": {
+            const validatedArgs = GetOrCreateLabelSchema.parse(args);
+            const result = await getOrCreateLabel(gmail, validatedArgs.name, {
+              messageListVisibility: validatedArgs.messageListVisibility,
+              labelListVisibility: validatedArgs.labelListVisibility,
+            });
+
+            const action =
+              result.type === "user" && result.name === validatedArgs.name
+                ? "found existing"
+                : "created new";
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Successfully ${action} label:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
+                },
+              ],
+            };
+          }
+
+          // Filter management handlers
+          case "create_filter": {
+            const validatedArgs = CreateFilterSchema.parse(args);
+            const result = await createFilter(gmail, validatedArgs.criteria, validatedArgs.action);
+
+            // Format criteria for display
+            const criteriaText = Object.entries(validatedArgs.criteria)
+              .filter(([_, value]) => value !== undefined)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join(", ");
+
+            // Format actions for display
+            const actionText = Object.entries(validatedArgs.action)
+              .filter(
+                ([_, value]) =>
+                  value !== undefined && (Array.isArray(value) ? value.length > 0 : true),
+              )
+              .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+              .join(", ");
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Filter created successfully:\nID: ${result.id}\nCriteria: ${criteriaText}\nActions: ${actionText}`,
+                },
+              ],
+            };
+          }
+
+          case "list_filters": {
+            const result = await listFilters(gmail);
+            const filters = result.filters;
+
+            if (filters.length === 0) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: "No filters found.",
+                  },
+                ],
+              };
+            }
+
+            const filtersText = filters
+              .map((filter) => {
+                const criteriaEntries = Object.entries(filter.criteria || {})
+                  .filter(([_, value]) => value !== undefined)
+                  .map(([key, value]) => `${key}: ${value}`)
+                  .join(", ");
+
+                const actionEntries = Object.entries(filter.action || {})
+                  .filter(
+                    ([_, value]) =>
+                      value !== undefined && (Array.isArray(value) ? value.length > 0 : true),
+                  )
+                  .map(
+                    ([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`,
+                  )
+                  .join(", ");
+
+                return `ID: ${filter.id}\nCriteria: ${criteriaEntries}\nActions: ${actionEntries}\n`;
+              })
+              .join("\n");
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Found ${result.count} filters:\n\n${filtersText}`,
+                },
+              ],
+            };
+          }
+
+          case "get_filter": {
+            const validatedArgs = GetFilterSchema.parse(args);
+            const result = await getFilter(gmail, validatedArgs.filterId);
+
+            const criteriaText = Object.entries(result.criteria || {})
+              .filter(([_, value]) => value !== undefined)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join(", ");
+
+            const actionText = Object.entries(result.action || {})
+              .filter(
+                ([_, value]) =>
+                  value !== undefined && (Array.isArray(value) ? value.length > 0 : true),
+              )
+              .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`)
+              .join(", ");
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Filter details:\nID: ${result.id}\nCriteria: ${criteriaText}\nActions: ${actionText}`,
+                },
+              ],
+            };
+          }
+
+          case "delete_filter": {
+            const validatedArgs = DeleteFilterSchema.parse(args);
+            const result = await deleteFilter(gmail, validatedArgs.filterId);
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: result.message,
+                },
+              ],
+            };
+          }
+
+          case "create_filter_from_template": {
+            const validatedArgs = CreateFilterFromTemplateSchema.parse(args);
+            const template = validatedArgs.template;
+            const params = validatedArgs.parameters;
+
+            let filterConfig;
+
+            switch (template) {
+              case "fromSender":
+                if (!params.senderEmail)
+                  throw new Error("senderEmail is required for fromSender template");
+                filterConfig = filterTemplates.fromSender(
+                  params.senderEmail,
+                  params.labelIds,
+                  params.archive,
+                );
+                break;
+              case "withSubject":
+                if (!params.subjectText)
+                  throw new Error("subjectText is required for withSubject template");
+                filterConfig = filterTemplates.withSubject(
+                  params.subjectText,
+                  params.labelIds,
+                  params.markAsRead,
+                );
+                break;
+              case "withAttachments":
+                filterConfig = filterTemplates.withAttachments(params.labelIds);
+                break;
+              case "largeEmails":
+                if (!params.sizeInBytes)
+                  throw new Error("sizeInBytes is required for largeEmails template");
+                filterConfig = filterTemplates.largeEmails(params.sizeInBytes, params.labelIds);
+                break;
+              case "containingText":
+                if (!params.searchText)
+                  throw new Error("searchText is required for containingText template");
+                filterConfig = filterTemplates.containingText(
+                  params.searchText,
+                  params.labelIds,
+                  params.markImportant,
+                );
+                break;
+              case "mailingList":
+                if (!params.listIdentifier)
+                  throw new Error("listIdentifier is required for mailingList template");
+                filterConfig = filterTemplates.mailingList(
+                  params.listIdentifier,
+                  params.labelIds,
+                  params.archive,
+                );
+                break;
+              default:
+                throw new Error(`Unknown template: ${template}`);
+            }
+
+            const result = await createFilter(gmail, filterConfig.criteria, filterConfig.action);
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Filter created from template '${template}':\nID: ${result.id}\nTemplate used: ${template}`,
+                },
+              ],
+            };
+          }
+          case "download_attachment": {
+            const validatedArgs = DownloadAttachmentSchema.parse(args);
+
+            try {
+              // Get the attachment data from Gmail API
+              const attachmentResponse = await gmail.users.messages.attachments.get({
                 userId: "me",
-                id: thread.id!,
-                format: "metadata",
-                metadataHeaders: ["Subject", "From", "Date"],
+                messageId: validatedArgs.messageId,
+                id: validatedArgs.attachmentId,
               });
 
-              const messages = detail.data.messages || [];
-              const latestMessage = messages[messages.length - 1];
-              const latestHeaders = latestMessage?.payload?.headers || [];
+              if (!attachmentResponse.data.data) {
+                throw new Error("No attachment data received");
+              }
+
+              // Decode the base64 data
+              const data = attachmentResponse.data.data;
+              const buffer = Buffer.from(data, "base64url");
+
+              // Jail the savePath inside GMAIL_MCP_DOWNLOAD_DIR
+              // (default ~/GmailDownloads). The previous behavior
+              // (fall back to process.cwd()) wrote attachments to
+              // the MCP server's working directory, which could be
+              // anywhere — including directories containing the
+              // user's source code or config files.
+              //
+              // Fall back to the *configured* jail root via
+              // getDownloadDir(), not a hardcoded ~/GmailDownloads
+              // — otherwise when the user sets GMAIL_MCP_DOWNLOAD_DIR
+              // to a custom path, the hardcoded default would be
+              // rejected by resolveDownloadSavePath() and the tool
+              // would break whenever savePath is omitted.
+              const savePath = resolveDownloadSavePath(validatedArgs.savePath ?? getDownloadDir());
+              let filename = validatedArgs.filename;
+
+              if (!filename) {
+                // Get original filename from message if not provided
+                const messageResponse = await gmail.users.messages.get({
+                  userId: "me",
+                  id: validatedArgs.messageId,
+                  format: "full",
+                });
+
+                // Find the attachment part to get original filename
+                const findAttachment = (part: GmailMessagePart): string | null => {
+                  if (part.body && part.body.attachmentId === validatedArgs.attachmentId) {
+                    return part.filename || `attachment-${validatedArgs.attachmentId}`;
+                  }
+                  if (part.parts) {
+                    for (const subpart of part.parts) {
+                      const found = findAttachment(subpart);
+                      if (found) return found;
+                    }
+                  }
+                  return null;
+                };
+
+                filename =
+                  (messageResponse.data.payload
+                    ? findAttachment(messageResponse.data.payload)
+                    : null) || `attachment-${validatedArgs.attachmentId}`;
+              }
+
+              // Sanitize filename to prevent path traversal
+              filename = path.basename(filename);
+
+              // savePath is already realpath-resolved inside the
+              // download jail by resolveDownloadSavePath above.
+              // Defense-in-depth: re-check the final path, then
+              // use safeWriteFile (O_NOFOLLOW on the leaf, O_EXCL
+              // against silent overwrites) so neither a pre-existing
+              // symlink NOR a pre-existing regular file at `fullPath`
+              // can be used to escape the jail or clobber a user
+              // file sharing the same name. On collision, suffix
+              // ` (1)`, ` (2)`, …
+              const fullPath = path.resolve(savePath, filename);
+              if (!fullPath.startsWith(savePath + path.sep) && fullPath !== savePath) {
+                throw new Error("Invalid filename: path traversal detected");
+              }
+              const writtenPath = safeWriteFile(fullPath, buffer, { onCollision: "suffix" });
 
               return {
-                threadId: thread.id || "",
-                snippet: thread.snippet || "",
-                historyId: thread.historyId || "",
-                messageCount: messages.length,
-                latestMessage: {
-                  from: latestHeaders.find((h) => h.name === "From")?.value || "",
-                  subject: latestHeaders.find((h) => h.name === "Subject")?.value || "",
-                  date: latestHeaders.find((h) => h.name === "Date")?.value || "",
-                },
-              };
-            }),
-          );
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
+                content: [
                   {
-                    resultCount: threadDetails.length,
-                    threads: threadDetails,
+                    type: "text",
+                    text: `Attachment downloaded successfully:\nFile: ${path.basename(writtenPath)}\nSize: ${buffer.length} bytes\nSaved to: ${writtenPath}`,
                   },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
-        }
+                ],
+              };
+            } catch (error: unknown) {
+              const msg = error instanceof Error ? error.message : String(error);
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Failed to download attachment: ${msg}`,
+                  },
+                ],
+              };
+            }
+          }
 
-        case "get_inbox_with_threads": {
-          const validatedArgs = GetInboxWithThreadsSchema.parse(args);
-          const threadsResponse = await gmail.users.threads.list({
-            userId: "me",
-            q: validatedArgs.query || "in:inbox",
-            maxResults: validatedArgs.maxResults || 50,
-          });
+          case "get_thread": {
+            const validatedArgs = GetThreadSchema.parse(args);
+            const threadResponse = await gmail.users.threads.get({
+              userId: "me",
+              id: validatedArgs.threadId,
+              format: validatedArgs.format || "full",
+            });
 
-          const threads = threadsResponse.data.threads || [];
+            const threadMessages = threadResponse.data.messages || [];
 
-          if (!validatedArgs.expandThreads) {
-            // Return basic thread list without expansion (same as list_inbox_threads)
-            const threadSummaries = await Promise.all(
+            // Process each message in the thread (already chronological from API)
+            const messagesOutput = threadMessages.map((msg) => {
+              const headers = msg.payload?.headers || [];
+              const subject = headers.find((h) => h.name?.toLowerCase() === "subject")?.value || "";
+              const from = headers.find((h) => h.name?.toLowerCase() === "from")?.value || "";
+              const to = headers.find((h) => h.name?.toLowerCase() === "to")?.value || "";
+              const cc = headers.find((h) => h.name?.toLowerCase() === "cc")?.value || "";
+              const bcc = headers.find((h) => h.name?.toLowerCase() === "bcc")?.value || "";
+              const date = headers.find((h) => h.name?.toLowerCase() === "date")?.value || "";
+
+              // Extract body content. pickBodyAnnotated prepends the same
+              // "[Note: This email is HTML-formatted…]" marker that read_email
+              // uses when pickBody falls back to the HTML part, so a thread
+              // message carries the identical annotation.
+              let body = "";
+              if (validatedArgs.format !== "minimal") {
+                const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
+                body = pickBodyAnnotated(text, html).body;
+              }
+
+              // Extract attachment metadata
+              const attachments: EmailAttachment[] = [];
+              const processAttachmentParts = (part: GmailMessagePart) => {
+                if (part.body && part.body.attachmentId) {
+                  const filename = part.filename || `attachment-${part.body.attachmentId}`;
+                  attachments.push({
+                    id: part.body.attachmentId,
+                    filename: filename,
+                    mimeType: part.mimeType || "application/octet-stream",
+                    size: part.body.size || 0,
+                  });
+                }
+                if (part.parts) {
+                  part.parts.forEach((subpart: GmailMessagePart) =>
+                    processAttachmentParts(subpart),
+                  );
+                }
+              };
+              if (msg.payload) {
+                processAttachmentParts(msg.payload);
+              }
+
+              return {
+                messageId: msg.id || "",
+                threadId: msg.threadId || "",
+                from,
+                to,
+                cc,
+                bcc,
+                subject,
+                date,
+                body,
+                labelIds: msg.labelIds || [],
+                attachments: attachments.map((a) => ({
+                  filename: a.filename,
+                  mimeType: a.mimeType,
+                  size: a.size,
+                })),
+              };
+            });
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      threadId: validatedArgs.threadId,
+                      messageCount: messagesOutput.length,
+                      messages: messagesOutput,
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+            };
+          }
+
+          case "list_inbox_threads": {
+            const validatedArgs = ListInboxThreadsSchema.parse(args);
+            const threadsResponse = await gmail.users.threads.list({
+              userId: "me",
+              q: validatedArgs.query || "in:inbox",
+              maxResults: validatedArgs.maxResults || 50,
+            });
+
+            const threads = threadsResponse.data.threads || [];
+
+            // Fetch metadata for each thread to get message count and latest message info
+            const threadDetails = await Promise.all(
               threads.map(async (thread) => {
                 const detail = await gmail.users.threads.get({
                   userId: "me",
@@ -1724,8 +1659,8 @@ async function main() {
                   type: "text",
                   text: JSON.stringify(
                     {
-                      resultCount: threadSummaries.length,
-                      threads: threadSummaries,
+                      resultCount: threadDetails.length,
+                      threads: threadDetails,
                     },
                     null,
                     2,
@@ -1735,206 +1670,268 @@ async function main() {
             };
           }
 
-          // Expand each thread with full message content (parallel fetch)
-          const expandedThreads = await Promise.all(
-            threads.map(async (thread) => {
-              const threadDetail = await gmail.users.threads.get({
-                userId: "me",
-                id: thread.id!,
-                format: "full",
-              });
+          case "get_inbox_with_threads": {
+            const validatedArgs = GetInboxWithThreadsSchema.parse(args);
+            const threadsResponse = await gmail.users.threads.list({
+              userId: "me",
+              q: validatedArgs.query || "in:inbox",
+              maxResults: validatedArgs.maxResults || 50,
+            });
 
-              const threadMessages = threadDetail.data.messages || [];
+            const threads = threadsResponse.data.threads || [];
 
-              const messages = threadMessages.map((msg) => {
-                const headers = msg.payload?.headers || [];
-                const subject =
-                  headers.find((h) => h.name?.toLowerCase() === "subject")?.value || "";
-                const from = headers.find((h) => h.name?.toLowerCase() === "from")?.value || "";
-                const to = headers.find((h) => h.name?.toLowerCase() === "to")?.value || "";
-                const cc = headers.find((h) => h.name?.toLowerCase() === "cc")?.value || "";
-                const bcc = headers.find((h) => h.name?.toLowerCase() === "bcc")?.value || "";
-                const date = headers.find((h) => h.name?.toLowerCase() === "date")?.value || "";
+            if (!validatedArgs.expandThreads) {
+              // Return basic thread list without expansion (same as list_inbox_threads)
+              const threadSummaries = await Promise.all(
+                threads.map(async (thread) => {
+                  const detail = await gmail.users.threads.get({
+                    userId: "me",
+                    id: thread.id!,
+                    format: "metadata",
+                    metadataHeaders: ["Subject", "From", "Date"],
+                  });
 
-                const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
-                // Same HTML-fallback note as `read_email` / `get_thread`.
-                const body = pickBodyAnnotated(text, html).body;
+                  const messages = detail.data.messages || [];
+                  const latestMessage = messages[messages.length - 1];
+                  const latestHeaders = latestMessage?.payload?.headers || [];
 
-                // Extract attachment metadata
-                const attachments: EmailAttachment[] = [];
-                const processAttachmentParts = (part: GmailMessagePart) => {
-                  if (part.body && part.body.attachmentId) {
-                    const filename = part.filename || `attachment-${part.body.attachmentId}`;
-                    attachments.push({
-                      id: part.body.attachmentId,
-                      filename: filename,
-                      mimeType: part.mimeType || "application/octet-stream",
-                      size: part.body.size || 0,
-                    });
-                  }
-                  if (part.parts) {
-                    part.parts.forEach((subpart: GmailMessagePart) =>
-                      processAttachmentParts(subpart),
-                    );
-                  }
-                };
-                if (msg.payload) {
-                  processAttachmentParts(msg.payload);
-                }
-
-                return {
-                  messageId: msg.id || "",
-                  threadId: msg.threadId || "",
-                  from,
-                  to,
-                  cc,
-                  bcc,
-                  subject,
-                  date,
-                  body,
-                  labelIds: msg.labelIds || [],
-                  attachments: attachments.map((a) => ({
-                    filename: a.filename,
-                    mimeType: a.mimeType,
-                    size: a.size,
-                  })),
-                };
-              });
+                  return {
+                    threadId: thread.id || "",
+                    snippet: thread.snippet || "",
+                    historyId: thread.historyId || "",
+                    messageCount: messages.length,
+                    latestMessage: {
+                      from: latestHeaders.find((h) => h.name === "From")?.value || "",
+                      subject: latestHeaders.find((h) => h.name === "Subject")?.value || "",
+                      date: latestHeaders.find((h) => h.name === "Date")?.value || "",
+                    },
+                  };
+                }),
+              );
 
               return {
-                threadId: thread.id || "",
-                messageCount: messages.length,
-                messages,
-              };
-            }),
-          );
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
+                content: [
                   {
-                    resultCount: expandedThreads.length,
-                    threads: expandedThreads,
+                    type: "text",
+                    text: JSON.stringify(
+                      {
+                        resultCount: threadSummaries.length,
+                        threads: threadSummaries,
+                      },
+                      null,
+                      2,
+                    ),
                   },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
-        }
+                ],
+              };
+            }
 
-        case "reply_all": {
-          const validatedArgs = ReplyAllSchema.parse(args);
+            // Expand each thread with full message content (parallel fetch)
+            const expandedThreads = await Promise.all(
+              threads.map(async (thread) => {
+                const threadDetail = await gmail.users.threads.get({
+                  userId: "me",
+                  id: thread.id!,
+                  format: "full",
+                });
 
-          // Fetch the original email to get headers
-          const originalEmail = await gmail.users.messages.get({
-            userId: "me",
-            id: validatedArgs.messageId,
-            format: "full",
-          });
+                const threadMessages = threadDetail.data.messages || [];
 
-          const headers = originalEmail.data.payload?.headers || [];
-          const threadId = originalEmail.data.threadId || "";
+                const messages = threadMessages.map((msg) => {
+                  const headers = msg.payload?.headers || [];
+                  const subject =
+                    headers.find((h) => h.name?.toLowerCase() === "subject")?.value || "";
+                  const from = headers.find((h) => h.name?.toLowerCase() === "from")?.value || "";
+                  const to = headers.find((h) => h.name?.toLowerCase() === "to")?.value || "";
+                  const cc = headers.find((h) => h.name?.toLowerCase() === "cc")?.value || "";
+                  const bcc = headers.find((h) => h.name?.toLowerCase() === "bcc")?.value || "";
+                  const date = headers.find((h) => h.name?.toLowerCase() === "date")?.value || "";
 
-          // Extract relevant headers
-          const originalFrom = headers.find((h) => h.name?.toLowerCase() === "from")?.value || "";
-          const originalTo = headers.find((h) => h.name?.toLowerCase() === "to")?.value || "";
-          const originalCc = headers.find((h) => h.name?.toLowerCase() === "cc")?.value || "";
-          const originalSubject =
-            headers.find((h) => h.name?.toLowerCase() === "subject")?.value || "";
-          const originalMessageId =
-            headers.find((h) => h.name?.toLowerCase() === "message-id")?.value || "";
-          const originalReferences =
-            headers.find((h) => h.name?.toLowerCase() === "references")?.value || "";
+                  const { text, html } = extractEmailContent(
+                    (msg.payload as GmailMessagePart) || {},
+                  );
+                  // Same HTML-fallback note as `read_email` / `get_thread`.
+                  const body = pickBodyAnnotated(text, html).body;
 
-          // Get authenticated user's email to exclude from recipients
-          const profile = await gmail.users.getProfile({ userId: "me" });
-          const myEmail = profile.data.emailAddress?.toLowerCase() || "";
+                  // Extract attachment metadata
+                  const attachments: EmailAttachment[] = [];
+                  const processAttachmentParts = (part: GmailMessagePart) => {
+                    if (part.body && part.body.attachmentId) {
+                      const filename = part.filename || `attachment-${part.body.attachmentId}`;
+                      attachments.push({
+                        id: part.body.attachmentId,
+                        filename: filename,
+                        mimeType: part.mimeType || "application/octet-stream",
+                        size: part.body.size || 0,
+                      });
+                    }
+                    if (part.parts) {
+                      part.parts.forEach((subpart: GmailMessagePart) =>
+                        processAttachmentParts(subpart),
+                      );
+                    }
+                  };
+                  if (msg.payload) {
+                    processAttachmentParts(msg.payload);
+                  }
 
-          // Build recipient list using helper functions
-          const { to: replyTo, cc: replyCc } = buildReplyAllRecipients(
-            originalFrom,
-            originalTo,
-            originalCc,
-            myEmail,
-          );
+                  return {
+                    messageId: msg.id || "",
+                    threadId: msg.threadId || "",
+                    from,
+                    to,
+                    cc,
+                    bcc,
+                    subject,
+                    date,
+                    body,
+                    labelIds: msg.labelIds || [],
+                    attachments: attachments.map((a) => ({
+                      filename: a.filename,
+                      mimeType: a.mimeType,
+                      size: a.size,
+                    })),
+                  };
+                });
 
-          if (replyTo.length === 0) {
-            throw new Error("Could not determine recipient for reply");
+                return {
+                  threadId: thread.id || "",
+                  messageCount: messages.length,
+                  messages,
+                };
+              }),
+            );
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      resultCount: expandedThreads.length,
+                      threads: expandedThreads,
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+            };
           }
 
-          // Build subject with "Re:" prefix if not already present
-          const replySubject = addRePrefix(originalSubject);
+          case "reply_all": {
+            const validatedArgs = ReplyAllSchema.parse(args);
 
-          // Build References header (original References + original Message-ID)
-          const references = buildReferencesHeader(originalReferences, originalMessageId);
+            // Fetch the original email to get headers
+            const originalEmail = await gmail.users.messages.get({
+              userId: "me",
+              id: validatedArgs.messageId,
+              format: "full",
+            });
 
-          // Prepare the email arguments for handleEmailAction
-          const emailArgs = {
-            to: replyTo,
-            cc: replyCc.length > 0 ? replyCc : undefined,
-            subject: replySubject,
-            body: validatedArgs.body,
-            htmlBody: validatedArgs.htmlBody,
-            mimeType: validatedArgs.mimeType,
-            threadId: threadId,
-            inReplyTo: originalMessageId,
-            references,
-            attachments: validatedArgs.attachments,
-          };
+            const headers = originalEmail.data.payload?.headers || [];
+            const threadId = originalEmail.data.threadId || "";
 
-          // Use the existing handleEmailAction to send the reply
-          await handleEmailAction("send", emailArgs);
+            // Extract relevant headers
+            const originalFrom = headers.find((h) => h.name?.toLowerCase() === "from")?.value || "";
+            const originalTo = headers.find((h) => h.name?.toLowerCase() === "to")?.value || "";
+            const originalCc = headers.find((h) => h.name?.toLowerCase() === "cc")?.value || "";
+            const originalSubject =
+              headers.find((h) => h.name?.toLowerCase() === "subject")?.value || "";
+            const originalMessageId =
+              headers.find((h) => h.name?.toLowerCase() === "message-id")?.value || "";
+            const originalReferences =
+              headers.find((h) => h.name?.toLowerCase() === "references")?.value || "";
 
-          // Enhance the response with reply-all specific info
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Reply-all sent successfully!\nTo: ${replyTo.join(", ")}${replyCc.length > 0 ? `\nCC: ${replyCc.join(", ")}` : ""}\nSubject: ${replySubject}\nThread ID: ${threadId}`,
-              },
-            ],
-          };
-        }
+            // Get authenticated user's email to exclude from recipients
+            const profile = await gmail.users.getProfile({ userId: "me" });
+            const myEmail = profile.data.emailAddress?.toLowerCase() || "";
 
-        case "modify_thread": {
-          const validatedArgs = ModifyThreadSchema.parse(args);
+            // Build recipient list using helper functions
+            const { to: replyTo, cc: replyCc } = buildReplyAllRecipients(
+              originalFrom,
+              originalTo,
+              originalCc,
+              myEmail,
+            );
 
-          // Prepare request body for threads.modify
-          const modifyRequestBody: Record<string, unknown> = {};
+            if (replyTo.length === 0) {
+              throw new Error("Could not determine recipient for reply");
+            }
 
-          if (validatedArgs.addLabelIds) {
-            modifyRequestBody.addLabelIds = validatedArgs.addLabelIds;
+            // Build subject with "Re:" prefix if not already present
+            const replySubject = addRePrefix(originalSubject);
+
+            // Build References header (original References + original Message-ID)
+            const references = buildReferencesHeader(originalReferences, originalMessageId);
+
+            // Prepare the email arguments for handleEmailAction
+            const emailArgs = {
+              to: replyTo,
+              cc: replyCc.length > 0 ? replyCc : undefined,
+              subject: replySubject,
+              body: validatedArgs.body,
+              htmlBody: validatedArgs.htmlBody,
+              mimeType: validatedArgs.mimeType,
+              threadId: threadId,
+              inReplyTo: originalMessageId,
+              references,
+              attachments: validatedArgs.attachments,
+            };
+
+            // Use the existing handleEmailAction to send the reply
+            await handleEmailAction("send", emailArgs);
+
+            // Enhance the response with reply-all specific info
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Reply-all sent successfully!\nTo: ${replyTo.join(", ")}${replyCc.length > 0 ? `\nCC: ${replyCc.join(", ")}` : ""}\nSubject: ${replySubject}\nThread ID: ${threadId}`,
+                },
+              ],
+            };
           }
 
-          if (validatedArgs.removeLabelIds) {
-            modifyRequestBody.removeLabelIds = validatedArgs.removeLabelIds;
+          case "modify_thread": {
+            const validatedArgs = ModifyThreadSchema.parse(args);
+
+            // Prepare request body for threads.modify
+            const modifyRequestBody: Record<string, unknown> = {};
+
+            if (validatedArgs.addLabelIds) {
+              modifyRequestBody.addLabelIds = validatedArgs.addLabelIds;
+            }
+
+            if (validatedArgs.removeLabelIds) {
+              modifyRequestBody.removeLabelIds = validatedArgs.removeLabelIds;
+            }
+
+            await gmail.users.threads.modify({
+              userId: "me",
+              id: validatedArgs.threadId,
+              requestBody: modifyRequestBody,
+            });
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Thread ${validatedArgs.threadId} labels updated successfully (all messages in thread modified)`,
+                },
+              ],
+            };
           }
 
-          await gmail.users.threads.modify({
-            userId: "me",
-            id: validatedArgs.threadId,
-            requestBody: modifyRequestBody,
-          });
-
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Thread ${validatedArgs.threadId} labels updated successfully (all messages in thread modified)`,
-              },
-            ],
-          };
+          default:
+            throw new Error(`Unknown tool: ${name}`);
         }
-
-        default:
-          throw new Error(`Unknown tool: ${name}`);
-      }
+      });
     } catch (error: unknown) {
-      auditResult = "error";
+      // wrapToolHandler has already logged the audit entry as "error"
+      // and re-thrown. Format the failure as a user-readable MCP
+      // response here (behaviour preserved from the prior inline
+      // catch).
       const msg = error instanceof Error ? error.message : String(error);
       return {
         content: [
@@ -1944,8 +1941,6 @@ async function main() {
           },
         ],
       };
-    } finally {
-      logAudit(name, args, auditResult);
     }
   });
 
