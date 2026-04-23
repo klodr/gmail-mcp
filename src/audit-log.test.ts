@@ -43,13 +43,16 @@ describe("audit-log redactSensitive", () => {
     expect(items[1]?.credentials).toBe("[REDACTED]");
   });
 
-  it("elides body/htmlBody strings with length marker", () => {
+  it("elides body/htmlBody/subject/to PII fields with length marker", () => {
     const body =
       "This is a 100-character email body padding padding padding padding padding padding padding padding";
     const input = { to: ["a@b.com"], subject: "hi", body, htmlBody: "<p>x</p>" };
     const out = redactSensitive(input) as Record<string, unknown>;
-    expect(out.to).toEqual(["a@b.com"]);
-    expect(out.subject).toBe("hi");
+    // PII fields (to/subject) are also elided by default to keep audit
+    // logs free of counterparty data. See ELIDED_KEYS + the
+    // GMAIL_MCP_AUDIT_LOG_VERBOSE escape hatch.
+    expect(out.to).toBe("[ELIDED:1 items]");
+    expect(out.subject).toMatch(/^\[ELIDED:\d+ chars\]$/);
     expect(out.body).toMatch(/^\[ELIDED:\d+ chars\]$/);
     expect(out.htmlBody).toMatch(/^\[ELIDED:\d+ chars\]$/);
   });
@@ -60,8 +63,8 @@ describe("audit-log redactSensitive", () => {
     expect(out.attachments).toBe("[ELIDED:2 items]");
   });
 
-  it("leaves non-sensitive fields intact", () => {
-    const input = { to: ["x@y.com"], subject: "ok", threadId: "abc123" };
+  it("leaves non-sensitive, non-PII fields intact", () => {
+    const input = { threadId: "abc123", maxResults: 5, format: "full" };
     const out = redactSensitive(input) as Record<string, unknown>;
     expect(out).toEqual(input);
   });
@@ -75,6 +78,29 @@ describe("audit-log redactSensitive", () => {
 
   it("SENSITIVE_KEYS is frozen", () => {
     expect(Object.isFrozen(SENSITIVE_KEYS)).toBe(true);
+  });
+
+  it("keeps PII fields readable when GMAIL_MCP_AUDIT_LOG_VERBOSE=true", async () => {
+    // The verbose escape hatch is evaluated at module load, so re-import
+    // the module with the env var flipped on to exercise the branch.
+    const prev = process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE;
+    process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE = "true";
+    try {
+      const { vi } = await import("vitest");
+      vi.resetModules();
+      const { redactSensitive: redactVerbose } = await import("./audit-log.js");
+      const input = { to: ["a@b.com"], subject: "hi", body: "body", attachments: ["f"] };
+      const out = redactVerbose(input) as Record<string, unknown>;
+      // Size-only elision still applies (body + attachments elided)…
+      expect(out.body).toMatch(/^\[ELIDED:\d+ chars\]$/);
+      expect(out.attachments).toBe("[ELIDED:1 items]");
+      // …but PII fields (to, subject) are now passed through verbatim.
+      expect(out.to).toEqual(["a@b.com"]);
+      expect(out.subject).toBe("hi");
+    } finally {
+      if (prev === undefined) delete process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE;
+      else process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE = prev;
+    }
   });
 });
 
@@ -130,7 +156,7 @@ describe("audit-log logAudit", () => {
     expect(entry.tool).toBe("send_email");
     expect(entry.result).toBe("ok");
     expect((entry.args as Record<string, unknown>).access_token).toBe("[REDACTED]");
-    expect((entry.args as Record<string, unknown>).to).toEqual(["a@b.com"]);
+    expect((entry.args as Record<string, unknown>).to).toBe("[ELIDED:1 items]");
     expect(typeof entry.ts).toBe("string");
   });
 

@@ -191,10 +191,15 @@ describe("wrapToolHandler", () => {
       expect(result.structuredContent).toMatchObject({
         dryRun: true,
         tool: "send_email",
-        // body is in the audit-log ELIDED_KEYS list (attacker-controlled
-        // free-form field) so it is elided here the same way the audit
-        // log records it — sanitized view, same everywhere.
-        wouldCallWith: { to: "a@b.c", subject: "hi", body: "[ELIDED:5 chars]" },
+        // body / subject / to are all in the audit-log ELIDED_KEYS list
+        // (attacker-controlled or PII free-form fields) so they are
+        // elided here the same way the audit log records them —
+        // sanitized view, same everywhere.
+        wouldCallWith: {
+          to: "[ELIDED:5 chars]",
+          subject: "[ELIDED:2 chars]",
+          body: "[ELIDED:5 chars]",
+        },
       });
       // The dry-run payload's text content is fenced by sanitizeForLlm
       // before emit (happy-path goes through the sanitize wrapper), so
@@ -217,7 +222,7 @@ describe("wrapToolHandler", () => {
       const payload = result.structuredContent as {
         wouldCallWith: Record<string, unknown>;
       };
-      expect(payload.wouldCallWith.to).toBe("a@b.c");
+      expect(payload.wouldCallWith.to).toBe("[ELIDED:5 chars]");
       expect(payload.wouldCallWith.access_token).toBe("[REDACTED]");
       expect(payload.wouldCallWith.authorization).toBe("[REDACTED]");
     });
