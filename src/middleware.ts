@@ -90,7 +90,11 @@ export function isDryRun(): boolean {
  */
 export type ToolResult = {
   content: { type: string; text: string }[];
-  structuredContent?: Record<string, unknown>;
+  // Permit both record and array payloads: the attached-structured-content
+  // helper lifts any JSON object OR array, matching the MCP spec's
+  // tolerance for top-level arrays on tools that return lists. Clients
+  // narrow via `Array.isArray(…)` or a shape guard (CR finding on #53).
+  structuredContent?: Record<string, unknown> | unknown[];
   isError?: boolean;
 };
 
@@ -110,6 +114,49 @@ export type ToolResult = {
  * `JSON.stringify` on a circular `args` shape and the date formatter.
  */
 /**
+ * Auto-attach `structuredContent` when a handler emits a JSON-stringified
+ * text block but did not explicitly set `structuredContent` itself.
+ * The MCP 2025-06-18 spec marks `structuredContent` as the channel
+ * programmatic consumers (registries, test harnesses, other MCPs) read
+ * for typed access to the tool result; the text block remains the
+ * human-readable surface.
+ *
+ * Only object / array JSON payloads are lifted — primitives (strings,
+ * numbers, booleans) are rejected because they would not round-trip
+ * meaningfully through a typed consumer, and the text block already
+ * exposes the scalar.
+ *
+ * Handlers that want full control (dry-run, rate-limit error, custom
+ * typed payload) pass `structuredContent` themselves; this function
+ * never overwrites an already-set value.
+ *
+ * IMPORTANT: must run BEFORE `sanitizeToolResult` — once the text is
+ * wrapped in the `<untrusted-tool-output>` fence, `JSON.parse` on it
+ * throws and no structured content would be lifted.
+ */
+function attachStructuredContent(result: ToolResult): ToolResult {
+  if (result.structuredContent !== undefined) return result;
+  const first = result.content[0];
+  if (!first || first.type !== "text" || typeof first.text !== "string") return result;
+  try {
+    const parsed: unknown = JSON.parse(first.text);
+    // `typeof null === "object"` in JS — exclude nulls explicitly so a
+    // JSON `"null"` payload stays on the text channel only (matches the
+    // "primitives skipped" test contract). Both records and arrays are
+    // lifted since structuredContent tolerates either.
+    if (parsed !== null && typeof parsed === "object") {
+      return {
+        ...result,
+        structuredContent: parsed as Record<string, unknown> | unknown[],
+      };
+    }
+  } catch {
+    // text is not JSON — leave the ToolResult untouched.
+  }
+  return result;
+}
+
+/**
  * Defense-in-depth fence on every text content item emitted by a tool
  * handler. Gmail responses carry attacker-controllable fields (subject,
  * body, snippet, display names, attachment filenames) that land verbatim
@@ -118,7 +165,8 @@ export type ToolResult = {
  * it as DATA, not instructions — see `src/sanitize.ts` for rationale.
  *
  * Only `type: "text"` items are rewritten; non-text content (images,
- * resources) flows through unchanged.
+ * resources) flows through unchanged. `structuredContent` is never
+ * touched — it is the programmatic-consumer channel and stays raw.
  */
 function sanitizeToolResult(result: ToolResult): ToolResult {
   return {
@@ -200,10 +248,12 @@ export async function wrapToolHandler(
   } catch (err) {
     if (err instanceof RateLimitError) {
       safeLogAudit(name, args, "rate_limited");
-      return sanitizeToolResult({
-        content: [{ type: "text", text: formatRateLimitError(err) }],
-        isError: true,
-      });
+      return sanitizeToolResult(
+        attachStructuredContent({
+          content: [{ type: "text", text: formatRateLimitError(err) }],
+          isError: true,
+        }),
+      );
     }
     // Non-RateLimitError: defensive path (enforceRateLimit only
     // throws RateLimitError today, but if a future regression
@@ -228,7 +278,7 @@ export async function wrapToolHandler(
     // #48 — the prior inline audit at src/index.ts:1948 only saw
     // "error" on throws, missing the isError:true returns).
     if (result.isError) auditResult = "error";
-    return sanitizeToolResult(result);
+    return sanitizeToolResult(attachStructuredContent(result));
   } catch (err) {
     auditResult = "error";
     throw err;

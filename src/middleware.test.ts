@@ -124,6 +124,9 @@ describe("wrapToolHandler", () => {
     };
     expect(parsed.source).toBe("mcp_safeguard");
     expect(parsed.error_type).toMatch(/^mcp_rate_limit_(daily|monthly)_exceeded$/);
+    // The rate-limit text is JSON → auto-attached as structuredContent
+    // so programmatic consumers see the shape without re-parsing.
+    expect(second.structuredContent).toEqual(parsed);
   });
 
   it("logs `rate_limited` audit entry when the rate-limit trips", async () => {
@@ -246,6 +249,70 @@ describe("wrapToolHandler", () => {
       expect(handlerRuns).toBe(1);
       // Text is fenced by sanitizeForLlm; unfence before comparing.
       expect(unfence(result.content[0].text)).toBe("ok");
+    });
+  });
+
+  describe("structuredContent auto-attachment", () => {
+    it("lifts a JSON-object text payload into structuredContent", async () => {
+      const payload = { id: "abc", labels: ["INBOX"], count: 3 };
+      const result = await wrapToolHandler("list_email_labels", {}, async () => ({
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+      }));
+      expect(result.structuredContent).toEqual(payload);
+    });
+
+    it("lifts a JSON-array text payload into structuredContent", async () => {
+      const payload = [{ id: "1" }, { id: "2" }];
+      const result = await wrapToolHandler("list_email_labels", {}, async () => ({
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+      }));
+      expect(result.structuredContent).toEqual(payload);
+    });
+
+    it("leaves structuredContent unset for plain-text payloads (non-JSON)", async () => {
+      const result = await wrapToolHandler("send_email", {}, async () => ({
+        content: [{ type: "text", text: "Email sent successfully: <abc@mail.gmail.com>" }],
+      }));
+      expect(result.structuredContent).toBeUndefined();
+    });
+
+    it("leaves structuredContent unset for JSON primitives (number/string/boolean/null)", async () => {
+      for (const raw of ["42", '"hello"', "true", "null"]) {
+        const result = await wrapToolHandler("list_email_labels", {}, async () => ({
+          content: [{ type: "text", text: raw }],
+        }));
+        expect(result.structuredContent).toBeUndefined();
+      }
+    });
+
+    it("does not overwrite a structuredContent that the handler already set", async () => {
+      const handlerPayload = { explicit: true };
+      const result = await wrapToolHandler("send_email", {}, async () => ({
+        content: [{ type: "text", text: JSON.stringify({ ignored: true }) }],
+        structuredContent: handlerPayload,
+      }));
+      expect(result.structuredContent).toEqual(handlerPayload);
+    });
+
+    it("leaves structuredContent unset when the content array is empty or non-text", async () => {
+      const emptyResult = await wrapToolHandler("list_email_labels", {}, async () => ({
+        content: [],
+      }));
+      expect(emptyResult.structuredContent).toBeUndefined();
+
+      const imageResult = await wrapToolHandler("list_email_labels", {}, async () => ({
+        content: [{ type: "image", text: JSON.stringify({ looks: "json" }) }],
+      }));
+      expect(imageResult.structuredContent).toBeUndefined();
+    });
+
+    it("leaves isError flag intact on the auto-attached result", async () => {
+      const result = await wrapToolHandler("send_email", {}, async () => ({
+        content: [{ type: "text", text: JSON.stringify({ error: "nope" }) }],
+        isError: true,
+      }));
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toEqual({ error: "nope" });
     });
   });
 
