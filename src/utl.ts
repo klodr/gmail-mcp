@@ -271,7 +271,10 @@ const PLACEHOLDER_PATTERNS = [
 ];
 
 function looksLikePlaceholder(text: string): boolean {
-  if (text.length > 500) return false;
+  // Use trimmed length so 501 chars of padding whitespace around a
+  // `view in browser` stub still trips the check. The 500-char cap is
+  // about the substantive body, not the outer whitespace (Qodo #41).
+  if (text.trim().length > 500) return false;
   return PLACEHOLDER_PATTERNS.some((re) => re.test(text));
 }
 
@@ -307,7 +310,12 @@ export function pickBody(
   if (looksLikePlaceholder(text)) {
     return { body: html, source: "html" };
   }
-  if (trimmedTextLen < 150 && html.length > trimmedTextLen * 3) {
+  // Tightened from 3× to 5× so a normal short reply with a branded HTML
+  // signature (plain 20 chars + HTML 200 chars) isn't misrouted to HTML.
+  // The genuine stubs this catches are viewer-redirects that embed a
+  // tiny text blurb while the whole marketing body lives in HTML — those
+  // consistently exceed a 5× ratio (Qodo #41).
+  if (trimmedTextLen < 150 && html.length > trimmedTextLen * 5) {
     return { body: html, source: "html" };
   }
   return { body: text, source: "text" };

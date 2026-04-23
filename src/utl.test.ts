@@ -194,7 +194,7 @@ describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
     expect(pickBody(text, html).source).toBe("html");
   });
 
-  it("falls back to html when text is very short and html is 3× longer", () => {
+  it("falls back to html when text is very short and html is >5× longer", () => {
     const text = "Hi there, see below.";
     const html =
       "<p>Hi there,</p><p>The actual much longer message lives here in the HTML part, with all the relevant paragraphs the sender meant to include. Plenty of words to trigger the length heuristic.</p>";
@@ -205,6 +205,28 @@ describe("pickBody — HTML fallback heuristic (upstream GongRzhe#87)", () => {
     const text = "Hi there!";
     const html = "<p>Hi there!</p>";
     expect(pickBody(text, html).source).toBe("text");
+  });
+
+  it("keeps text for a normal short reply with a branded HTML signature (Qodo #41)", () => {
+    // The old 3× threshold misrouted plain replies like "Yes. -- John"
+    // (20 chars) paired with a bloated HTML signature (200 chars =
+    // 10× ratio but 5× in this shorter-signature case) to HTML, losing
+    // the substance. Tightened to 5× so the 4× ratio stays on text.
+    const text = "Yes, sounds good. Thanks, John.";
+    // 4× the text length — was flipping to HTML under the old 3× rule;
+    // should stay as text under 5×.
+    const html =
+      "<div style='font-family:Arial;font-size:10pt'>Yes, sounds good. Thanks, John.</div>";
+    expect(pickBody(text, html).source).toBe("text");
+  });
+
+  it("trims whitespace padding before the 500-char placeholder check (Qodo #41)", () => {
+    // 501 chars of leading whitespace + a short placeholder used to
+    // bypass looksLikePlaceholder because text.length > 500 short-
+    // circuited. Now the trim happens first.
+    const text = " ".repeat(510) + "View this email in your browser";
+    const html = "<p>real body here, lots of content</p>".repeat(10);
+    expect(pickBody(text, html).source).toBe("html");
   });
 
   it("does not flag a long text containing a placeholder-like phrase as a stub", () => {
