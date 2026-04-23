@@ -169,9 +169,13 @@ npx @klodr/gmail-mcp auth --scopes=gmail.readonly,gmail.send
 npx @klodr/gmail-mcp auth --scopes=gmail.modify,gmail.settings.basic
 
 # Default + permanent delete (delete_email / batch_delete_emails)
-# gmail.modify only authorizes Trash; mail.google.com is the only
-# scope that authorizes purging from Trash.
-npx @klodr/gmail-mcp auth --scopes=mail.google.com,gmail.settings.basic
+# gmail.modify authorizes trash; mail.google.com is the only scope
+# that authorizes purging from Trash. Both are listed because the
+# tool gate does exact scope-name matching — a token holding only
+# mail.google.com would not enable the gmail.modify-gated tools,
+# even though Google's scope hierarchy would technically accept the
+# same calls.
+npx @klodr/gmail-mcp auth --scopes=gmail.modify,mail.google.com,gmail.settings.basic
 ```
 
 ## Safeguards
