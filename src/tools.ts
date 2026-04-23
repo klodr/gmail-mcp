@@ -80,7 +80,9 @@ export const SendEmailSchema = z.object({
     .max(998)
     .optional()
     .describe("RFC 5322 Message-ID being replied to (e.g. <abc@host>, max 998 chars)"),
-  attachments: coerceArray(z.string()).optional().describe("List of file paths to attach to the email"),
+  attachments: coerceArray(z.string())
+    .optional()
+    .describe("List of file paths to attach to the email"),
 });
 
 export const ReadEmailSchema = z.object({
@@ -377,7 +379,9 @@ export const ReplyAllSchema = z.object({
     .optional()
     .default("text/plain")
     .describe("Email content type"),
-  attachments: coerceArray(z.string()).optional().describe("List of file paths to attach to the reply"),
+  attachments: coerceArray(z.string())
+    .optional()
+    .describe("List of file paths to attach to the reply"),
 });
 
 // Tool definition type
