@@ -16,8 +16,59 @@
  * follow-up PR so the wire-up can be reviewed as a separate, contained
  * change on top of an already-merged, tested helper.
  */
-import { type AuditResult, logAudit } from "./audit-log.js";
+import { type AuditResult, logAudit, redactSensitive } from "./audit-log.js";
 import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
+
+/**
+ * Tool names that mutate Gmail state (outbound mail, label / filter /
+ * thread writes). Dry-run short-circuits these before any Gmail API
+ * call is made; read-only tools (`list_*`, `get_*`, `read_*`,
+ * `search_*`, `download_*`) bypass dry-run entirely — there is nothing
+ * to preview, and `download_*` only writes to a local jail inside
+ * `GMAIL_MCP_DOWNLOAD_DIR`, which is an LLM-visible side effect that
+ * the download-path hardening (see `src/index.ts`) owns rather than
+ * the dry-run gate (CR #52).
+ *
+ * Keep in sync with the rate-limit buckets in `src/rate-limit.ts` —
+ * every tool listed here should have a rate-limit entry, and vice
+ * versa. The two lists are the canonical "this is a write operation"
+ * signal used across the stack.
+ */
+const WRITE_TOOLS = new Set<string>([
+  "send_email",
+  "reply_all",
+  "draft_email",
+  "delete_email",
+  "modify_email",
+  "batch_modify_emails",
+  "batch_delete_emails",
+  "create_label",
+  "update_label",
+  "delete_label",
+  "get_or_create_label",
+  "create_filter",
+  "delete_filter",
+  "create_filter_from_template",
+  "modify_thread",
+]);
+
+/**
+ * Dry-run gate. Set `GMAIL_MCP_DRY_RUN=true` to make every write tool
+ * short-circuit before calling Gmail and return the payload it would
+ * have sent (sensitive args redacted via `redactSensitive`). Matches
+ * `MERCURY_MCP_DRY_RUN` and `FAXDROP_MCP_DRY_RUN` in the sibling
+ * servers. Useful for CI smoke tests, agent debugging, and
+ * human-in-the-loop approval flows that need a preview before
+ * authorising the real call.
+ *
+ * Only the exact string `"true"` flips the gate — an empty string or
+ * any other value (including `"1"`, `"TRUE"`) counts as off. Strict
+ * matching avoids accidentally enabling dry-run when an operator
+ * copies a value from a different env convention.
+ */
+export function isDryRun(): boolean {
+  return process.env.GMAIL_MCP_DRY_RUN === "true";
+}
 
 /**
  * Tool-handler response shape — local subset of the SDK's `CallToolResult`
@@ -133,6 +184,24 @@ export async function wrapToolHandler(
   args: unknown,
   handler: () => Promise<ToolResult>,
 ): Promise<ToolResult> {
+  // Dry-run short-circuit — run BEFORE rate-limit so that previewing a
+  // write call never consumes the daily/monthly quota. Read tools
+  // bypass dry-run because they have nothing to preview (no side
+  // effect to describe); they still hit the real handler.
+  if (isDryRun() && WRITE_TOOLS.has(name)) {
+    const dryPayload = {
+      dryRun: true,
+      tool: name,
+      wouldCallWith: redactSensitive(args),
+      note: "GMAIL_MCP_DRY_RUN=true; no Gmail API call was made. Sensitive fields are redacted.",
+    };
+    safeLogAudit(name, args, "dry-run");
+    return {
+      content: [{ type: "text", text: JSON.stringify(dryPayload, null, 2) }],
+      structuredContent: dryPayload,
+    };
+  }
+
   try {
     enforceRateLimit(name);
   } catch (err) {
