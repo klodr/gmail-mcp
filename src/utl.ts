@@ -264,7 +264,7 @@ export function sanitizeHeaderValue(value: string): string {
 const PLACEHOLDER_PATTERNS = [
   /view\s+(?:this|the)\s+(?:email|message|newsletter)\s+in\s+(?:your|a|the)\s+browser/i,
   /having\s+trouble\s+(?:viewing|reading)\s+(?:this\s+)?(?:email|message)/i,
-  /can(?:no|')t\s+see\s+(?:this\s+)?(?:email|message)/i,
+  /can(?:no|['’])t\s+see\s+(?:this\s+)?(?:email|message)/i,
   /please\s+enable\s+html/i,
   /click\s+here\s+to\s+view/i,
   /trouble\s+viewing\s+this\s+email/i,
