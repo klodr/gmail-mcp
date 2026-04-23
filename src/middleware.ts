@@ -41,9 +41,10 @@ const WRITE_TOOLS = new Set<string>([
   "create_label",
   "update_label",
   "delete_label",
-  "batch_update_labels",
+  "get_or_create_label",
   "create_filter",
   "delete_filter",
+  "create_filter_from_template",
   "modify_thread",
 ]);
 
