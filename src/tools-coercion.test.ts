@@ -140,6 +140,18 @@ describe("Schema coercion — non-string, non-number inputs are rejected (Qodo #
   it("non-numeric string is rejected", () => {
     expect(() => SearchEmailsSchema.parse({ query: "x", maxResults: "abc" })).toThrow();
   });
+
+  it("scientific-notation string is rejected", () => {
+    // "1e3" parses to 1000 under Number(), but coerceIntPreprocess restricts
+    // the accepted shape to /^-?\d+$/, so scientific forms are rejected.
+    expect(() => SearchEmailsSchema.parse({ query: "x", maxResults: "1e3" })).toThrow();
+  });
+
+  it("hex string is rejected", () => {
+    // Same rationale: "0xA" → 10 via Number(), but the decimal-only regex
+    // blocks hex so an MCP client can't smuggle non-base-10 inputs.
+    expect(() => SearchEmailsSchema.parse({ query: "x", maxResults: "0xA" })).toThrow();
+  });
 });
 
 describe("FilePathSchema — attachment path hardening (CR #40 outside-diff)", () => {
@@ -251,6 +263,24 @@ describe("CreateFilterSchema / CreateFilterFromTemplateSchema — byte-size coer
       CreateFilterFromTemplateSchema.parse({
         template: "largeEmails",
         parameters: { sizeInBytes: 1024.5 },
+      }),
+    ).toThrow();
+  });
+
+  it("CreateFilterSchema.criteria.size rejects a negative value (bytes cannot be negative)", () => {
+    expect(() =>
+      CreateFilterSchema.parse({
+        criteria: { size: -1 },
+        action: {},
+      }),
+    ).toThrow();
+  });
+
+  it("CreateFilterFromTemplateSchema.parameters.sizeInBytes rejects a negative value", () => {
+    expect(() =>
+      CreateFilterFromTemplateSchema.parse({
+        template: "largeEmails",
+        parameters: { sizeInBytes: -1 },
       }),
     ).toThrow();
   });

@@ -269,7 +269,7 @@ export const CreateFilterSchema = z
         negatedQuery: z.string().optional().describe("Text that must NOT be present"),
         hasAttachment: z.boolean().optional().describe("Whether to match emails with attachments"),
         excludeChats: z.boolean().optional().describe("Whether to exclude chat messages"),
-        size: coerceInt().optional().describe("Email size in bytes"),
+        size: coerceInt({ min: 0 }).optional().describe("Email size in bytes"),
         sizeComparison: z
           .enum(["unspecified", "smaller", "larger"])
           .optional()
@@ -328,7 +328,7 @@ export const CreateFilterFromTemplateSchema = z
           .string()
           .optional()
           .describe("Mailing list identifier (for mailingList template)"),
-        sizeInBytes: coerceInt()
+        sizeInBytes: coerceInt({ min: 0 })
           .optional()
           .describe("Size threshold in bytes (for largeEmails template)"),
         labelIds: coerceArray(GmailIdSchema).optional().describe("Label IDs to apply"),
