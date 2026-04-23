@@ -278,7 +278,7 @@ export function sanitizeHeaderValue(value: string): string {
  * Idempotent. Returns ASCII-safe output.
  */
 const ATTACHMENT_HOSTILE_CHARS = new RegExp(
-  "[" + "\\u0000-\\u001F" + "\\u007F-\\u009F" + "/\\\\:*?\"<>|" + "]",
+  "[" + "\\u0000-\\u001F" + "\\u007F-\\u009F" + '/\\\\:*?"<>|' + "]",
   "g",
 );
 
