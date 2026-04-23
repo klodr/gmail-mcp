@@ -56,7 +56,7 @@ describe("wrapToolHandler", () => {
     expect(result).toEqual(okResult);
   });
 
-  it("logs `ok` audit entry on a clean handler return (for a bucketed tool)", async () => {
+  it("logs `ok` audit entry on a clean handler return (for an unbucketed read tool)", async () => {
     // list_email_labels is a READ tool and not bucketed → rate-limit is
     // a no-op; we still expect an audit entry because the helper logs
     // unconditionally in the `finally`.
