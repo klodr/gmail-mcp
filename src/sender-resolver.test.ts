@@ -170,4 +170,24 @@ describe("resolveDefaultSender — upstream GongRzhe#77", () => {
     expect(await resolveDefaultSender(gmail)).toBe("Bob <bob@example.com>");
     expect(sendAsCalls).toBe(2);
   });
+
+  it("caches per-client, not globally (Qodo #42 multi-account safety)", async () => {
+    // Two distinct gmail clients in the same process — think alice's
+    // session and bob's session. The pre-fix module-level cache would
+    // return alice's resolved sender for bob's second call because the
+    // cache was keyed on nothing. The WeakMap keyed by client keeps
+    // each identity isolated.
+    const alice = mockGmail({
+      sendAs: [{ sendAsEmail: "alice@example.com", displayName: "Alice", isDefault: true }],
+    });
+    const bob = mockGmail({
+      sendAs: [{ sendAsEmail: "bob@example.com", displayName: "Bob", isDefault: true }],
+    });
+
+    expect(await resolveDefaultSender(alice)).toBe("Alice <alice@example.com>");
+    expect(await resolveDefaultSender(bob)).toBe("Bob <bob@example.com>");
+    // Both cache hits round-trip cleanly to the SAME respective value.
+    expect(await resolveDefaultSender(alice)).toBe("Alice <alice@example.com>");
+    expect(await resolveDefaultSender(bob)).toBe("Bob <bob@example.com>");
+  });
 });

@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Outgoing `From:` header now carries the display name** (upstream GongRzhe#77). When the caller doesn't pass an explicit `from`, `send_email` / `draft_email` / `reply_all` resolved it to the literal string `"me"` which Gmail accepts on the envelope side but renders as a bare email address in the recipient's inbox — `bob@example.com` instead of `Bob Smith <bob@example.com>`.
 
-  The new `src/sender-resolver.ts` module resolves a proper `"DisplayName <email>"` once per process via `users.settings.sendAs.list` (falls back to `users.getProfile` on `gmail.send`-only scope, then to the old `"me"` sentinel as a last resort). Result is cached across sends; the `"me"` sentinel is intentionally NOT cached so a process that re-auths to a broader scope picks up the display name on the next send without restart.
+  The new `src/sender-resolver.ts` module resolves a proper `"DisplayName <email>"` once per gmail-client instance via `users.settings.sendAs.list` (falls back to `users.getProfile` on `gmail.send`-only scope, then to the old `"me"` sentinel as a last resort). Result is cached in a WeakMap keyed by the client, so two gmail clients signed in to different accounts in the same process never cross-contaminate (Qodo flagged the original module-level cache on PR #42 as multi-account unsafe). The `"me"` sentinel is intentionally NOT cached so a process that re-auths that client to a broader scope picks up the display name on the next send without a restart.
 
 ## [0.9.1] - 2026-04-22
 
