@@ -50,11 +50,40 @@ const SENSITIVE_KEYS_SET: ReadonlySet<string> = new Set(SENSITIVE_KEYS);
 
 /**
  * Keys whose *value* is elided rather than redacted, because they
- * typically carry large free-form content that would bloat the audit
- * log without adding operational value. Elided to "[ELIDED:N chars]"
- * so reviewers can still see that the field was present and its size.
+ * typically carry large free-form content OR attacker-controlled
+ * content that would bloat the audit log without adding operational
+ * value — AND can carry PII or prompt-injection payloads if left raw.
+ * Elided to "[ELIDED:N chars]" so reviewers can still see that the
+ * field was present and its size.
+ *
+ * The "size-only" set: `body`, `htmlbody`, `data`, `attachments` —
+ * bulky by nature, never needed at call-review time.
+ *
+ * The "PII + attacker-control" set: `subject`, `to`, `cc`, `bcc`,
+ * `from`, `snippet`, `q` (the `search_emails` query), `forward` (the
+ * filter action that writes an email address, i.e. a potential
+ * exfiltration channel if the log itself leaks). Those reconstruct
+ * the full conversation from the log and expose counterparty data
+ * that a security-audit log has no business keeping. To re-enable
+ * full-fidelity inspection, set `GMAIL_MCP_AUDIT_LOG_VERBOSE=true`
+ * which restricts elision to the size-only set.
  */
-const ELIDED_KEYS: ReadonlySet<string> = new Set(["body", "htmlbody", "data", "attachments"]);
+const SIZE_ELIDED_KEYS = ["body", "htmlbody", "data", "attachments"] as const;
+const PII_ELIDED_KEYS = [
+  "subject",
+  "to",
+  "cc",
+  "bcc",
+  "from",
+  "snippet",
+  "q",
+  "forward",
+] as const;
+
+const ELIDED_KEYS: ReadonlySet<string> =
+  process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE === "true"
+    ? new Set<string>(SIZE_ELIDED_KEYS)
+    : new Set<string>([...SIZE_ELIDED_KEYS, ...PII_ELIDED_KEYS]);
 
 /**
  * Recursively walk a value, redacting sensitive keys and eliding
