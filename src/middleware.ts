@@ -28,12 +28,24 @@ import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-l
  * front so the later sanitizeForLlm / structuredContent layer can
  * start returning it without changing the callsite signature.
  */
+/**
+ * Tool-handler response shape — local subset of the SDK's `CallToolResult`
+ * (see `@modelcontextprotocol/sdk/types.js`).
+ *
+ * Intentionally looser than the SDK's full discriminated-union content
+ * shape (`text` | `image` | `resource` | `resource_link`): the
+ * 1300-line `CallToolRequestSchema` switch emits `{ type: "text",
+ * text: "…" }` object literals inline, and TypeScript widens `type` to
+ * `string` without an `as const` or a per-case return-type annotation.
+ * Aligning with the SDK union here would force ~17 `as const` cascades
+ * across the dispatcher for no observable behaviour change — the
+ * handlers only emit the `text` variant today.
+ *
+ * When handler extraction lands (ROADMAP near-term item) each case
+ * body becomes its own explicitly-annotated function and aligning
+ * with `CallToolResult` becomes a one-line change.
+ */
 export type ToolResult = {
-  // MCP spec allows `text` / `image` / `resource` on `content[].type`; the
-  // Gmail handlers emit only `text` today but the type is widened to
-  // `string` so the inline return-object literals in the switch
-  // (inferred as `{ type: string }` without an explicit `as const`)
-  // satisfy the signature without every callsite needing to annotate.
   content: { type: string; text: string }[];
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
