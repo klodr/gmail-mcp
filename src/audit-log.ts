@@ -69,16 +69,7 @@ const SENSITIVE_KEYS_SET: ReadonlySet<string> = new Set(SENSITIVE_KEYS);
  * which restricts elision to the size-only set.
  */
 const SIZE_ELIDED_KEYS = ["body", "htmlbody", "data", "attachments"] as const;
-const PII_ELIDED_KEYS = [
-  "subject",
-  "to",
-  "cc",
-  "bcc",
-  "from",
-  "snippet",
-  "q",
-  "forward",
-] as const;
+const PII_ELIDED_KEYS = ["subject", "to", "cc", "bcc", "from", "snippet", "q", "forward"] as const;
 
 const ELIDED_KEYS: ReadonlySet<string> =
   process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE === "true"
