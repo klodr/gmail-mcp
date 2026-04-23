@@ -21,10 +21,7 @@ const FilePathSchema = z
   .string()
   .min(1)
   .max(4096)
-  .refine(
-    (p) => !/[\0\r\n]/.test(p),
-    "Path must not contain NUL or newline characters",
-  );
+  .refine((p) => !/[\0\r\n]/.test(p), "Path must not contain NUL or newline characters");
 
 // Some MCP clients (Claude Code SDK is the one that put the bug in sharp
 // relief — upstream GongRzhe#95/#96) serialize tool arguments with strict
