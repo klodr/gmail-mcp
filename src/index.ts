@@ -86,6 +86,7 @@ import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./
 import { logAudit, type AuditResult } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
 import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
+import { resolveDefaultSender } from "./sender-resolver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -110,6 +111,10 @@ interface EmailContent {
 let oauth2Client: OAuth2Client;
 let oauthCallbackUrl: string;
 let authorizedScopes: string[] = DEFAULT_SCOPES;
+
+// `resolveDefaultSender` + its cache live in their own module so they
+// can be unit-tested without exercising the 1300-line dispatcher
+// below. See src/sender-resolver.ts for the fallback chain (GongRzhe#77).
 
 /**
  * Recursively extract email body content from MIME message parts
@@ -540,6 +545,17 @@ async function main() {
       let message: string;
 
       try {
+        // Resolve `from` from the user's default send-as alias (with
+        // displayName) when the caller didn't specify one. Using the
+        // literal "me" works for the envelope but renders a bare
+        // email address in the recipient's `From:` header — see
+        // GongRzhe/Gmail-MCP-Server#77. Scope-degraded: on
+        // `gmail.send`-only tokens the sendAs/getProfile calls fail
+        // and we fall back to "me" (original behaviour).
+        if (!validatedArgs.from || validatedArgs.from.trim() === "") {
+          validatedArgs.from = await resolveDefaultSender(gmail);
+        }
+
         // Auto-resolve threading headers when threadId is provided but inReplyTo is missing
         if (validatedArgs.threadId && !validatedArgs.inReplyTo) {
           try {
