@@ -69,7 +69,7 @@ reviews:
   # reviewers aren't tempted to click the checkbox.
   finishing_touches:
     unit_tests:
-      mode: disabled
+      enabled: false
 
   path_instructions:
     - path: "src/tools.ts"
