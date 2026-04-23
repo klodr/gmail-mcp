@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Node.js floor tightened to `>=22.11`** (was `>=22`). `22.11.0` is the LTS-tagged entry point for the Node 22 "Jod" line (October 2024); the previous `>=22` would have accepted the pre-LTS `22.0`–`22.10` releases which predate the LTS designation. Aligned with the sibling repos `klodr/faxdrop-mcp` and `klodr/mercury-invoicing-mcp`, all moving to the same floor.
 - `.github/dependabot.yml` `@types/node` major-version-clamp comment aligned to the new `>=22.11` floor.
+- `llms-install.md` prerequisite updated to **Node.js ≥ 22.11**.
+- `SECURITY.md` "Supported runtimes" section updated to state `Node.js ≥ 22.11` with the LTS-tag rationale.
 
 ### Added
 
