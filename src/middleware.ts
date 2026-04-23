@@ -20,10 +20,14 @@ import { type AuditResult, logAudit, redactSensitive } from "./audit-log.js";
 import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
 
 /**
- * Tool names that mutate Gmail state or persist state to disk. Dry-run
- * short-circuits these before any Gmail API call is made; read-only
- * tools (`list_*`, `get_*`, `read_*`, `search_*`, `download_*`) bypass
- * dry-run entirely because there is nothing to preview.
+ * Tool names that mutate Gmail state (outbound mail, label / filter /
+ * thread writes). Dry-run short-circuits these before any Gmail API
+ * call is made; read-only tools (`list_*`, `get_*`, `read_*`,
+ * `search_*`, `download_*`) bypass dry-run entirely — there is nothing
+ * to preview, and `download_*` only writes to a local jail inside
+ * `GMAIL_MCP_DOWNLOAD_DIR`, which is an LLM-visible side effect that
+ * the download-path hardening (see `src/index.ts`) owns rather than
+ * the dry-run gate (CR #52).
  *
  * Keep in sync with the rate-limit buckets in `src/rate-limit.ts` —
  * every tool listed here should have a rate-limit entry, and vice
