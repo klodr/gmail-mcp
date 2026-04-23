@@ -121,7 +121,15 @@ export function wrapToolHandler(
 
     let auditResult: AuditResult = "ok";
     try {
-      return await handler();
+      const result = await handler();
+      // Business errors returned via `isError: true` (vs thrown) are
+      // also audited as "error" so the audit log distinguishes a
+      // successful call from one that surfaced a handler-side failure
+      // through the MCP protocol's isError channel (Qodo finding on
+      // #48 — the prior inline audit at src/index.ts:1948 only saw
+      // "error" on throws, missing the isError:true returns).
+      if (result.isError) auditResult = "error";
+      return result;
     } catch (err) {
       auditResult = "error";
       throw err;
