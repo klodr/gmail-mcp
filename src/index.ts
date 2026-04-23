@@ -86,6 +86,7 @@ import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./
 import { logAudit } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
 import { wrapToolHandler } from "./middleware.js";
+import { sanitizeForLlm } from "./sanitize.js";
 import { buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
 import { resolveDefaultSender } from "./sender-resolver.js";
 
@@ -558,9 +559,12 @@ async function main() {
         content: [
           {
             type: "text",
-            text: `Error: Tool "${name}" is not available. You may need to re-authenticate with additional scopes.`,
+            text: sanitizeForLlm(
+              `Error: Tool "${name}" is not available. You may need to re-authenticate with additional scopes.`,
+            ),
           },
         ],
+        isError: true,
       };
     }
 
@@ -578,7 +582,9 @@ async function main() {
         content: [
           {
             type: "text",
-            text: `Error: invalid arguments for "${name}": ${parseResult.error.message}`,
+            text: sanitizeForLlm(
+              `Error: invalid arguments for "${name}": ${parseResult.error.message}`,
+            ),
           },
         ],
         isError: true,
@@ -2026,9 +2032,10 @@ async function main() {
         content: [
           {
             type: "text",
-            text: `Error: ${msg}`,
+            text: sanitizeForLlm(`Error: ${msg}`),
           },
         ],
+        isError: true,
       };
     }
   });
