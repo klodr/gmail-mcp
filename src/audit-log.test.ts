@@ -79,6 +79,29 @@ describe("audit-log redactSensitive", () => {
   it("SENSITIVE_KEYS is frozen", () => {
     expect(Object.isFrozen(SENSITIVE_KEYS)).toBe(true);
   });
+
+  it("keeps PII fields readable when GMAIL_MCP_AUDIT_LOG_VERBOSE=true", async () => {
+    // The verbose escape hatch is evaluated at module load, so re-import
+    // the module with the env var flipped on to exercise the branch.
+    const prev = process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE;
+    process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE = "true";
+    try {
+      const { vi } = await import("vitest");
+      vi.resetModules();
+      const { redactSensitive: redactVerbose } = await import("./audit-log.js");
+      const input = { to: ["a@b.com"], subject: "hi", body: "body", attachments: ["f"] };
+      const out = redactVerbose(input) as Record<string, unknown>;
+      // Size-only elision still applies (body + attachments elided)…
+      expect(out.body).toMatch(/^\[ELIDED:\d+ chars\]$/);
+      expect(out.attachments).toBe("[ELIDED:1 items]");
+      // …but PII fields (to, subject) are now passed through verbatim.
+      expect(out.to).toEqual(["a@b.com"]);
+      expect(out.subject).toBe("hi");
+    } finally {
+      if (prev === undefined) delete process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE;
+      else process.env.GMAIL_MCP_AUDIT_LOG_VERBOSE = prev;
+    }
+  });
 });
 
 describe("audit-log logAudit", () => {
