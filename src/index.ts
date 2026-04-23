@@ -434,8 +434,23 @@ async function main() {
   //
   // The `GMAIL_MCP_TIMEOUT_MS` env var lets an operator extend the
   // cap further for mailboxes where a single `messages.list` with
-  // a heavy `q:` legitimately runs long.
-  const gmailTimeoutMs = Number(process.env.GMAIL_MCP_TIMEOUT_MS) || 60_000;
+  // a heavy `q:` legitimately runs long. Must be a positive integer
+  // — a negative / decimal / non-numeric value would silently reopen
+  // the hang-forever path, so we validate explicitly and fall back
+  // to the default with a stderr warning on misconfiguration.
+  const DEFAULT_TIMEOUT_MS = 60_000;
+  const rawTimeout = process.env.GMAIL_MCP_TIMEOUT_MS;
+  let gmailTimeoutMs = DEFAULT_TIMEOUT_MS;
+  if (rawTimeout !== undefined) {
+    const parsed = Number(rawTimeout);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      gmailTimeoutMs = parsed;
+    } else {
+      console.error(
+        `Invalid GMAIL_MCP_TIMEOUT_MS="${rawTimeout}" (must be a positive integer); falling back to ${DEFAULT_TIMEOUT_MS}ms.`,
+      );
+    }
+  }
   google.options({ timeout: gmailTimeoutMs });
 
   // Initialize Gmail API
