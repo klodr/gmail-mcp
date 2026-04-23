@@ -791,8 +791,7 @@ async function main() {
           // text+HTML) and so multi-byte characters don't quietly
           // balloon the char-count past the MCP response cap.
           const bodyBytes = Buffer.byteLength(body, "utf-8");
-          const hardCap =
-            validatedArgs.format === "summary" ? 500 : validatedArgs.maxBodyLength;
+          const hardCap = validatedArgs.format === "summary" ? 500 : validatedArgs.maxBodyLength;
           let displayBody = body;
           let truncationNote = "";
           if (hardCap > 0 && bodyBytes > hardCap) {
