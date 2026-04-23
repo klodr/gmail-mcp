@@ -89,7 +89,11 @@ export function isDryRun(): boolean {
  */
 export type ToolResult = {
   content: { type: string; text: string }[];
-  structuredContent?: Record<string, unknown>;
+  // Permit both record and array payloads: the attached-structured-content
+  // helper lifts any JSON object OR array, matching the MCP spec's
+  // tolerance for top-level arrays on tools that return lists. Clients
+  // narrow via `Array.isArray(…)` or a shape guard (CR finding on #53).
+  structuredContent?: Record<string, unknown> | unknown[];
   isError?: boolean;
 };
 
@@ -131,8 +135,15 @@ function attachStructuredContent(result: ToolResult): ToolResult {
   if (!first || first.type !== "text" || typeof first.text !== "string") return result;
   try {
     const parsed: unknown = JSON.parse(first.text);
-    if (parsed && typeof parsed === "object") {
-      return { ...result, structuredContent: parsed as Record<string, unknown> };
+    // `typeof null === "object"` in JS — exclude nulls explicitly so a
+    // JSON `"null"` payload stays on the text channel only (matches the
+    // "primitives skipped" test contract). Both records and arrays are
+    // lifted since structuredContent tolerates either.
+    if (parsed !== null && typeof parsed === "object") {
+      return {
+        ...result,
+        structuredContent: parsed as Record<string, unknown> | unknown[],
+      };
     }
   } catch {
     // text is not JSON — leave the ToolResult untouched.
