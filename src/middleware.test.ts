@@ -78,6 +78,17 @@ describe("wrapToolHandler", () => {
     expect(entries[0]).toMatchObject({ tool: "list_email_labels", result: "error" });
   });
 
+  it("logs `error` audit entry when the handler returns isError:true (business error)", async () => {
+    const result = await wrapToolHandler("list_email_labels", {}, async () => ({
+      content: [{ type: "text", text: "handler-surfaced failure" }],
+      isError: true,
+    }));
+    expect(result.isError).toBe(true);
+    const entries = readAuditEntries();
+    expect(entries.length).toBe(1);
+    expect(entries[0]).toMatchObject({ tool: "list_email_labels", result: "error" });
+  });
+
   it("trips on rate-limit and returns an isError MCP payload (no handler run)", async () => {
     // Force the `send` bucket to 1/day so the second call is rejected.
     process.env.GMAIL_MCP_RATE_LIMIT_send = "1/day,1/month";
