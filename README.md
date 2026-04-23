@@ -201,6 +201,10 @@ Every write tool is annotated with `destructiveHint` / `readOnlyHint` / `idempot
 
 See [ROADMAP.md](./ROADMAP.md).
 
+## Ecosystem
+
+The wider Gmail-MCP landscape — 29 standalone repositories and 323 forks of the original GongRzhe server — is reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md). That page covers which ideas we borrowed, which we chose not to, and where klodr sits on the maturity axes.
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the test / build / lint checklist and release process.
