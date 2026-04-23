@@ -415,6 +415,44 @@ async function main() {
     process.exit(0);
   }
 
+  // Hard timeout on every outbound Gmail API call. Applied globally
+  // via `google.options` before constructing the gmail client so
+  // every subsequent `gmail.users.*` call inherits the timeout
+  // through gaxios. Without this, a slow Gmail response hangs the
+  // entire MCP stdio session and the client cannot recover without
+  // killing the process.
+  //
+  // 60 s default (vs mercury's 30 s at `src/client.ts:72`) because
+  // gmail carries two slow-path surfaces that mercury does not:
+  //   (1) attachment upload on `send_email` — a 25 MB PDF base64-
+  //       encoded on a mid-tier mobile uplink routinely pushes
+  //       the single POST past 30 s even on a healthy Google edge;
+  //   (2) round-trip inflation from non-US regions (a Bangkok →
+  //       googleapis.com hop adds 200–500 ms per request, compounded
+  //       across the ~3 internal redirects gaxios follows on a
+  //       `messages.send` with attachments).
+  //
+  // The `GMAIL_MCP_TIMEOUT_MS` env var lets an operator extend the
+  // cap further for mailboxes where a single `messages.list` with
+  // a heavy `q:` legitimately runs long. Must be a positive integer
+  // — a negative / decimal / non-numeric value would silently reopen
+  // the hang-forever path, so we validate explicitly and fall back
+  // to the default with a stderr warning on misconfiguration.
+  const DEFAULT_TIMEOUT_MS = 60_000;
+  const rawTimeout = process.env.GMAIL_MCP_TIMEOUT_MS;
+  let gmailTimeoutMs = DEFAULT_TIMEOUT_MS;
+  if (rawTimeout !== undefined) {
+    const parsed = Number(rawTimeout);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      gmailTimeoutMs = parsed;
+    } else {
+      console.error(
+        `Invalid GMAIL_MCP_TIMEOUT_MS="${rawTimeout}" (must be a positive integer); falling back to ${DEFAULT_TIMEOUT_MS}ms.`,
+      );
+    }
+  }
+  google.options({ timeout: gmailTimeoutMs });
+
   // Initialize Gmail API
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 

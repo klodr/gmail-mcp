@@ -38,6 +38,32 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Shared reviewer configuration that both legs honour identically.
+# Anything that varies per model (CONFIG__MODEL, provider API key,
+# PR_REVIEWER__COMMENT_TAG) stays in the job-level `env` below.
+env:
+  # Default pr_actions excludes `synchronize` → subsequent pushes
+  # would be silently skipped. Include it so each new commit
+  # triggers a fresh review (aligned with the workflow's `on:`).
+  GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
+  GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
+  GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
+  GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
+  # persistent_comment=true: each re-review overwrites the same
+  # comment in-place instead of appending a new one to the timeline
+  # — matches CodeRabbit's "single rolling review" UX. With the
+  # klodr/pr-agent `comment_tag` patch set per-job below, the two
+  # legs each maintain their OWN rolling comment, keyed on distinct
+  # header suffixes.
+  PR_REVIEWER__PERSISTENT_COMMENT: "true"
+  # Qodo's ticket-compliance pass treats any GitHub `#N` mention in
+  # the PR body as a ticket whose body carries binding requirements.
+  # When a sibling PR cross-references a prior PR (e.g. "Unblocked
+  # by #48"), Qodo lifts the prior PR's body as "requirements" and
+  # flags the current PR as non-compliant — pure noise on a chained
+  # refactor. Disable so reviewers see actual findings instead.
+  PR_REVIEWER__REQUIRE_TICKET_ANALYSIS_REVIEW: "false"
+
 jobs:
   qodo-deepseek:
     name: Qodo review (DeepSeek R1)
@@ -52,7 +78,12 @@ jobs:
     if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: PR Agent — DeepSeek R1 (reasoner)
-        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
+        # klodr fork of qodo-ai/pr-agent v0.34 with one extra commit:
+        # `comment_tag` setting → each job gets its own persistent
+        # comment instead of both overwriting the same marker.
+        # Builds from source (action.yaml pins Dockerfile.github_action)
+        # so the patch is actually executed.
+        uses: klodr/pr-agent@57cd617bbfbbf2e8fd86b894b7e340e96735f1ea
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # deepseek-reasoner = R1, explicit chain-of-thought. Slower and
@@ -61,21 +92,11 @@ jobs:
           CONFIG__MODEL: deepseek/deepseek-reasoner
           CONFIG__FALLBACK_MODELS: '["deepseek/deepseek-reasoner"]'
           DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
-          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
-          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
-          # Default pr_actions excludes `synchronize` → subsequent pushes
-          # would be silently skipped. Include it so each new commit
-          # triggers a fresh review (aligned with the workflow's `on:`).
-          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
-          # With persistent_comment=true, both jobs detect each other's
-          # comment via the same HTML marker and the second run overwrites
-          # the first — we'd only ever see one of the two reviews. Disable
-          # persistence so each model's review lands in its own comment.
-          PR_REVIEWER__PERSISTENT_COMMENT: "false"
-          # Prefix every review with [DeepSeek] so the two jobs can be
-          # told apart in the PR timeline (both post as qodo-ai[bot]).
-          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[DeepSeek R1]'."
+          # Suffixes the comment header so persistent matching keys on
+          # "## PR Reviewer Guide [DeepSeek R1] 🔍", disjoint from the
+          # Gemini job. Requires the klodr fork (upstream pr-agent 0.34
+          # ignores this setting and the two jobs would clash).
+          PR_REVIEWER__COMMENT_TAG: "DeepSeek R1"
 
   qodo-gemini:
     name: Qodo review (Gemini 3.1 Pro)
@@ -84,15 +105,19 @@ jobs:
     if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - name: PR Agent — Gemini 3.1 Pro Preview (thinking)
-        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
+        uses: klodr/pr-agent@57cd617bbfbbf2e8fd86b894b7e340e96735f1ea
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONFIG__MODEL: gemini/gemini-3.1-pro-preview
-          CONFIG__FALLBACK_MODELS: '["gemini/gemini-3-pro-preview"]'
+          # Fallback pointed at `gemini-3-pro-preview` (no `.1`) was a
+          # version that does not resolve on Google AI Studio — in
+          # practice a fallback to a missing model means "no effective
+          # fallback". Aligning on `gemini-3.1-pro-preview` keeps the
+          # chain tautological-but-honest (same model on retry) rather
+          # than pointing at a dead alias (CR #49).
+          CONFIG__FALLBACK_MODELS: '["gemini/gemini-3.1-pro-preview"]'
           GOOGLE_AI_STUDIO__GEMINI_API_KEY: ${{ secrets.GOOGLE_AI_STUDIO_API_KEY }}
-          GITHUB_ACTION_CONFIG__AUTO_REVIEW: "true"
-          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: "false"
-          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: "false"
-          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
-          PR_REVIEWER__PERSISTENT_COMMENT: "false"
-          PR_REVIEWER__EXTRA_INSTRUCTIONS: "Prefix the review title with '[Gemini 3.1 Pro]'."
+          # Distinct header suffix from the DeepSeek leg so the klodr
+          # pr-agent `comment_tag` fork matches a separate persistent
+          # comment (see the sibling job for the rationale).
+          PR_REVIEWER__COMMENT_TAG: "Gemini 3.1 Pro"
