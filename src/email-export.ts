@@ -4,6 +4,7 @@
 
 import emailAddresses from "email-addresses";
 import type { gmail_v1 } from "googleapis";
+import { makeHeaderGetter } from "./gmail-headers.js";
 
 // Types
 export interface ParsedAddress {
@@ -80,9 +81,7 @@ export function gmailMessageToJson(
   emailContent: { text: string; html: string },
   attachments: EmailAttachment[],
 ): EmailJson {
-  const headers: gmail_v1.Schema$MessagePartHeader[] = message.payload?.headers || [];
-  const getHeader = (name: string) =>
-    headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+  const getHeader = makeHeaderGetter(message.payload?.headers);
 
   const dateStr = getHeader("date");
   let isoDate: string;
@@ -124,9 +123,7 @@ export function emailToTxt(
   emailContent: { text: string; html: string },
   attachments: EmailAttachment[],
 ): string {
-  const headers: gmail_v1.Schema$MessagePartHeader[] = message.payload?.headers || [];
-  const getHeader = (name: string) =>
-    headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+  const getHeader = makeHeaderGetter(message.payload?.headers);
 
   const from = getHeader("from");
   const to = getHeader("to");
