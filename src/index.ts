@@ -22,6 +22,7 @@ import {
   resolveDownloadSavePath,
   getDownloadDir,
   safeWriteFile,
+  sanitizeAttachmentFilename,
   pickBody,
   pickBodyAnnotated,
   HTML_FALLBACK_NOTE,
@@ -1563,8 +1564,15 @@ async function main() {
                     : null) || `attachment-${validatedArgs.attachmentId}`;
               }
 
-              // Sanitize filename to prevent path traversal
-              filename = path.basename(filename);
+              // Sanitize filename to prevent path traversal. `basename`
+              // only strips `/`-delimited prefixes; `sanitizeAttachmentFilename`
+              // also handles Windows backslashes, NUL bytes, and control
+              // chars that a hostile sender can embed in the MIME
+              // `filename` attribute. Order matters: sanitize first so
+              // backslash-separated segments survive for basename to
+              // strip; belt-and-braces basename after in case the
+              // sanitizer ever lets a `/` through.
+              filename = path.basename(sanitizeAttachmentFilename(filename));
 
               // savePath is already realpath-resolved inside the
               // download jail by resolveDownloadSavePath above.

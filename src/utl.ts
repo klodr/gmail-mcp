@@ -257,6 +257,37 @@ export function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n\0]/g, "");
 }
 
+/**
+ * Normalise an email-supplied attachment filename into something safe
+ * to write to disk.
+ *
+ * `part.filename` in a Gmail MIME tree is attacker-controlled (the
+ * sending MTA decides the string, no validation upstream). `path.basename`
+ * on its own only strips `/`-delimited prefixes; it leaves `\` (Windows
+ * separator), NUL bytes, and reserved Windows characters (`: * ? " < > |`)
+ * as-is, all of which are hostile once the filename is passed to
+ * `path.resolve` or the filesystem.
+ *
+ * The policy: replace every character in the intersection of (POSIX
+ * path separators) + (NUL / C0 / DEL / C1 control chars) + (Windows
+ * reserved chars) with `_`. Collapse repeated separators and strip
+ * leading dots so a crafted `..\..\etc\passwd` becomes `__.__.etc_passwd`,
+ * never an ancestor traversal. Fallback to `"attachment"` if the
+ * normalised result is empty or consists only of dots.
+ *
+ * Idempotent. Returns ASCII-safe output.
+ */
+const ATTACHMENT_HOSTILE_CHARS = new RegExp(
+  "[" + "\\u0000-\\u001F" + "\\u007F-\\u009F" + '/\\\\:*?"<>|' + "]",
+  "g",
+);
+
+export function sanitizeAttachmentFilename(filename: string): string {
+  const cleaned = filename.replace(ATTACHMENT_HOSTILE_CHARS, "_").replace(/^\.+/, "");
+  if (cleaned === "" || /^_+$/.test(cleaned)) return "attachment";
+  return cleaned;
+}
+
 // "View this email in your browser" / "Please enable HTML" / similar
 // one-liners that many senders stuff into the text/plain part when the
 // real message is in text/html. Matching is conservative — we only flag
