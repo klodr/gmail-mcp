@@ -111,6 +111,17 @@ if (firstMsgId) {
     messageId: firstMsgId,
     format: "headers_only",
   });
+} else {
+  // No messageId means search_emails returned zero rows or a payload we
+  // could not parse — either way we did NOT exercise the read_email path.
+  // Record the miss so errs > 0 and the process exits non-zero instead
+  // of producing a false-green release gate.
+  console.log("❌ read_email SKIPPED — no messageId from search_emails");
+  results.push({
+    tool: "read_email",
+    status: "error",
+    detail: "No messageId returned from search_emails; read_email path not exercised",
+  });
 }
 
 console.log("\n=== THREADS ===");
@@ -123,6 +134,14 @@ console.log(`   → using threadId = ${firstThreadId ?? "(none)"}`);
 
 if (firstThreadId) {
   await run("get_thread", "get_thread", { threadId: firstThreadId });
+} else {
+  // Same rationale as the read_email branch above.
+  console.log("❌ get_thread SKIPPED — no threadId from list_inbox_threads");
+  results.push({
+    tool: "get_thread",
+    status: "error",
+    detail: "No threadId returned from list_inbox_threads; get_thread path not exercised",
+  });
 }
 
 console.log("\n=== INBOX+THREADS COMBINED ===");
