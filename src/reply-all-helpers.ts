@@ -3,25 +3,95 @@
  * Extracted for testability.
  */
 
+import emailAddresses from "email-addresses";
+
 /**
- * Parses email addresses from a header value.
- * Handles formats like:
- * - "email@example.com"
- * - "Name <email@example.com>"
- * - '"Doe, John" <john@example.com>' (quoted display-name containing a comma)
- * - Multiple addresses separated by commas
+ * Parses email addresses from a header value (From / To / CC / BCC)
+ * and returns the bare addresses, dropping display names and groups.
  *
- * Splits on commas only outside of double-quoted display names so a
- * header like `"Doe, Jane" <jane@e.com>, bob@e.com` returns two
- * addresses rather than three garbage tokens.
+ * Delegates to the RFC 5322 compliant `email-addresses` package —
+ * which is already a project dependency and is used by
+ * `src/email-export.ts` for the same purpose. Consolidating here
+ * replaces an earlier hand-rolled tokenizer that maintained its own
+ * comma-in-quoted-display-name, empty-bracket, and last-bracketed-
+ * wins special cases; the library handles all three natively per
+ * the spec.
+ *
+ * Handles:
+ * - `"user@example.com"` → `["user@example.com"]`
+ * - `"Name <email@example.com>"` → `["email@example.com"]`
+ * - `'"Doe, John" <john@example.com>, jane@example.com'` (commas
+ *   inside quoted display names) → two addresses
+ * - `"group: alice@x.com, bob@x.com;"` (RFC 5322 group syntax) →
+ *   flattened into the member list
+ * - Malformed input where the parser cannot commit to a parse →
+ *   empty array (matches the old function's behaviour on pure
+ *   garbage input).
  *
  * @param headerValue - The raw header value (e.g., From, To, CC)
- * @returns Array of extracted email addresses
+ * @returns Array of bare email addresses
  */
 export function parseEmailAddresses(headerValue: string): string[] {
   if (!headerValue) return [];
 
-  // Tokenize on commas that are not inside double quotes.
+  // Two-stage pipeline:
+  //
+  //   1. Strict `parseAddressList` first. This is the only path that
+  //      understands RFC 5322 `group:`/`;` syntax — a hand-rolled
+  //      comma split would fragment `group: alice@x, bob@x;` into
+  //      invalid pieces (`group: alice@x` + `bob@x;`), neither of
+  //      which parses back as a mailbox. The strict pass flattens the
+  //      group into its member list.
+  //
+  //   2. Fallback only when strict is null (all-or-nothing failure).
+  //      Tokenize on commas outside quoted spans, pick a candidate
+  //      per token, and retry each one on its own with
+  //      `parseOneAddress`. This is where a single malformed token
+  //      inside an otherwise-valid list stops killing the whole
+  //      parse — real-world Gmail headers sometimes carry junk.
+  //      RFC 5322 group syntax is NOT supported on this path; a
+  //      header malformed enough to trigger the fallback is already
+  //      past the point where groups can be recovered.
+  //
+  // Both stages route final validation through
+  // `email-addresses.parseOneAddress` so the "is this actually an
+  // email" decision lives in the same library the rest of the
+  // project (src/email-export.ts) already uses.
+
+  const strict = emailAddresses.parseAddressList(headerValue);
+  if (strict) {
+    const out: string[] = [];
+    for (const entry of strict) {
+      if (entry.type === "mailbox") {
+        out.push(entry.address);
+      } else if (entry.type === "group") {
+        for (const member of entry.addresses) {
+          out.push(member.address);
+        }
+      }
+    }
+    return out;
+  }
+
+  const tokens = splitOnUnquotedCommas(headerValue);
+  const out: string[] = [];
+  for (const token of tokens) {
+    const candidate = pickCandidateAddress(token);
+    if (!candidate) continue;
+    const parsed = emailAddresses.parseOneAddress(candidate);
+    if (parsed && parsed.type === "mailbox") {
+      out.push(parsed.address);
+    }
+  }
+  return out;
+}
+
+/**
+ * Split an address-list header on commas outside double-quoted spans.
+ * A header like `"Doe, Jane" <jane@e.com>, bob@e.com` yields two
+ * tokens, not three.
+ */
+function splitOnUnquotedCommas(headerValue: string): string[] {
   const parts: string[] = [];
   let buf = "";
   let inQuotes = false;
@@ -38,30 +108,32 @@ export function parseEmailAddresses(headerValue: string): string[] {
     }
   }
   if (buf.length > 0) parts.push(buf);
+  return parts;
+}
 
-  const emails: string[] = [];
-  for (const part of parts) {
-    const trimmed = part.trim();
-    // Extract email from "Name <email>" format. Three traps guarded
-    // against, all surfaced by the fast-check fuzzer:
-    //   1. A display name that itself contains a '<…>' span (must
-    //      pick the LAST bracketed address, not the first — so a
-    //      `"Display <alias@meta>" <real@host>` returns `real@host`).
-    //   2. Empty `< >` — skipped by the `@` requirement inside the
-    //      brackets.
-    //   3. Nested '<' or '>' — excluded from the capture class
-    //      (`[^<>]`) so the regex anchors to a single bracketed span.
-    const bracketMatches = [...trimmed.matchAll(/<([^<>]*@[^<>]*)>/g)];
-    const lastBracketEmail = bracketMatches.at(-1)?.[1]?.trim();
-    if (lastBracketEmail) {
-      emails.push(lastBracketEmail);
-    } else if (trimmed.includes("@")) {
-      // Strip any surrounding quotes / whitespace from a bare address
-      emails.push(trimmed.replace(/^["']|["']$/g, "").trim());
-    }
+/**
+ * Pull an address candidate out of a single tokenized header segment
+ * without validating it. Strategy:
+ *   - Prefer the LAST `<…@…>` bracketed span (a display name can
+ *     itself contain a `<alias@meta>` span; the real address is in the
+ *     outer brackets).
+ *   - Otherwise, if the raw token contains an `@`, hand back the
+ *     trimmed token minus surrounding straight quotes.
+ *   - Otherwise no candidate.
+ *
+ * Final validation is deferred to `email-addresses.parseOneAddress` in
+ * the caller — this function only shortlists.
+ */
+function pickCandidateAddress(token: string): string | null {
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  const bracketMatches = [...trimmed.matchAll(/<([^<>]*@[^<>]*)>/g)];
+  const lastBracket = bracketMatches.at(-1)?.[1]?.trim();
+  if (lastBracket) return lastBracket;
+  if (trimmed.includes("@")) {
+    return trimmed.replace(/^["']|["']$/g, "").trim();
   }
-
-  return emails;
+  return null;
 }
 
 /**
