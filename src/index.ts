@@ -1059,6 +1059,7 @@ async function main() {
                     text: `${prefix}: ${message}`,
                   },
                 ],
+                isError: true,
               };
             }
           }
@@ -1615,6 +1616,7 @@ async function main() {
                     text: `${prefix}: ${message}`,
                   },
                 ],
+                isError: true,
               };
             }
           }
