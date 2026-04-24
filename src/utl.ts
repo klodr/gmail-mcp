@@ -268,14 +268,31 @@ export function sanitizeHeaderValue(value: string): string {
  * as-is, all of which are hostile once the filename is passed to
  * `path.resolve` or the filesystem.
  *
- * The policy: replace every character in the intersection of (POSIX
- * path separators) + (NUL / C0 / DEL / C1 control chars) + (Windows
- * reserved chars) with `_`. Collapse repeated separators and strip
- * leading dots so a crafted `..\..\etc\passwd` becomes `__.__.etc_passwd`,
- * never an ancestor traversal. Fallback to `"attachment"` if the
- * normalised result is empty or consists only of dots.
+ * Policy (matches the `ATTACHMENT_HOSTILE_CHARS` regex below):
+ * - Replace each hostile character (POSIX separator `/`, Windows
+ *   separator `\`, NUL / C0 / DEL / C1 control chars, Windows reserved
+ *   `: * ? " < > |`) with `_`. The substitution is 1:1 — repeated
+ *   hostile chars are NOT collapsed, so `//` becomes `__` (two
+ *   underscores), not a single `_`.
+ * - Strip only leading dots (`^\.+`). Dots in the middle of the name
+ *   are preserved, so `foo.bar.pdf` stays as-is.
+ * - Fallback to `"attachment"` when the normalised result is either
+ *   empty OR consists entirely of `_` characters — the latter covers
+ *   inputs that were nothing but hostile chars (e.g. `////` → `____`).
  *
- * Idempotent. Returns ASCII-safe output.
+ * Worked example: `..\..\etc\passwd` → replace-hostile →
+ * `.._.._etc_passwd` → strip-leading-dots → `_.._etc_passwd`. Repeated
+ * separators are NOT collapsed; the only removal is the leading `..`.
+ *
+ * This helper shapes the leaf filename only — it is NOT the
+ * anti-path-traversal gate. The gate is downstream in `src/index.ts`:
+ * `path.resolve(savePath, filename)` followed by a
+ * `startsWith(savePath + path.sep)` containment check, plus the
+ * `safeWriteFile` open-with-O_NOFOLLOW/O_EXCL pattern.
+ *
+ * Idempotent. Unicode characters outside the hostile set (accents,
+ * emojis, CJK) pass through untouched — intentional so a user
+ * downloading `résumé.pdf` sees `résumé.pdf` on disk, not `r_sum_.pdf`.
  */
 const ATTACHMENT_HOSTILE_CHARS = new RegExp(
   "[" + "\\u0000-\\u001F" + "\\u007F-\\u009F" + '/\\\\:*?"<>|' + "]",
