@@ -134,11 +134,24 @@ export async function deleteFilter(gmail: gmail_v1.Gmail, filterId: string) {
 }
 
 /**
- * Helper function to create common filter patterns
+ * Canonical filter patterns for the `create_filter_from_template` tool.
+ *
+ * Each template returns a ready-to-use `{ criteria, action }` shape the
+ * caller passes straight to `gmail.users.settings.filters.create`.
+ * Templates capture the one intention per entry (route by sender, by
+ * subject, by size, …) so the tool surface stays opinionated and the
+ * LLM does not have to compose `criteria` + `action` from scratch.
  */
 export const filterTemplates = {
   /**
-   * Filter emails from a specific sender
+   * Filter inbound messages whose `From` matches a specific sender.
+   *
+   * @param senderEmail - Email address to match (exact or substring;
+   *                      Gmail's `from:` operator)
+   * @param labelIds - Labels to add to matching messages
+   * @param archive - When `true`, also remove `INBOX` so matches skip
+   *                  the inbox and land only under the added labels
+   * @returns Filter `{ criteria, action }` ready for the Gmail API
    */
   fromSender: (
     senderEmail: string,
@@ -153,7 +166,14 @@ export const filterTemplates = {
   }),
 
   /**
-   * Filter emails with specific subject
+   * Filter inbound messages whose `Subject` matches a specific string.
+   *
+   * @param subjectText - Subject string to match (Gmail's `subject:`
+   *                      operator — full-word match, case-insensitive)
+   * @param labelIds - Labels to add to matching messages
+   * @param markAsRead - When `true`, also remove `UNREAD` so matches
+   *                     arrive pre-read
+   * @returns Filter `{ criteria, action }` ready for the Gmail API
    */
   withSubject: (
     subjectText: string,
@@ -168,7 +188,10 @@ export const filterTemplates = {
   }),
 
   /**
-   * Filter emails with attachments
+   * Filter inbound messages that carry at least one attachment.
+   *
+   * @param labelIds - Labels to add to matching messages
+   * @returns Filter `{ criteria, action }` ready for the Gmail API
    */
   withAttachments: (
     labelIds: string[] = [],
@@ -178,7 +201,13 @@ export const filterTemplates = {
   }),
 
   /**
-   * Filter large emails
+   * Filter inbound messages above a size threshold. Uses the Gmail
+   * `size` criterion with `"larger"` comparison — the underlying API
+   * counts bytes including encoded attachments.
+   *
+   * @param sizeInBytes - Lower bound in bytes (strict "larger than")
+   * @param labelIds - Labels to add to matching messages
+   * @returns Filter `{ criteria, action }` ready for the Gmail API
    */
   largeEmails: (
     sizeInBytes: number,
@@ -189,7 +218,17 @@ export const filterTemplates = {
   }),
 
   /**
-   * Filter emails containing specific text
+   * Filter inbound messages whose body or headers contain a specific
+   * text fragment. The string is emitted quoted so the Gmail search
+   * parser treats it as a phrase match rather than whitespace-split
+   * tokens.
+   *
+   * @param searchText - Literal text to look for (wrapped in quotes
+   *                     before being passed as a Gmail `query`)
+   * @param labelIds - Labels to add to matching messages
+   * @param markImportant - When `true`, also adds the `IMPORTANT`
+   *                        system label so Gmail surfaces the match
+   * @returns Filter `{ criteria, action }` ready for the Gmail API
    */
   containingText: (
     searchText: string,
@@ -203,7 +242,16 @@ export const filterTemplates = {
   }),
 
   /**
-   * Filter mailing list emails (common patterns)
+   * Filter mailing-list inbound messages. Matches both the standard
+   * RFC 2369 `List-Id` header (via `list:` operator) and legacy
+   * `Subject: [listname] …` tags, since many lists only set one.
+   *
+   * @param listIdentifier - List-Id or bracketed-subject tag to match
+   * @param labelIds - Labels to add to matching messages
+   * @param archive - When `true` (default), also remove `INBOX` so
+   *                  list messages skip the inbox and stay under the
+   *                  added labels only
+   * @returns Filter `{ criteria, action }` ready for the Gmail API
    */
   mailingList: (
     listIdentifier: string,
