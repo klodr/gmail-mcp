@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Recipient pairing gate** — opt-in allowlist that caps the blast radius of a prompt-injection-driven `send_email` / `reply_all` / `draft_email` call. When `GMAIL_MCP_RECIPIENT_PAIRING=true`, every `To` / `Cc` / `Bcc` address must appear in `~/.gmail-mcp/paired.json` (mode `0o600`, override via `GMAIL_MCP_PAIRED_PATH`). Manage the list via the new `pair_recipient` tool (`action: "add" | "remove" | "list"`). Feature is OFF by default; legacy users see no change. Tracked in `ROADMAP.md` → v1.0.0 block.
+
 ### Changed
 
 - **`download_email` parallelises the Gmail metadata + raw-EML fetches** when `format: "eml"` is requested. The prior implementation awaited `format: "full"` first, then awaited `format: "raw"` serially — two sequential round-trips to Gmail for every EML download. `Promise.all` now issues both in parallel, halving the user-visible latency on EML saves. `json` / `txt` / `html` paths are unchanged — they never needed the second fetch.

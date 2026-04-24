@@ -422,6 +422,20 @@ export const GetInboxWithThreadsSchema = z
     path: ["maxResults"],
   });
 
+// Recipient pairing gate schema — opt-in allowlist ops (add/remove/list).
+// Gate itself is enforced in handleEmailAction + reply_all when
+// GMAIL_MCP_RECIPIENT_PAIRING=true. See src/recipient-pairing.ts.
+export const PairRecipientSchema = z.object({
+  action: z
+    .enum(["add", "remove", "list"])
+    .describe("Operation on the paired-recipients allowlist"),
+  email: z
+    .string()
+    .max(512)
+    .optional()
+    .describe("Email address to add or remove. Required when action is add or remove."),
+});
+
 // Reply All schema - fetches original email and builds recipient list automatically
 export const ReplyAllSchema = z.object({
   messageId: GmailIdSchema.describe("ID of the email message to reply to"),
@@ -533,6 +547,16 @@ export const toolDefinitions: ToolDefinition[] = [
     schema: SendEmailSchema,
     scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
     annotations: { title: "Send Email", destructiveHint: false },
+  },
+  {
+    name: "pair_recipient",
+    description:
+      "Manage the paired-recipient allowlist used by the GMAIL_MCP_RECIPIENT_PAIRING gate. Actions: add, remove, or list. When the gate is enabled, send_email/reply_all/draft_email reject any To/Cc/Bcc address not on this list.",
+    schema: PairRecipientSchema,
+    // Exposed wherever the send surface is; an operator with a
+    // readonly-only token has nothing to pair.
+    scopes: ["gmail.modify", "gmail.compose", "gmail.send", "mail.google.com"],
+    annotations: { title: "Pair Recipient", destructiveHint: false, idempotentHint: true },
   },
   {
     name: "draft_email",
