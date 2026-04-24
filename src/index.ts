@@ -84,6 +84,7 @@ import {
   ModifyThreadSchema,
 } from "./tools.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./email-export.js";
+import { makeHeaderGetter } from "./gmail-headers.js";
 import { logAudit } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
 import { wrapToolHandler } from "./middleware.js";
@@ -163,9 +164,7 @@ function extractHeaders(payload: GmailMessagePart | undefined): {
   date: string;
   rfcMessageId: string;
 } {
-  const headers = payload?.headers || [];
-  const getHeader = (name: string) =>
-    headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+  const getHeader = makeHeaderGetter(payload?.headers);
   return {
     subject: getHeader("subject"),
     from: getHeader("from"),
