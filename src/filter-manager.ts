@@ -169,7 +169,10 @@ export const filterTemplates = {
    * Filter inbound messages whose `Subject` matches a specific string.
    *
    * @param subjectText - Subject string to match (Gmail's `subject:`
-   *                      operator — full-word match, case-insensitive)
+   *                      operator — substring/phrase match,
+   *                      case-insensitive: `subject:report` matches
+   *                      any subject containing the word, including
+   *                      `"Quarterly Report 2026"`)
    * @param labelIds - Labels to add to matching messages
    * @param markAsRead - When `true`, also remove `UNREAD` so matches
    *                     arrive pre-read
