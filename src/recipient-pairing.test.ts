@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ENV_PAIRED_PATH,
@@ -56,6 +56,11 @@ describe("recipient-pairing", () => {
 
     it("returns the override when absolute", () => {
       expect(getPairedPath()).toBe(join(tmpDir, "paired.json"));
+    });
+
+    it("falls back to ~/.gmail-mcp/paired.json when no override is set", () => {
+      delete process.env[ENV_PAIRED_PATH];
+      expect(getPairedPath()).toBe(join(homedir(), ".gmail-mcp", "paired.json"));
     });
   });
 
@@ -189,6 +194,23 @@ describe("recipient-pairing", () => {
       expect(parsed.version).toBe(1);
       expect(parsed.addresses).toEqual(["alice@example.com"]);
       expect(typeof parsed.updatedAt).toBe("string");
+    });
+
+    it("wraps readFileSync failure into an explanatory error (cause preserved)", () => {
+      // existsSync() returns true on a directory, so the happy-path
+      // guard passes and readFileSync then fails with EISDIR. The
+      // wrapper must surface a user-facing message and preserve the
+      // original error via the `cause` field.
+      mkdirSync(getPairedPath());
+      let caught: unknown;
+      try {
+        readPairedList();
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toMatch(/Unable to read paired-recipients file/);
+      expect((caught as Error).cause).toBeDefined();
     });
   });
 });
