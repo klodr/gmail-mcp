@@ -34,26 +34,44 @@ import emailAddresses from "email-addresses";
 export function parseEmailAddresses(headerValue: string): string[] {
   if (!headerValue) return [];
 
-  // Three-stage pipeline:
-  //   1. Tokenize the header on commas outside of double-quoted spans.
-  //      This is permissive — a header like `"Doe, Jane" <jane@e.com>,
-  //      junk, bob@e.com` yields three tokens without the junk killing
-  //      the whole parse (which `emailAddresses.parseAddressList` does,
-  //      all-or-nothing).
-  //   2. Inside each token, pick a candidate string — the last
-  //      bracketed `<…@…>` span wins (display names may themselves
-  //      contain `<>`), falling back to the trimmed token if it carries
-  //      an `@`.
-  //   3. Hand the candidate to `email-addresses.parseOneAddress`
-  //      (already a dependency via src/email-export.ts). That is the
-  //      actual RFC 5322 gate — it rejects domains like `user@.`,
-  //      empty local parts, trailing dots, etc. Anything that fails is
-  //      dropped.
+  // Two-stage pipeline:
   //
-  // Net effect: we keep the permissive token splitter of the old
-  // hand-rolled parser AND we consolidate the "is this actually an
-  // email" decision onto the same library the rest of the project
-  // already uses.
+  //   1. Strict `parseAddressList` first. This is the only path that
+  //      understands RFC 5322 `group:`/`;` syntax — a hand-rolled
+  //      comma split would fragment `group: alice@x, bob@x;` into
+  //      invalid pieces (`group: alice@x` + `bob@x;`), neither of
+  //      which parses back as a mailbox. The strict pass flattens the
+  //      group into its member list.
+  //
+  //   2. Fallback only when strict is null (all-or-nothing failure).
+  //      Tokenize on commas outside quoted spans, pick a candidate
+  //      per token, and retry each one on its own with
+  //      `parseOneAddress`. This is where a single malformed token
+  //      inside an otherwise-valid list stops killing the whole
+  //      parse — real-world Gmail headers sometimes carry junk.
+  //      RFC 5322 group syntax is NOT supported on this path; a
+  //      header malformed enough to trigger the fallback is already
+  //      past the point where groups can be recovered.
+  //
+  // Both stages route final validation through
+  // `email-addresses.parseOneAddress` so the "is this actually an
+  // email" decision lives in the same library the rest of the
+  // project (src/email-export.ts) already uses.
+
+  const strict = emailAddresses.parseAddressList(headerValue);
+  if (strict) {
+    const out: string[] = [];
+    for (const entry of strict) {
+      if (entry.type === "mailbox") {
+        out.push(entry.address);
+      } else if (entry.type === "group") {
+        for (const member of entry.addresses) {
+          out.push(member.address);
+        }
+      }
+    }
+    return out;
+  }
 
   const tokens = splitOnUnquotedCommas(headerValue);
   const out: string[] = [];

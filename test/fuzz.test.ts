@@ -107,31 +107,33 @@ describe("Fuzz: parseEmailAddresses never throws and returns @-strings", () => {
   it("quoted commas never split the address list", () => {
     fc.assert(
       fc.property(
-        fc.string({ minLength: 1, maxLength: 32 }),
-        // Build a domain that is at minimum plausible RFC 5322 — a
-        // label + "." + tld of length ≥2. The old hand-rolled parser
-        // was permissive enough to accept `user@.` and similar, but
-        // the consolidated pipeline hands every candidate to
-        // `email-addresses.parseOneAddress` which rejects those. The
-        // invariant under test is "quoted commas never split the list
-        // into two", not "the parser accepts any garbage domain", so
-        // the generator is narrowed rather than the assertion.
+        // Constrain the display name to parser-safe chars. A loose
+        // `fc.string` generator let random control bytes, unpaired
+        // surrogates, and unusual Unicode classes land inside the
+        // quoted display-name span. Most of those produce an
+        // RFC 5322-invalid surface even with the surrounding quotes,
+        // which meant we had to relax the assertion to "at most 1
+        // address" to keep the fuzz green. That softening also hid
+        // the very bug the property is meant to catch — a bad
+        // splitter that drops BOTH fragments would still satisfy
+        // `length <= 1`. Narrowing the generator to ASCII letters,
+        // digits, space, `.` and `-` keeps the invariant exact.
+        fc.stringMatching(/^[a-zA-Z0-9 .\-]{1,32}$/),
+        // Domain: label + "." + tld of length ≥2. The old hand-rolled
+        // parser accepted `user@.` and similar; the consolidated
+        // pipeline rejects those via `email-addresses.parseOneAddress`.
         fc
           .tuple(fc.stringMatching(/^[a-zA-Z0-9]{1,20}$/), fc.stringMatching(/^[a-zA-Z]{2,5}$/))
           .map(([label, tld]) => `${label}.${tld}`),
         (namePart, safeDomain) => {
-          const safeName = namePart.replace(/["\r\n\0]/g, "");
-          const raw = `"${safeName}, extra" <user@${safeDomain}>`;
+          const raw = `"${namePart}, extra" <user@${safeDomain}>`;
           const out = parseEmailAddresses(raw);
-          // At most one address comes back (the quoted comma must
-          // never split). The parser MAY drop it if the combined
-          // surface is still RFC-invalid (unusual display-name chars
-          // that slip past the regex above), so toBeLessThanOrEqual
-          // rather than toBe exact.
-          expect(out.length).toBeLessThanOrEqual(1);
-          if (out.length === 1) {
-            expect(out[0]).toContain("@");
-          }
+          // Exactly one address — the quoted comma must never split
+          // into two, and the narrowed generator guarantees the
+          // address itself is RFC 5322 valid so the parser cannot
+          // drop it for a non-splitter reason.
+          expect(out.length).toBe(1);
+          expect(out[0]).toContain("@");
         },
       ),
       { numRuns: 200 },

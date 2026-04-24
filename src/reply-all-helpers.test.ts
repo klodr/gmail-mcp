@@ -76,6 +76,26 @@ describe("parseEmailAddresses", () => {
       parseEmailAddresses('"Doe \\"JD\\", John" <john@example.com>, jane@example.com'),
     ).toEqual(["john@example.com", "jane@example.com"]);
   });
+
+  it("flattens RFC 5322 group syntax into the member list", () => {
+    // Regression: a prior version of this function split on unquoted
+    // commas before handing anything to email-addresses, which
+    // fragmented `group: alice@x, bob@x;` into two invalid tokens
+    // (`group: alice@x` + ` bob@x;`), neither of which parses back as
+    // a mailbox — the whole group silently dropped. The strict
+    // parseAddressList pass handles groups correctly.
+    expect(
+      parseEmailAddresses("project-team: alice@example.com, bob@example.com, carol@example.com;"),
+    ).toEqual(["alice@example.com", "bob@example.com", "carol@example.com"]);
+  });
+
+  it("handles a group alongside standalone mailboxes", () => {
+    expect(
+      parseEmailAddresses(
+        "lead@example.com, team: dev1@example.com, dev2@example.com;, ops@example.com",
+      ),
+    ).toEqual(["lead@example.com", "dev1@example.com", "dev2@example.com", "ops@example.com"]);
+  });
 });
 
 describe("filterOutEmail", () => {
