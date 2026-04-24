@@ -36,11 +36,17 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "gmail-mcp-smoke", version: "0.0.0" });
 await client.connect(transport);
 
+const CALL_TIMEOUT_MS = 30_000;
+
 const results = [];
 async function run(label, name, args = {}) {
   process.stdout.write(`▶ ${label.padEnd(50)} `);
   try {
-    const res = await client.callTool({ name, arguments: args });
+    const res = await client.callTool(
+      { name, arguments: args },
+      undefined, // resultSchema — let the SDK default apply
+      { signal: AbortSignal.timeout(CALL_TIMEOUT_MS) },
+    );
     const text = res.content?.[0]?.text ?? "";
     if (res.isError) {
       const tag = text.includes("401")
@@ -86,13 +92,19 @@ const firstMsgId = firstMsg?.id ?? firstMsg?.messageId;
 console.log(`   → using messageId = ${firstMsgId ?? "(none)"}`);
 
 if (firstMsgId) {
-  await run("read_email (txt)", "read_email", {
+  // `format` values must match ReadEmailSchema: "full" | "summary" |
+  // "headers_only". "txt" / "json" are not schema values.
+  await run("read_email (full)", "read_email", {
     messageId: firstMsgId,
-    format: "txt",
+    format: "full",
   });
-  await run("read_email (json)", "read_email", {
+  await run("read_email (summary)", "read_email", {
     messageId: firstMsgId,
-    format: "json",
+    format: "summary",
+  });
+  await run("read_email (headers_only)", "read_email", {
+    messageId: firstMsgId,
+    format: "headers_only",
   });
 }
 
