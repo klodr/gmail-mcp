@@ -88,7 +88,7 @@ import { logAudit } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
 import { wrapToolHandler } from "./middleware.js";
 import { sanitizeForLlm } from "./sanitize.js";
-import { buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
+import { asGmailApiError, buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
 import { resolveDefaultSender } from "./sender-resolver.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -779,10 +779,11 @@ async function main() {
       } catch (error: unknown) {
         // Log attachment-related errors for debugging
         if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
-          const msg = error instanceof Error ? error.message : String(error);
+          const { code, message } = asGmailApiError(error);
+          const codeTag = code !== undefined ? ` (HTTP ${code})` : "";
           console.error(
-            `Failed to send email with ${validatedArgs.attachments.length} attachments:`,
-            msg,
+            `Failed to send email with ${validatedArgs.attachments.length} attachments${codeTag}:`,
+            message,
           );
         }
         throw error;
@@ -976,12 +977,18 @@ async function main() {
               // /etc/cron.d/, the user's shell rc file, etc.
               const savePath = resolveDownloadSavePath(validatedArgs.savePath);
 
-              // Always fetch full message for metadata (needed for attachments list)
-              const fullResponse = await gmail.users.messages.get({
-                userId: "me",
-                id: messageId,
-                format: "full",
-              });
+              // `full` carries the headers + payload tree the response
+              // always needs (subject/from/date + attachments list).
+              // When `format === "eml"`, the RFC822 bytes also need a
+              // separate `format: "raw"` fetch. Issue both in parallel
+              // so EML downloads don't pay a second round-trip to Gmail
+              // after the full fetch returns.
+              const [fullResponse, rawResponse] = await Promise.all([
+                gmail.users.messages.get({ userId: "me", id: messageId, format: "full" }),
+                format === "eml"
+                  ? gmail.users.messages.get({ userId: "me", id: messageId, format: "raw" })
+                  : Promise.resolve(null),
+              ]);
 
               const { subject, from, date } = extractHeaders(fullResponse.data.payload);
               const attachments = extractAttachments(fullResponse.data.payload as GmailMessagePart);
@@ -989,13 +996,7 @@ async function main() {
               let content: string;
 
               if (format === "eml") {
-                // For EML format, fetch raw RFC822 message
-                const rawResponse = await gmail.users.messages.get({
-                  userId: "me",
-                  id: messageId,
-                  format: "raw",
-                });
-                content = Buffer.from(rawResponse.data.raw || "", "base64url").toString("utf-8");
+                content = Buffer.from(rawResponse!.data.raw || "", "base64url").toString("utf-8");
               } else {
                 // Extract email content for json/txt/html
                 const emailContent = extractEmailContent(
@@ -1046,14 +1047,19 @@ async function main() {
                 ],
               };
             } catch (error: unknown) {
-              const msg = error instanceof Error ? error.message : String(error);
+              const { code, message } = asGmailApiError(error);
+              const prefix =
+                code !== undefined
+                  ? `Failed to download email (HTTP ${code})`
+                  : "Failed to download email";
               return {
                 content: [
                   {
                     type: "text",
-                    text: `Failed to download email: ${msg}`,
+                    text: `${prefix}: ${message}`,
                   },
                 ],
+                isError: true,
               };
             }
           }
@@ -1598,14 +1604,19 @@ async function main() {
                 ],
               };
             } catch (error: unknown) {
-              const msg = error instanceof Error ? error.message : String(error);
+              const { code, message } = asGmailApiError(error);
+              const prefix =
+                code !== undefined
+                  ? `Failed to download attachment (HTTP ${code})`
+                  : "Failed to download attachment";
               return {
                 content: [
                   {
                     type: "text",
-                    text: `Failed to download attachment: ${msg}`,
+                    text: `${prefix}: ${message}`,
                   },
                 ],
+                isError: true,
               };
             }
           }
