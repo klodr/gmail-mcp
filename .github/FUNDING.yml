@@ -1,0 +1,14 @@
+# GitHub sponsor button configuration
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# Maintaining this MCP server (and its sibling klodr/* MCPs) is part-time
+# unpaid open-source work. If it saves you code-review time or avoids a
+# one-week security audit, funding covers the tools that make it possible
+# (Claude Code, Socket Security, CI minutes).
+#
+# Monthly recurring > one-off tips — that's how a solo maintainer can
+# commit to keeping issues triaged and security CVEs patched within 24 h.
+
+github: klodr
+patreon: klodr
+ko_fi: klodr
