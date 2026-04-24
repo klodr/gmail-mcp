@@ -70,8 +70,13 @@ async function run(label, name, args = {}) {
       return text;
     }
   } catch (err) {
-    console.log(`💥 ${err.message}`);
-    results.push({ tool: label, status: "exception", detail: err.message });
+    // `err` can be anything a thrower decided on — Error, string, plain
+    // object, or even undefined on a bad rejection. Coerce through the
+    // same ladder the project uses in gmail-errors.ts so the log line
+    // and the recorded detail never collapse to "undefined".
+    const detail = err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
+    console.log(`💥 ${detail}`);
+    results.push({ tool: label, status: "exception", detail });
     return null;
   }
 }
