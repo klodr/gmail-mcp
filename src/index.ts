@@ -82,6 +82,7 @@ import {
   GetInboxWithThreadsSchema,
   DownloadEmailSchema,
   ModifyThreadSchema,
+  PairRecipientSchema,
 } from "./tools.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./email-export.js";
 import { makeHeaderGetter } from "./gmail-headers.js";
@@ -91,6 +92,12 @@ import { wrapToolHandler } from "./middleware.js";
 import { sanitizeForLlm } from "./sanitize.js";
 import { asGmailApiError, buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
 import { resolveDefaultSender } from "./sender-resolver.js";
+import {
+  addPairedAddress,
+  readPairedList,
+  removePairedAddress,
+  requirePairedRecipients,
+} from "./recipient-pairing.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -604,6 +611,17 @@ async function main() {
       let message: string;
 
       try {
+        // Recipient pairing gate — no-op unless
+        // GMAIL_MCP_RECIPIENT_PAIRING=true. When enabled, every
+        // To/Cc/Bcc address must appear in ~/.gmail-mcp/paired.json
+        // (manage via the `pair_recipient` tool). Caps the blast
+        // radius of a prompt-injection-driven send.
+        requirePairedRecipients([
+          ...(validatedArgs.to ?? []),
+          ...(validatedArgs.cc ?? []),
+          ...(validatedArgs.bcc ?? []),
+        ]);
+
         // Resolve `from` from the user's default send-as alias (with
         // displayName) when the caller didn't specify one. Using the
         // literal "me" works for the envelope but renders a bare
@@ -828,6 +846,61 @@ async function main() {
             const validatedArgs = SendEmailSchema.parse(args);
             const action = name === "send_email" ? "send" : "draft";
             return await handleEmailAction(action, validatedArgs);
+          }
+
+          case "pair_recipient": {
+            const validatedArgs = PairRecipientSchema.parse(args);
+            const { action, email } = validatedArgs;
+            if (action === "list") {
+              const addresses = readPairedList();
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Paired recipients (${addresses.length}):\n${addresses.length > 0 ? addresses.map((a) => `  - ${a}`).join("\n") : "  (none)"}`,
+                  },
+                ],
+                structuredContent: { addresses, count: addresses.length },
+              };
+            }
+            if (!email || email.trim() === "") {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `pair_recipient action "${action}" requires an \`email\` argument.`,
+                  },
+                ],
+                isError: true,
+              };
+            }
+            if (action === "add") {
+              const res = addPairedAddress(email);
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: res.added
+                      ? `Added "${res.address}" to the paired allowlist.`
+                      : `"${res.address}" was already paired; no change.`,
+                  },
+                ],
+                structuredContent: res,
+              };
+            }
+            // action === "remove"
+            const res = removePairedAddress(email);
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: res.removed
+                    ? `Removed "${res.address}" from the paired allowlist.`
+                    : `"${res.address}" was not in the paired allowlist; no change.`,
+                },
+              ],
+              structuredContent: res,
+            };
           }
 
           case "read_email": {
