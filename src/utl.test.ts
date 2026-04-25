@@ -88,8 +88,11 @@ describe("Source verification", () => {
     );
   });
 
-  it("handleEmailAction auto-resolves threading headers", () => {
-    const source = fs.readFileSync(path.join(srcDir, "index.ts"), "utf-8");
+  it("sendOrDraftEmail auto-resolves threading headers", () => {
+    // The thread-header auto-resolve logic was extracted from
+    // src/index.ts into src/email-send.ts as part of the v1.0.0
+    // migration (see V1_MIGRATION_PLAN.md PR #1).
+    const source = fs.readFileSync(path.join(srcDir, "email-send.ts"), "utf-8");
     expect(source).toContain("validatedArgs.threadId && !validatedArgs.inReplyTo");
     expect(source).toContain("gmail.users.threads.get");
     expect(source).toContain("validatedArgs.inReplyTo = lastMessageId");

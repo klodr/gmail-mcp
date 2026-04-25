@@ -240,12 +240,16 @@ describe("DownloadEmailSchema", () => {
 // 4. extractHeaders refactor verification
 // ─────────────────────────────────────────────
 describe("extractHeaders refactor - source verification", () => {
+  // `extractHeaders` was moved from src/index.ts into src/gmail-headers.ts
+  // as part of the v1.0.0 migration (see V1_MIGRATION_PLAN.md PR #1) so
+  // it could be unit-tested without exercising the dispatcher.
+  const headersSource = fs.readFileSync(path.join(__dirname, "gmail-headers.ts"), "utf-8");
   const indexSource = fs.readFileSync(path.join(__dirname, "index.ts"), "utf-8");
 
   it("extractHeaders function exists and returns rfcMessageId", () => {
-    expect(indexSource).toContain("function extractHeaders");
-    expect(indexSource).toContain("rfcMessageId");
-    expect(indexSource).toContain('getHeader("message-id")');
+    expect(headersSource).toContain("function extractHeaders");
+    expect(headersSource).toContain("rfcMessageId");
+    expect(headersSource).toContain('getHeader("message-id")');
   });
 
   it("read_email uses extractHeaders (not inline header extraction)", () => {
