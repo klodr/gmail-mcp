@@ -24,7 +24,7 @@
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/klodr)
 
 > [!NOTE]
-> This repository has not yet undergone a full independent third-party security review end-to-end. The hardening layer (path jails with `realpath` + `O_NOFOLLOW`, CRLF sanitization on both email-assembly paths, OAuth scope filtering at startup, Zod bounds on every Gmail ID, crypto MIME boundary, credentials at `0o600`, opt-in redacted JSONL audit log with counterparty-PII elision by default (`GMAIL_MCP_AUDIT_LOG` + `GMAIL_MCP_AUDIT_LOG_VERBOSE` opt-out), per-bucket daily+monthly write rate limits (send/delete/modify/drafts/labels/filters), LLM-output defense-in-depth fence (`<untrusted-tool-output>`) with control / zero-width / BiDi-override stripping on every tool response, attachment-filename neutralisation before disk write, protocol-error flagging (`isError: true`) on tool failures, Sigstore + SLSA + SBOM-signed releases, fast-check fuzz suite) is tested on every CI run. Against the two parent forks, `klodr/gmail-mcp` is already a meaningful step forward on prompt-injection and supply-chain posture. For mission-critical or high-sensitivity deployments, treat the server as carefully as any third-party MCP: prefer a narrowly-scoped OAuth token, enable human-in-the-loop confirmation on write tools, and track this repo's release notes for security-relevant updates. See [SECURITY.md](./SECURITY.md) for the detailed threat model.
+> This repository has not yet undergone a full independent third-party security review end-to-end. The hardening layer (path jails with `realpath` + `O_NOFOLLOW`, CRLF sanitization on both email-assembly paths, OAuth scope filtering at startup, Zod bounds on every Gmail ID, crypto MIME boundary, credentials at `0o600`, opt-in redacted JSONL audit log with counterparty-PII elision by default (`GMAIL_MCP_AUDIT_LOG` + `GMAIL_MCP_AUDIT_LOG_VERBOSE` opt-out), per-bucket daily+monthly write rate limits (send/delete/modify/drafts/labels/filters), LLM-output defense-in-depth fence (`<untrusted-tool-output>`) with control / zero-width / BiDi-override stripping on every tool response, attachment-filename neutralisation before disk write, protocol-error flagging (`isError: true`) on tool failures, Sigstore + SLSA + SBOM-signed releases, fast-check fuzz suite) is tested on every CI run. Against the two parent forks, `klodr/gmail-mcp` is already a meaningful step forward on prompt-injection and supply-chain posture. For mission-critical or high-sensitivity deployments, treat the server as carefully as any third-party MCP: prefer a narrowly-scoped OAuth token, enable human-in-the-loop confirmation on write tools, and track this repo's release notes for security-relevant updates. See [SECURITY.md](.github/SECURITY.md) for the detailed threat model.
 
 A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, Claude Code, Cursor, Continue, OpenClaw…) read and manage a Gmail account through scope-gated tools. Exposes the Gmail v1 API surface you actually need (messages, threads, labels, filters, attachments, drafts, reply-all) behind a single `npx` install.
 
@@ -209,7 +209,7 @@ Every write tool is annotated with `destructiveHint` / `readOnlyHint` / `idempot
 
 ## 🗺️ Roadmap
 
-See [ROADMAP.md](./ROADMAP.md).
+See [ROADMAP.md](docs/ROADMAP.md).
 
 ## 🌐 Ecosystem
 
@@ -217,15 +217,15 @@ The wider Gmail-MCP landscape — 29 standalone repositories and 323 forks of th
 
 ## 🤝 Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the test / build / lint checklist and release process.
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the test / build / lint checklist and release process.
 
 ## 🔒 Security
 
-See [SECURITY.md](./SECURITY.md) for the vulnerability-reporting process and the current security model, and [ASSURANCE_CASE.md](./ASSURANCE_CASE.md) for the threat model, trust boundaries, and CWE/OWASP mitigation table.
+See [SECURITY.md](.github/SECURITY.md) for the vulnerability-reporting process and the current security model, and [ASSURANCE_CASE.md](docs/ASSURANCE_CASE.md) for the threat model, trust boundaries, and CWE/OWASP mitigation table.
 
 ## 📋 Project continuity
 
-See [CONTINUITY.md](./CONTINUITY.md) for the handover plan if the maintainer becomes unavailable.
+See [CONTINUITY.md](docs/CONTINUITY.md) for the handover plan if the maintainer becomes unavailable.
 
 ## 📄 License
 

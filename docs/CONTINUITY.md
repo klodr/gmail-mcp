@@ -44,7 +44,7 @@ If the maintainer is confirmed unable to continue, anyone can:
 - [ ] Tag with a signed tag: `git tag -s vX.Y.Z -m "..." && git push origin vX.Y.Z`
 - [ ] Confirm the `Release & npm publish` workflow ran green and uploaded **all three** assets to the GitHub Release: `dist/index.js`, `dist/index.js.sigstore`, `dist/index.js.intoto.jsonl`
 - [ ] Verify npm provenance: `npm view <fork-package>@<version> dist.attestations` returns a non-empty array
-- [ ] Verify the Sigstore signature using the procedure in [SECURITY.md → Verifying releases](./SECURITY.md#verifying-releases-once-v1-is-out)
+- [ ] Verify the Sigstore signature using the procedure in [SECURITY.md → Verifying releases](../.github/SECURITY.md#verifying-releases-once-v1-is-out)
 - [ ] Update README badges and `CONTINUITY.md` references to point at the fork
 
 There is no organisational lock-in: every secret and every external
