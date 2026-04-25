@@ -24,7 +24,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "gmail",
@@ -51,6 +52,7 @@
     "url": "https://github.com/klodr/gmail-mcp/issues"
   },
   "homepage": "https://github.com/klodr/gmail-mcp#readme",
+  "funding": "https://github.com/sponsors/klodr",
   "publishConfig": {
     "access": "public"
   },
