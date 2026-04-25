@@ -17,8 +17,6 @@ import http from "http";
 import open from "open";
 import os from "os";
 import {
-  createEmailMessage,
-  createEmailWithNodemailer,
   resolveDownloadSavePath,
   getDownloadDir,
   safeWriteFile,
@@ -26,7 +24,6 @@ import {
   pickBody,
   pickBodyAnnotated,
   HTML_FALLBACK_NOTE,
-  ValidatedEmailArgs,
 } from "./utl.js";
 import {
   createLabel,
@@ -85,13 +82,14 @@ import {
   PairRecipientSchema,
 } from "./tools.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml } from "./email-export.js";
-import { makeHeaderGetter } from "./gmail-headers.js";
+import { extractHeaders } from "./gmail-headers.js";
 import { logAudit } from "./audit-log.js";
+import { sendOrDraftEmail } from "./email-send.js";
+import { processBatches } from "./batch.js";
 import { listPrompts, getPrompt } from "./prompts.js";
 import { wrapToolHandler } from "./middleware.js";
 import { sanitizeForLlm } from "./sanitize.js";
 import { asGmailApiError, buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
-import { resolveDefaultSender } from "./sender-resolver.js";
 import {
   addPairedAddress,
   readPairedList,
@@ -136,26 +134,8 @@ let authorizedScopes: string[] = DEFAULT_SCOPES;
 // `resolveDefaultSender` + its cache live in their own module so they
 // can be unit-tested without exercising the 1300-line dispatcher
 // below. See src/sender-resolver.ts for the fallback chain (GongRzhe#77).
-
-/**
- * Extract common headers from Gmail message payload
- */
-function extractHeaders(payload: GmailMessagePart | undefined): {
-  subject: string;
-  from: string;
-  to: string;
-  date: string;
-  rfcMessageId: string;
-} {
-  const getHeader = makeHeaderGetter(payload?.headers);
-  return {
-    subject: getHeader("subject"),
-    from: getHeader("from"),
-    to: getHeader("to"),
-    date: getHeader("date"),
-    rfcMessageId: getHeader("message-id"),
-  };
-}
+// `extractHeaders` lives in src/gmail-headers.ts next to its sibling
+// `makeHeaderGetter`.
 
 function loadCredentials() {
   try {
@@ -604,240 +584,11 @@ async function main() {
     // handler runs, maps RateLimitError → isError payload with the
     // mcp_safeguard error-type, and logs audit in a `finally` with one
     // of three states: "ok" | "error" | "rate_limited".
-
-    async function handleEmailAction(
-      action: "send" | "draft",
-      validatedArgs: ValidatedEmailArgs & { threadId?: string; inReplyTo?: string },
-    ) {
-      let message: string;
-
-      try {
-        // Recipient pairing gate — no-op unless
-        // GMAIL_MCP_RECIPIENT_PAIRING=true. When enabled, every
-        // To/Cc/Bcc address must appear in ~/.gmail-mcp/paired.json
-        // (manage via the `pair_recipient` tool). Caps the blast
-        // radius of a prompt-injection-driven send.
-        requirePairedRecipients([
-          ...(validatedArgs.to ?? []),
-          ...(validatedArgs.cc ?? []),
-          ...(validatedArgs.bcc ?? []),
-        ]);
-
-        // Resolve `from` from the user's default send-as alias (with
-        // displayName) when the caller didn't specify one. Using the
-        // literal "me" works for the envelope but renders a bare
-        // email address in the recipient's `From:` header — see
-        // GongRzhe/Gmail-MCP-Server#77. Scope-degraded: on
-        // `gmail.send`-only tokens the sendAs/getProfile calls fail
-        // and we fall back to "me" (original behaviour).
-        if (!validatedArgs.from || validatedArgs.from.trim() === "") {
-          validatedArgs.from = await resolveDefaultSender(gmail);
-        }
-
-        // Auto-resolve threading headers when threadId is provided but inReplyTo is missing
-        if (validatedArgs.threadId && !validatedArgs.inReplyTo) {
-          try {
-            const threadResponse = await gmail.users.threads.get({
-              userId: "me",
-              id: validatedArgs.threadId,
-              format: "metadata",
-              metadataHeaders: ["Message-ID"],
-            });
-
-            const threadMessages = threadResponse.data.messages || [];
-            if (threadMessages.length > 0) {
-              // Collect all Message-ID values for the References chain
-              const allMessageIds: string[] = [];
-              for (const msg of threadMessages) {
-                const msgHeaders = msg.payload?.headers || [];
-                const messageIdHeader = msgHeaders.find(
-                  (h) => h.name?.toLowerCase() === "message-id",
-                );
-                if (messageIdHeader?.value) {
-                  allMessageIds.push(messageIdHeader.value);
-                }
-              }
-
-              // Last message's Message-ID becomes In-Reply-To.
-              // threadMessages.length > 0 is guaranteed by the outer if;
-              // the `?.` keeps the compiler happy under noUncheckedIndexedAccess.
-              const lastMessage = threadMessages[threadMessages.length - 1];
-              const lastHeaders = lastMessage?.payload?.headers || [];
-              const lastMessageId = lastHeaders.find(
-                (h) => h.name?.toLowerCase() === "message-id",
-              )?.value;
-
-              if (lastMessageId) {
-                validatedArgs.inReplyTo = lastMessageId;
-              }
-              if (allMessageIds.length > 0) {
-                validatedArgs.references = allMessageIds.join(" ");
-              }
-            }
-          } catch (threadError: unknown) {
-            const msg = threadError instanceof Error ? threadError.message : String(threadError);
-            console.warn(
-              `Warning: Could not fetch thread ${validatedArgs.threadId} for header resolution: ${msg}`,
-            );
-            // Continue without threading headers - degraded but not broken
-          }
-        }
-
-        // Check if we have attachments
-        if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
-          // Use Nodemailer to create properly formatted RFC822 message
-          message = await createEmailWithNodemailer(validatedArgs);
-
-          if (action === "send") {
-            const encodedMessage = Buffer.from(message)
-              .toString("base64")
-              .replace(/\+/g, "-")
-              .replace(/\//g, "_")
-              .replace(/=+$/, "");
-
-            const result = await gmail.users.messages.send({
-              userId: "me",
-              requestBody: {
-                raw: encodedMessage,
-                ...(validatedArgs.threadId && { threadId: validatedArgs.threadId }),
-              },
-            });
-
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Email sent successfully with ID: ${result.data.id}`,
-                },
-              ],
-            };
-          } else {
-            // For drafts with attachments, use the raw message
-            const encodedMessage = Buffer.from(message)
-              .toString("base64")
-              .replace(/\+/g, "-")
-              .replace(/\//g, "_")
-              .replace(/=+$/, "");
-
-            const messageRequest = {
-              raw: encodedMessage,
-              ...(validatedArgs.threadId && { threadId: validatedArgs.threadId }),
-            };
-
-            const response = await gmail.users.drafts.create({
-              userId: "me",
-              requestBody: {
-                message: messageRequest,
-              },
-            });
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Email draft created successfully with ID: ${response.data.id}`,
-                },
-              ],
-            };
-          }
-        } else {
-          // For emails without attachments, use the existing simple method
-          message = createEmailMessage(validatedArgs);
-
-          const encodedMessage = Buffer.from(message)
-            .toString("base64")
-            .replace(/\+/g, "-")
-            .replace(/\//g, "_")
-            .replace(/=+$/, "");
-
-          // Define the type for messageRequest
-          interface GmailMessageRequest {
-            raw: string;
-            threadId?: string;
-          }
-
-          const messageRequest: GmailMessageRequest = {
-            raw: encodedMessage,
-          };
-
-          // Add threadId if specified
-          if (validatedArgs.threadId) {
-            messageRequest.threadId = validatedArgs.threadId;
-          }
-
-          if (action === "send") {
-            const response = await gmail.users.messages.send({
-              userId: "me",
-              requestBody: messageRequest,
-            });
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Email sent successfully with ID: ${response.data.id}`,
-                },
-              ],
-            };
-          } else {
-            const response = await gmail.users.drafts.create({
-              userId: "me",
-              requestBody: {
-                message: messageRequest,
-              },
-            });
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Email draft created successfully with ID: ${response.data.id}`,
-                },
-              ],
-            };
-          }
-        }
-      } catch (error: unknown) {
-        // Log attachment-related errors for debugging
-        if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
-          const { code, message } = asGmailApiError(error);
-          const codeTag = code !== undefined ? ` (HTTP ${code})` : "";
-          console.error(
-            `Failed to send email with ${validatedArgs.attachments.length} attachments${codeTag}:`,
-            message,
-          );
-        }
-        throw error;
-      }
-    }
-
-    // Helper function to process operations in batches
-    async function processBatches<T, U>(
-      items: T[],
-      batchSize: number,
-      processFn: (batch: T[]) => Promise<U[]>,
-    ): Promise<{ successes: U[]; failures: { item: T; error: Error }[] }> {
-      const successes: U[] = [];
-      const failures: { item: T; error: Error }[] = [];
-
-      // Process in batches
-      for (let i = 0; i < items.length; i += batchSize) {
-        const batch = items.slice(i, i + batchSize);
-        try {
-          const results = await processFn(batch);
-          successes.push(...results);
-        } catch {
-          // If batch fails, try individual items
-          for (const item of batch) {
-            try {
-              const result = await processFn([item]);
-              successes.push(...result);
-            } catch (itemError) {
-              failures.push({ item, error: itemError as Error });
-            }
-          }
-        }
-      }
-
-      return { successes, failures };
-    }
+    //
+    // The send-or-draft pipeline lives in `src/email-send.ts`
+    // (`sendOrDraftEmail`) and the batch processor in `src/batch.ts`
+    // (`processBatches`) — both extracted so they can be unit-tested
+    // without spinning up the dispatcher.
 
     try {
       return await wrapToolHandler(name, args, async () => {
@@ -846,7 +597,7 @@ async function main() {
           case "draft_email": {
             const validatedArgs = SendEmailSchema.parse(args);
             const action = name === "send_email" ? "send" : "draft";
-            return await handleEmailAction(action, validatedArgs);
+            return await sendOrDraftEmail(gmail, action, validatedArgs);
           }
 
           case "pair_recipient": {
@@ -2015,7 +1766,7 @@ async function main() {
             // Build References header (original References + original Message-ID)
             const references = buildReferencesHeader(originalReferences, originalMessageId);
 
-            // Prepare the email arguments for handleEmailAction
+            // Prepare the email arguments for sendOrDraftEmail
             const emailArgs = {
               to: replyTo,
               cc: replyCc.length > 0 ? replyCc : undefined,
@@ -2029,8 +1780,8 @@ async function main() {
               attachments: validatedArgs.attachments,
             };
 
-            // Use the existing handleEmailAction to send the reply
-            await handleEmailAction("send", emailArgs);
+            // Use the shared sendOrDraftEmail to send the reply
+            await sendOrDraftEmail(gmail, "send", emailArgs);
 
             // Enhance the response with reply-all specific info
             return {

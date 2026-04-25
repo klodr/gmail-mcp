@@ -37,3 +37,29 @@ export function makeHeaderGetter(
 ): (name: string) => string {
   return (name) => headers?.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
 }
+
+/**
+ * Extract the canonical set of headers (`subject`, `from`, `to`, `date`,
+ * `rfcMessageId`) from a Gmail message payload. Used by `read_email`,
+ * `download_email`, and the thread-listing tools to build the
+ * single-line summary block at the top of each rendered message.
+ *
+ * Returns empty strings for any missing header so callers can format
+ * unconditionally without null checks.
+ */
+export function extractHeaders(payload: gmail_v1.Schema$MessagePart | undefined): {
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  rfcMessageId: string;
+} {
+  const getHeader = makeHeaderGetter(payload?.headers);
+  return {
+    subject: getHeader("subject"),
+    from: getHeader("from"),
+    to: getHeader("to"),
+    date: getHeader("date"),
+    rfcMessageId: getHeader("message-id"),
+  };
+}
