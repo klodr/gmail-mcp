@@ -1127,21 +1127,18 @@ async function main() {
 
           case "get_or_create_label": {
             const validatedArgs = GetOrCreateLabelSchema.parse(args);
-            const result = await getOrCreateLabel(gmail, validatedArgs.name, {
+            const { label, found } = await getOrCreateLabel(gmail, validatedArgs.name, {
               messageListVisibility: validatedArgs.messageListVisibility,
               labelListVisibility: validatedArgs.labelListVisibility,
             });
 
-            const action =
-              result.type === "user" && result.name === validatedArgs.name
-                ? "found existing"
-                : "created new";
+            const action = found ? "found existing" : "created new";
 
             return {
               content: [
                 {
                   type: "text",
-                  text: `Successfully ${action} label:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
+                  text: `Successfully ${action} label:\nID: ${label.id}\nName: ${label.name}\nType: ${label.type}`,
                 },
               ],
             };

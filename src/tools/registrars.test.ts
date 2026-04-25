@@ -300,8 +300,11 @@ async function buildAndConnect(
 
 describe("PR #3 registrars — delete_email (mail.google.com scope)", () => {
   it("calls gmail.users.messages.delete with the supplied messageId", async () => {
-    const fix = await buildAndConnect(["mail.google.com"]);
-    try {
+    // First test on the file to demo the `withFix` helper introduced
+    // in the PR #4 fix-up commit (CR thread on PR #84). Subsequent
+    // tests still use the explicit try/finally form for minimum diff;
+    // PR #5+ tests adopt `withFix` directly.
+    await withFix(["mail.google.com"], async (fix) => {
       const result = (await fix.client.callTool({
         name: "delete_email",
         arguments: { messageId: "msg_target_123" },
@@ -314,9 +317,7 @@ describe("PR #3 registrars — delete_email (mail.google.com scope)", () => {
         userId: "me",
         id: "msg_target_123",
       });
-    } finally {
-      await fix.close();
-    }
+    });
   });
 
   it("is NOT advertised when the token only carries gmail.modify (delete needs mail.google.com)", async () => {

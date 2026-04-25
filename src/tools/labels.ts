@@ -112,17 +112,16 @@ export function registerLabelTools(
     getOrCreateDef.description,
     GetOrCreateLabelSchema.shape,
     async (args) => {
-      const result = await getOrCreateLabel(gmail, args.name, {
+      const { label, found } = await getOrCreateLabel(gmail, args.name, {
         messageListVisibility: args.messageListVisibility,
         labelListVisibility: args.labelListVisibility,
       });
-      const action =
-        result.type === "user" && result.name === args.name ? "found existing" : "created new";
+      const action = found ? "found existing" : "created new";
       return {
         content: [
           {
             type: "text",
-            text: `Successfully ${action} label:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
+            text: `Successfully ${action} label:\nID: ${label.id}\nName: ${label.name}\nType: ${label.type}`,
           },
         ],
       };

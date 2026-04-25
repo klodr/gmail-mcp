@@ -219,6 +219,22 @@ export async function findLabelByName(gmail: gmail_v1.Gmail, labelName: string) 
  * @param options - Optional settings for the label
  * @returns The new or existing label
  */
+/**
+ * Result of `getOrCreateLabel`: the label itself plus an explicit
+ * `found` flag distinguishing the "label was already there" path from
+ * the "we just created it" path. Callers that need to surface this
+ * difference (e.g. `tools/labels.ts` rendering "found existing" vs
+ * "created new") use the flag instead of pattern-matching on
+ * `label.type` / `label.name`, which cannot reliably tell the two
+ * paths apart since `findLabelByName` and `createLabel` both return
+ * identical `Schema$Label` shapes. CR finding on PR #84.
+ */
+export interface GetOrCreateLabelResult {
+  label: GmailLabel;
+  /** True when `findLabelByName` returned a hit; false when `createLabel` ran. */
+  found: boolean;
+}
+
 export async function getOrCreateLabel(
   gmail: gmail_v1.Gmail,
   labelName: string,
@@ -226,23 +242,24 @@ export async function getOrCreateLabel(
     messageListVisibility?: string;
     labelListVisibility?: string;
   } = {},
-) {
+): Promise<GetOrCreateLabelResult> {
   try {
     // First try to find an existing label
     const existingLabel = await findLabelByName(gmail, labelName);
 
     if (existingLabel) {
-      return existingLabel;
+      return { label: existingLabel, found: true };
     }
 
     // TOCTOU: another caller can create the label between the
     // findLabelByName above and this create. Recover by rescanning.
     try {
-      return await createLabel(gmail, labelName, options);
+      const created = await createLabel(gmail, labelName, options);
+      return { label: created, found: false };
     } catch (createErr: unknown) {
       if (createErr instanceof DuplicateLabelError) {
         const racedLabel = await findLabelByName(gmail, labelName);
-        if (racedLabel) return racedLabel;
+        if (racedLabel) return { label: racedLabel, found: true };
       }
       throw createErr;
     }
