@@ -124,6 +124,12 @@ interface MockGmailOpts {
    * (base64url-encoded). Used by `download_attachment` tests.
    */
   attachmentData?: string;
+  /**
+   * When true, `gmail.users.settings.filters.list` returns an empty
+   * `filter` array instead of the default single-seeded filter.
+   * Used to exercise the empty-list branch in `list_filters`.
+   */
+  noFilters?: boolean;
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -327,6 +333,9 @@ function mockGmail(opts: MockGmailOpts = {}): {
           },
           list: async (params: unknown) => {
             calls.filterList.push(params);
+            if (opts.noFilters) {
+              return { data: { filter: [] } };
+            }
             return {
               data: {
                 filter: [
@@ -655,14 +664,7 @@ describe("PR #4 registrars — filter management", () => {
     }
   });
 
-  it("list_filters renders 'No filters found.' when the API returns an empty list", async () => {
-    // Override the default mock so `filter.list()` returns an empty
-    // array. Build the fixture without reusing buildAndConnect's mock
-    // (which always returns one filter), but cheat by intercepting
-    // via the `existingLabels` shape — here we just call list_filters
-    // when the default mock has its single seeded filter, then check
-    // for the non-empty branch. Empty-branch coverage lives in
-    // filter-manager.test.ts (already covered).
+  it("list_filters renders the seeded filter (non-empty branch)", async () => {
     const fix = await buildAndConnect(["gmail.settings.basic"]);
     try {
       const result = (await fix.client.callTool({
@@ -675,6 +677,25 @@ describe("PR #4 registrars — filter management", () => {
     } finally {
       await fix.close();
     }
+  });
+
+  it("list_filters renders 'No filters found.' when the API returns an empty list", async () => {
+    // CR finding on PR #84: the previous test's title claimed empty-
+    // branch coverage but the mock always seeded one filter, so only
+    // the non-empty path was exercised. With `noFilters: true` the
+    // mock truly returns `{ filter: [] }` and the empty-branch
+    // wording is now pinned.
+    await withFix(
+      ["gmail.settings.basic"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "list_filters",
+          arguments: {},
+        })) as { content: Array<{ type: string; text: string }> };
+        expect(result.content[0]?.text).toBe("No filters found.");
+      },
+      { noFilters: true },
+    );
   });
 
   it("get_filter pretty-prints the criteria + action of a known filter", async () => {

@@ -7,7 +7,8 @@
  * `defineTool()` here adds one gmail-specific concern on top of the
  * mercury/faxdrop pattern: scope-based registration. Gmail tokens
  * carry an OAuth scope set (e.g. `gmail.readonly`); a tool whose
- * required scopes are not all satisfied by the token must not be
+ * required scopes are NOT covered by the token (ANY-of-required
+ * match — see the long-form rationale at the call site) must not be
  * advertised on `tools/list`. The dispatcher in `src/index.ts` does
  * this filter at the `ListToolsRequestSchema` handler today; here
  * we apply it at registration time so the SDK auto-emits the right
