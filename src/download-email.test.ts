@@ -241,10 +241,13 @@ describe("DownloadEmailSchema", () => {
 // ─────────────────────────────────────────────
 describe("extractHeaders refactor - source verification", () => {
   // `extractHeaders` was moved from src/index.ts into src/gmail-headers.ts
-  // as part of the v1.0.0 migration (see V1_MIGRATION_PLAN.md PR #1) so
-  // it could be unit-tested without exercising the dispatcher.
+  // (PR #1) and the read_email / download_email handlers were extracted
+  // from the legacy dispatcher into src/tools/messages.ts +
+  // src/tools/downloads.ts (PR #5 + PR #6); the legacy dispatcher itself
+  // was deleted by PR #7. The grep targets follow the moves.
   const headersSource = fs.readFileSync(path.join(__dirname, "gmail-headers.ts"), "utf-8");
-  const indexSource = fs.readFileSync(path.join(__dirname, "index.ts"), "utf-8");
+  const messagesSource = fs.readFileSync(path.join(__dirname, "tools", "messages.ts"), "utf-8");
+  const downloadsSource = fs.readFileSync(path.join(__dirname, "tools", "downloads.ts"), "utf-8");
 
   it("extractHeaders function exists and returns rfcMessageId", () => {
     expect(headersSource).toContain("function extractHeaders");
@@ -253,19 +256,17 @@ describe("extractHeaders refactor - source verification", () => {
   });
 
   it("read_email uses extractHeaders (not inline header extraction)", () => {
-    // The read_email case should use destructured extractHeaders call
-    expect(indexSource).toContain(
+    expect(messagesSource).toContain(
       "const { subject, from, to, date, rfcMessageId } = extractHeaders(",
     );
   });
 
   it("download_email uses extractHeaders", () => {
-    // download_email should also use extractHeaders
-    expect(indexSource).toContain("const { subject, from, date } = extractHeaders(");
+    expect(downloadsSource).toContain("const { subject, from, date } = extractHeaders(");
   });
 
   it("read_email still outputs Message-ID in response", () => {
-    expect(indexSource).toContain("Message-ID: ${rfcMessageId}");
+    expect(messagesSource).toContain("Message-ID: ${rfcMessageId}");
   });
 });
 

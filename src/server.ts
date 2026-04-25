@@ -4,22 +4,22 @@
  * any transport — the caller (`src/index.ts` for production, an
  * `InMemoryTransport`-pair smoke test for fixtures) decides.
  *
- * This is the foundation step of the v1.0.0 migration toward
- * `McpServer` + `defineTool()`. The legacy `Server` +
- * `CallToolRequestSchema` switch dispatcher in `src/index.ts` keeps
- * running unchanged for now; subsequent PRs replace tool cases one
- * group at a time, removing the corresponding switch arms as they
- * land. PR #7 deletes the legacy dispatcher entirely.
- *
- * No `register*Tools()` registrar is invoked from `createServer`
- * itself yet — that wiring lives in `src/tools/index.ts` (a barrel
- * that PR #3 introduces) once the first batch of tools is extracted.
- * Calling `createServer` in this PR returns an empty-toolset
- * `McpServer` suitable for the smoke test in `src/server.test.ts`.
+ * PR #7 of the v1.0.0 migration deleted the legacy `Server` +
+ * `CallToolRequestSchema` switch dispatcher in `src/index.ts` and
+ * promoted this factory to be the sole production entry point. Every
+ * tool now flows through `defineTool()` → `wrapToolHandler` →
+ * handler, and `tools/list` is auto-emitted by the SDK from the
+ * registrations in `src/tools/*.ts`.
  */
 
+import type { gmail_v1 } from "googleapis";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { OAuth2Client } from "google-auth-library";
+import { registerAllTools } from "./tools/index.js";
+import { listPrompts, getPrompt } from "./prompts.js";
+import {
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
 // Kept in sync with package.json by scripts/sync-version.mjs (called by
 // the `npm version` lifecycle hook). Do not edit manually — bump via
@@ -30,40 +30,64 @@ export const VERSION = "0.21.1";
 
 export interface ServerOptions {
   /**
-   * Authenticated Google OAuth2 client. Built once at boot from the
-   * stored credentials (`src/index.ts:loadCredentials`); injected here
-   * rather than re-derived so the factory is trivially mockable in
-   * tests and so a future multi-account refactor can pass a different
-   * client per workspace.
+   * The Gmail API client. Built from an authenticated OAuth2Client at
+   * the entry point (`src/index.ts`); injected here rather than
+   * re-derived so the factory is trivially mockable in tests (the test
+   * fixture passes a hand-built mock gmail object) and so a future
+   * multi-account refactor can pass a different client per workspace.
    */
-  oauth2Client: OAuth2Client;
+  gmail: gmail_v1.Gmail;
   /**
    * The OAuth scopes the stored token actually carries. Tools whose
-   * required scopes are not all satisfied by this set are skipped at
-   * registration time — the equivalent of the manual
-   * `ListToolsRequestSchema` filter in the legacy dispatcher, but
-   * applied at registration so `tools/list` is auto-emitted by the
-   * SDK without a custom handler.
+   * required scopes are NOT covered by this set (ANY-of-required
+   * match) are skipped at registration time — the equivalent of the
+   * manual `ListToolsRequestSchema` filter in the legacy dispatcher,
+   * but applied at registration so `tools/list` is auto-emitted by
+   * the SDK without a custom handler.
    */
   authorizedScopes: readonly string[];
 }
 
 /**
- * Build the MCP server. Currently registers **no tools** — the
- * register*Tools modules land in PR #3 onwards as each batch is
- * extracted from the legacy dispatcher.
+ * Build the MCP server: instantiate the gmail client from the OAuth2
+ * client, register every per-domain tool (filtered by scope), and
+ * wire the prompts surface.
  */
 export function createServer(opts: ServerOptions): McpServer {
-  // `oauth2Client` and `authorizedScopes` are not yet consumed inside
-  // this function — they will be passed into `registerAllTools(server,
-  // gmail, authorizedScopes)` once the first registrar lands. Reading
-  // them here pins the contract so downstream PRs do not need to
-  // change the public signature.
-  void opts.oauth2Client;
-  void opts.authorizedScopes;
+  const server = new McpServer(
+    {
+      name: "gmail",
+      version: VERSION,
+    },
+    {
+      // Declare the prompts capability up-front so the SDK accepts the
+      // ListPrompts / GetPrompt request handlers we register below.
+      // McpServer.registerPrompt() does not match gmail's existing
+      // (name, args) → text contract, so we wire the underlying Server
+      // directly via the back-door `server.server` reference.
+      capabilities: { prompts: {} },
+    },
+  );
 
-  return new McpServer({
-    name: "gmail",
-    version: VERSION,
+  registerAllTools(server, opts.gmail, opts.authorizedScopes);
+
+  // Prompts surface — slash commands. Same handlers as the legacy
+  // dispatcher, registered against the underlying low-level Server
+  // because McpServer.registerPrompt does not yet expose a "raw" mode
+  // matching the (name, arguments) → text contract gmail's prompts use.
+  server.server.setRequestHandler(ListPromptsRequestSchema, () =>
+    Promise.resolve({ prompts: listPrompts() }),
+  );
+  server.server.setRequestHandler(GetPromptRequestSchema, (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      return Promise.resolve(getPrompt(name, args) as unknown as Record<string, unknown>);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unexpected error generating prompt body";
+      throw new Error(`Prompt "${name}": ${message}`, { cause: err });
+    }
   });
+
+  return server;
 }

@@ -2,59 +2,46 @@ coverage:
   status:
     project:
       default:
-        # Absolute floor, not `auto`. Background: `vitest.config.ts` now
-        # includes every `src/**/*.ts` in the coverage report (previously
-        # v8 silently omitted files that no test imported, inflating the
-        # apparent coverage to ~93%). With the realistic scope, global
-        # stmt coverage sits around 39% — `src/index.ts` (25 MCP handlers
-        # + OAuth callback) is the only large 0% surface left, tracked as
-        # a v1.0.0-blocking item on docs/ROADMAP.md. Floor set 4 points below
-        # the current baseline so small drift (a few defensive branches
-        # added in a PR) doesn't red-flag the gate. Raise toward 80% once
-        # the handler-extraction refactor lands.
-        target: 35%
-        threshold: 2%
-        # if_no_uploads / if_not_found default to "failure" so a broken
-        # upload step (vitest crash, Codecov outage, missing token) is
-        # visible instead of silently turning the gate into a no-op.
+        # Re-tightened by PR #7 of the v1.0.0 migration. The legacy
+        # `CallToolRequestSchema` switch dispatcher in `src/index.ts`
+        # was deleted; every tool now lives in `src/tools/*.ts` with
+        # direct unit-test coverage via the `defineTool` →
+        # InMemoryTransport E2E pattern. Global coverage now sits
+        # around 80%+ — restoring `auto` so subsequent PRs are gated
+        # against the actual baseline rather than an arbitrary floor.
+        target: auto
+        threshold: 0.5%
         only_pulls: false
     patch:
       default:
-        # New code in a PR must be well-covered, but 95% assumed the
-        # inflated baseline. Realistic target until `src/index.ts` is
-        # split into testable handler modules.
-        target: 75%
-        threshold: 5%
+        # Restored to the pre-relaxation 95% target. New code in a PR
+        # must be well-covered; the 1.5% threshold absorbs the noise
+        # of a defensive branch or two without flagging.
+        target: 95%
+        threshold: 1.5%
         only_pulls: false
   ignore:
-    # Doc-only / config-only PRs never touch these paths, so Codecov
-    # has no reason to demand coverage for them even though their file
-    # trees live under the repository root.
+    # Doc-only / config-only PRs never touch these paths.
     - "**/*.md"
     - "**/*.yaml"
     - "**/*.yml"
     - "**/*.json"
     - ".github/**"
     - "scripts/**"
-    # `src/index.ts` is the 1959-line `CallToolRequestSchema` dispatcher
-    # inherited from the fork chain (GongRzhe → ArtyMcLabin). It sits
-    # at 0% coverage today because every handler body is inlined as a
-    # switch case — not a callable function — so vitest has nothing to
-    # import and assert against. Tracked as the handler-extraction
-    # item in docs/ROADMAP.md (near-term, blocks the 70%+ global coverage
-    # target and v1.0.0).
+    # `src/index.ts` is now a thin entry point: `loadCredentials` +
+    # `authenticate` (CLI auth flow only) + `main()` that builds the
+    # gmail client and hands off to `createServer`. The OAuth callback
+    # path runs only during `npx … auth` (interactive flow); the
+    # Gmail-credentials-not-configured error paths are tested via
+    # `gmail-errors.test.ts` and `lazy-boot.test.ts`. The remaining
+    # uncovered surface is the `getAccessToken` startup probe and
+    # the bootstrap glue, which is exercised via integration runs.
     #
-    # Ignoring here keeps structural refactors of the dispatcher (e.g.
-    # the wrapToolHandler wire-up which re-indents ~1000 lines of
-    # switch body, plus the upcoming AbortSignal.timeout /
-    # sanitizeForLlm / dry-run layers) from being gated on a metric
-    # the file cannot move until its cases become testable modules.
-    #
-    # Hard deadline: **2026-06-30**. If handler extraction has not
-    # landed by then, re-evaluate and either push the extraction to
-    # completion or remove this ignore and accept the patch-coverage
-    # pain on src/index.ts PRs. Leaving it open-ended would drift into
-    # a permanent exclusion.
+    # `tools.ts` and `tools-coercion.ts` carry the long Zod schema
+    # definitions + the tool registry array; the schemas themselves
+    # are exercised through the registrar tests, but the descriptive
+    # prose attached via `.describe()` is not "executed" in the
+    # coverage sense.
     - "src/index.ts"
 
 comment:
