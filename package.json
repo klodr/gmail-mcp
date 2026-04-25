@@ -59,6 +59,7 @@
   "engines": {
     "node": ">=22.22.2"
   },
+  "packageManager": "npm@11.12.1",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "email-addresses": "^5.0.0",
