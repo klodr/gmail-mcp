@@ -213,7 +213,15 @@ See [ROADMAP.md](docs/ROADMAP.md).
 
 ## 🌐 Ecosystem
 
-The wider Gmail-MCP landscape — 29 standalone repositories and 323 forks of the original GongRzhe server — is reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md). That page covers which ideas we borrowed, which we chose not to, and where `klodr/gmail-mcp` sits on the maturity axes.
+### Other MCP servers in the klodr family
+
+- 📧 [klodr/gmail-mcp](https://github.com/klodr/gmail-mcp) — Gmail (you are here)
+- 📠 [klodr/faxdrop-mcp](https://github.com/klodr/faxdrop-mcp) — Send real faxes via FaxDrop
+- 🏦 [klodr/mercury-invoicing-mcp](https://github.com/klodr/mercury-invoicing-mcp) — Mercury banking + invoicing
+
+### Wider Gmail-MCP landscape
+
+29 standalone repositories and 323 forks of the original GongRzhe server are reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md) — which ideas we borrowed, which we chose not to, and where `klodr/gmail-mcp` sits on the maturity axes.
 
 ## 🤝 Contributing
 

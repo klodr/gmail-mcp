@@ -43,7 +43,7 @@ Brought `klodr/gmail-mcp` up to the hardening baseline already shipped in the si
 
 ## Gmail API surface not yet wrapped
 
-The MCP currently covers ~25 tools across messages, threads, labels, and filters. Planned additions as demand emerges; much of this catches up with the broader surface exposed by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp) (see [COMPETITORS.md](./docs/COMPETITORS.md)).
+The MCP currently covers ~25 tools across messages, threads, labels, and filters. Planned additions as demand emerges; much of this catches up with the broader surface exposed by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp) (see [COMPETITORS.md](./COMPETITORS.md)).
 
 - **Drafts CRUD** — `drafts.list`, `drafts.get`, `drafts.update`, `drafts.delete`, `drafts.send` (only `drafts.create` is wired today via `draft_email`).
 - **Send-as aliases** — `settings.sendAs.*` (create / update / delete / verify) for managing Gmail aliases programmatically.
@@ -57,7 +57,7 @@ The MCP currently covers ~25 tools across messages, threads, labels, and filters
 
 ## Ergonomic tool wrappers
 
-Dedicated wrappers that save the agent from reconstructing MIME headers, fetching thread context, or multi-step lookups. Inspired by tools seen in [ustikya/mcp-gmail](https://github.com/ustikya/mcp-gmail) and [fernandezdiegoh/gmail-mcp](https://github.com/fernandezdiegoh/gmail-mcp) (see [COMPETITORS.md](./docs/COMPETITORS.md)).
+Dedicated wrappers that save the agent from reconstructing MIME headers, fetching thread context, or multi-step lookups. Inspired by tools seen in [ustikya/mcp-gmail](https://github.com/ustikya/mcp-gmail) and [fernandezdiegoh/gmail-mcp](https://github.com/fernandezdiegoh/gmail-mcp) (see [COMPETITORS.md](./COMPETITORS.md)).
 
 - **`reply_to_email`** — first-class single-recipient reply. `reply_all` exists today but forcing the agent to choose `reply_all` with manually-trimmed recipients is error-prone; a dedicated `reply_to_email` that replies to the message's `From` address only (or an explicit recipient) fills the common case cleanly and threads `In-Reply-To` / `References` automatically.
 - **`forward_email`** — single-call forward that preserves the original subject with a `Fwd:` prefix, includes a quoted body, carries the attachments forward, and lets the agent add a cover note in one parameter. Today the agent has to fetch the message, assemble a new MIME, and re-upload attachments.

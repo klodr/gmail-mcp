@@ -15,7 +15,7 @@ interruption (≤1 week) if I become unavailable.
   original repo or npm scope becomes unmaintained.
 - **Build & release pipeline** is fully automated in
   [`.github/workflows/release.yml`](./.github/workflows/release.yml) and
-  documented in [`CHANGELOG.md`](./CHANGELOG.md). A fork can reproduce
+  documented in [`CHANGELOG.md`](../CHANGELOG.md). A fork can reproduce
   releases by configuring `NPM_TOKEN` and pushing a tag.
 - **No proprietary infrastructure**: all third-party integrations
   (CodeQL, Scorecard, Socket Security, Codecov, Dependabot,
