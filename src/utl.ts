@@ -252,10 +252,20 @@ function encodeEmailHeader(text: string): string {
  * shape the next rejected (and where the rejected shape would have
  * thrown later, after the recipient-pairing gate or the attachment
  * jail).
+ *
+ * `parseOneAddress` returns nodes whose `.type` may be `"mailbox"` (a
+ * single recipient like `"foo@bar.com"`), `"group"` (an RFC 5322
+ * group: `"team: a@b, c@d;"`), or `"address"`. A group parses fine
+ * but is NOT a single mailbox — accepting it here would let a caller
+ * pass `"team: a@b.com, c@d.com;"` past every recipient-level guard
+ * (pairing gate, audit log, scope check) since the downstream code
+ * assumes a single deliverable address. Restrict to `type === "mailbox"`.
+ * (Caught by CodeRabbit on PR #81.)
  */
 export const validateEmail = (email: string): boolean => {
   if (typeof email !== "string" || email.length === 0) return false;
-  return emailAddresses.parseOneAddress(email) !== null;
+  const parsed = emailAddresses.parseOneAddress(email);
+  return parsed !== null && parsed.type === "mailbox";
 };
 
 /**

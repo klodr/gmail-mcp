@@ -1921,7 +1921,7 @@ async function main() {
                   const attachments = msg.payload
                     ? collectAttachmentsForThread(
                         msg.payload,
-                        "list_inbox_threads.processAttachmentParts",
+                        "get_inbox_with_threads.processAttachmentParts",
                       )
                     : [];
 
