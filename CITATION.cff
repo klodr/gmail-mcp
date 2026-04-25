@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: "@klodr/gmail-mcp"
+abstract: >-
+  MCP (Model Context Protocol) server for Gmail with audited safeguards:
+  path jails with realpath + O_NOFOLLOW, CRLF sanitization, OAuth scope
+  filtering at startup, Zod-bounded inputs, opt-in JSONL audit log,
+  per-bucket write rate limits, LLM-output defense fence, attachment
+  filename neutralisation, Sigstore + SLSA + SBOM-signed releases.
+message: "If you use this software, please cite it using the metadata below."
+type: software
+authors:
+  - given-names: Claude
+    family-names: Perrin
+    alias: klodr
+repository-code: "https://github.com/klodr/gmail-mcp"
+url: "https://github.com/klodr/gmail-mcp"
+license: MIT
+keywords:
+  - mcp
+  - model-context-protocol
+  - gmail
+  - claude
+  - llm
+  - email
+  - oauth
