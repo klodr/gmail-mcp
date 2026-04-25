@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-04-26 — Security review LOW/INFO findings
+
+A patch release closing the six LOW/INFO findings raised by the
+`docker/mcp-registry` security-reviewer audit on `0.21.0`. Two findings
+target the lazy-auth boot path (now ships an empty tool surface and a
+clearer error class for unauthenticated calls), three close down email
+input validation (RFC 5322 parser as the single source of truth across
+`validateEmail`, the Zod `pair_recipient.email` schema, and the
+sanitization layer extended to U+2028/U+2029), and one hardens the
+OAuth callback's port handling. No breaking change. No new
+dependencies. The on-the-wire `tools/list` shape only changes when
+`gcp-oauth.keys.json` is missing (now `[]` instead of 26 unauthable
+tools) — clients with credentials see the identical 26-tool surface
+they had on `0.21.0`.
+
 ### Changed
 
 - **Lazy-auth boot now advertises an empty tool surface on `tools/list`** — when `gcp-oauth.keys.json` is missing, `loadCredentials` creates a stub `OAuth2Client` and now also resets `authorizedScopes` to `[]`. Previously `tools/list` returned all 26 tools, none of which could authenticate — misleading to agent operators inspecting capabilities pre-auth. `src/index.ts:203`. Closes the LOW finding in the v0.21.0 security review.
