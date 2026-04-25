@@ -707,7 +707,7 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "USE WHEN: discovering valid label IDs/names before calling `modify_email`, `modify_thread`, or any filter that targets labels. Also useful to confirm a label exists before `create_label`.",
       "",
-      "DO NOT USE: to fetch one specific label (use `get_filter`-shape pattern? — no get-single-label exists, this is the only enumeration path; filter client-side).",
+      "DO NOT USE: to fetch one specific label by name — there is no get-single-label tool; call this and filter client-side.",
     ].join("\n"),
     schema: ListEmailLabelsSchema,
     scopes: ["gmail.readonly", "gmail.modify", "gmail.labels"],
@@ -834,7 +834,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "create_filter_from_template",
     description: [
-      "Create a filter from a pre-defined template (newsletters, vendor invoices, calendar, etc.). Safer than free-form filter creation — templates are vetted.",
+      "Create a filter from a pre-defined template (`fromSender`, `withSubject`, `withAttachments`, `largeEmails`, `containingText`, `mailingList`). Safer than free-form filter creation — templates are vetted.",
       "",
       "USE WHEN: setting up routing for a common pattern. Templates encode tested combinations of criteria + actions, sparing the agent the burden of crafting a correct query.",
       "",
