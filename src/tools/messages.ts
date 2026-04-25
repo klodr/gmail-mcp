@@ -10,16 +10,8 @@
 
 import type { gmail_v1 } from "googleapis";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { defineTool } from "./_shared.js";
-import { getToolByName, DeleteEmailSchema } from "../tools.js";
-
-function pull(name: string) {
-  const def = getToolByName(name);
-  if (!def) {
-    throw new Error(`Tool definition missing: ${name}`);
-  }
-  return { description: def.description, scopes: def.scopes, annotations: def.annotations };
-}
+import { defineTool, pullToolMeta as pull } from "./_shared.js";
+import { DeleteEmailSchema } from "../tools.js";
 
 export function registerMessageTools(
   server: McpServer,

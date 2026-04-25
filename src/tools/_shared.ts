@@ -19,9 +19,34 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { z, ZodRawShape } from "zod";
 import { wrapToolHandler, type ToolResult } from "../middleware.js";
 import { hasScope } from "../scopes.js";
+import { getToolByName } from "../tools.js";
 
 export type { ToolResult };
 export type { ToolAnnotations };
+
+/**
+ * Look up a tool's `description`, `scopes`, and `annotations` from the
+ * `toolDefinitions` registry in `src/tools.ts`. Throws if the name is
+ * unknown — that is a programming error (the registrar typo'd a tool
+ * name) and should fail loud at module load, not silently skip.
+ *
+ * Centralised here so the per-domain registrars
+ * (`src/tools/{messages,labels,filters,threads}.ts`) do not each
+ * inline the same 4-line helper. Once PR #7 deletes the legacy
+ * dispatcher, the description / scopes / annotations live in the
+ * registrar modules directly and this helper goes away.
+ */
+export function pullToolMeta(name: string): {
+  description: string;
+  scopes: string[];
+  annotations: ToolAnnotations;
+} {
+  const def = getToolByName(name);
+  if (!def) {
+    throw new Error(`Tool definition missing: ${name}`);
+  }
+  return { description: def.description, scopes: def.scopes, annotations: def.annotations };
+}
 
 /**
  * Register a tool against the supplied `McpServer`, with the standard

@@ -10,9 +10,8 @@
 
 import type { gmail_v1 } from "googleapis";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { defineTool } from "./_shared.js";
+import { defineTool, pullToolMeta as pull } from "./_shared.js";
 import {
-  getToolByName,
   CreateFilterSchema,
   ListFiltersSchema,
   GetFilterSchema,
@@ -27,14 +26,6 @@ import {
   filterTemplates,
 } from "../filter-manager.js";
 import { requirePairedRecipients } from "../recipient-pairing.js";
-
-function pull(name: string) {
-  const def = getToolByName(name);
-  if (!def) {
-    throw new Error(`Tool definition missing: ${name}`);
-  }
-  return { description: def.description, scopes: def.scopes, annotations: def.annotations };
-}
 
 // Format a record as `key: value, key2: value2` — used for both the
 // criteria block and the action block in the create/list/get filter

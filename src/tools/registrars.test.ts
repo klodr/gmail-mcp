@@ -192,6 +192,25 @@ interface ConnectedFixture {
   close: () => Promise<void>;
 }
 
+/**
+ * Boilerplate-killer: build a fixture, run the test body, always close
+ * the fixture (even on assertion failure inside `body`). Replaces the
+ * 12 `try/finally` blocks the file would otherwise carry. CR Trivial
+ * suggestion on PR #84.
+ */
+async function withFix(
+  scopes: string[],
+  body: (fix: ConnectedFixture) => Promise<void>,
+  mockOpts: MockGmailOpts = {},
+): Promise<void> {
+  const fix = await buildAndConnect(scopes, mockOpts);
+  try {
+    await body(fix);
+  } finally {
+    await fix.close();
+  }
+}
+
 async function buildAndConnect(
   scopes: string[],
   mockOpts: MockGmailOpts = {},
