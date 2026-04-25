@@ -235,4 +235,16 @@ describe("sendOrDraftEmail — error propagation", () => {
       sendOrDraftEmail(client, "send", baseArgs({ from: "me@example.com" })),
     ).rejects.toThrow(/upstream 500/);
   });
+
+  it("propagates a gmail.users.drafts.create failure for the draft action", async () => {
+    // Symmetric coverage to the send-action test above — pin that the
+    // draft branch surfaces upstream failures the same way send does
+    // (no swallowing, no rewrap into a generic error). CR finding on
+    // PR #83.
+    const boom = new Error("draft-create 500");
+    const { client } = mockGmail({ draftThrows: boom });
+    await expect(
+      sendOrDraftEmail(client, "draft", baseArgs({ from: "me@example.com" })),
+    ).rejects.toThrow(/draft-create 500/);
+  });
 });
