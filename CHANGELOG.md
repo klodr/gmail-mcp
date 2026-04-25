@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-04-25 — Security release
+
+A minor-version jump from `0.10.0` (skipping `0.11`–`0.19`) signals the
+weight of hardening packed into this release: the headline is the **opt-in
+recipient-pairing gate** that caps the blast radius of a prompt-injection
+on `send_email` / `reply_all` / `draft_email`, joined by community-health
+infrastructure, repo-root cleanup, and the npm-tarball discoverability
+fixes that landed since `0.10.0`. No breaking change for legacy users
+(every safety gate is opt-in via env var). `1.0.0` is reserved for the
+`Server` → `McpServer` SDK migration tracked in `docs/ROADMAP.md`.
+
 ### Added
 
 - **Recipient pairing gate** — opt-in allowlist that caps the blast radius of a prompt-injection-driven `send_email` / `reply_all` / `draft_email` call. When `GMAIL_MCP_RECIPIENT_PAIRING=true`, every `To` / `Cc` / `Bcc` address must appear in `~/.gmail-mcp/paired.json` (mode `0o600`, override via `GMAIL_MCP_PAIRED_PATH`). Manage the list via the new `pair_recipient` tool (`action: "add" | "remove" | "list"`). Feature is OFF by default; legacy users see no change. Tracked in `docs/ROADMAP.md` → v1.0.0 block.
