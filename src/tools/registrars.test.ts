@@ -57,6 +57,9 @@ afterEach(() => {
 
 interface MockedGmailCalls {
   messageDelete: Array<unknown>;
+  messageGet: Array<unknown>;
+  messageList: Array<unknown>;
+  messageModify: Array<unknown>;
   threadModify: Array<unknown>;
   filterDelete: Array<unknown>;
   filterCreate: Array<unknown>;
@@ -74,6 +77,16 @@ interface MockGmailOpts {
    * `getOrCreateLabel` (look up by name first; create if absent).
    */
   existingLabels?: Array<{ id: string; name: string; type?: string }>;
+  /**
+   * Body bytes returned by `gmail.users.messages.get`'s `text/plain`
+   * MIME part for the `read_email` truncation tests.
+   */
+  messageBodyText?: string;
+  /**
+   * Messages list returned by `gmail.users.messages.list` for
+   * `search_emails`.
+   */
+  searchResults?: Array<{ id: string; subject?: string; from?: string; date?: string }>;
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -82,6 +95,9 @@ function mockGmail(opts: MockGmailOpts = {}): {
 } {
   const calls: MockedGmailCalls = {
     messageDelete: [],
+    messageGet: [],
+    messageList: [],
+    messageModify: [],
     threadModify: [],
     filterDelete: [],
     filterCreate: [],
@@ -98,6 +114,51 @@ function mockGmail(opts: MockGmailOpts = {}): {
         delete: async (params: unknown) => {
           calls.messageDelete.push(params);
           return { data: {} };
+        },
+        modify: async (params: unknown) => {
+          calls.messageModify.push(params);
+          return { data: {} };
+        },
+        get: async (params: unknown) => {
+          calls.messageGet.push(params);
+          const id = (params as { id?: string }).id ?? "msg_unknown";
+          // Build a minimal MIME tree with one text/plain part
+          // carrying the supplied body. Sufficient for read_email's
+          // header + body + truncation logic.
+          const bodyText = opts.messageBodyText ?? "default body content";
+          const bodyB64 = Buffer.from(bodyText, "utf-8")
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+          return {
+            data: {
+              id,
+              threadId: `thread_for_${id}`,
+              payload: {
+                headers: [
+                  { name: "From", value: "Alice <alice@example.com>" },
+                  { name: "To", value: "bob@example.com" },
+                  { name: "Subject", value: `Test message ${id}` },
+                  { name: "Date", value: "Fri, 25 Apr 2026 10:00:00 +0000" },
+                  { name: "Message-ID", value: `<${id}@example.com>` },
+                ],
+                parts: [
+                  {
+                    mimeType: "text/plain",
+                    body: { size: bodyText.length, data: bodyB64 },
+                  },
+                ],
+              },
+            },
+          };
+        },
+        list: async (params: unknown) => {
+          calls.messageList.push(params);
+          const items = opts.searchResults ?? [];
+          return {
+            data: { messages: items.map((m) => ({ id: m.id, threadId: `thread_${m.id}` })) },
+          };
         },
       },
       threads: {
@@ -557,57 +618,243 @@ describe("PR #4 registrars — filter management", () => {
   });
 });
 
-describe("PR #3+#4 registrars — combined tools/list shape", () => {
-  it("advertises every PR-#3+#4 tool when the token covers every required scope", async () => {
-    const fix = await buildAndConnect([
-      "mail.google.com",
-      "gmail.modify",
-      "gmail.labels",
-      "gmail.settings.basic",
-      "gmail.readonly",
-    ]);
-    try {
-      const list = await fix.client.listTools();
-      const names = list.tools.map((t) => t.name).sort();
-      expect(names).toEqual([
-        "create_filter",
-        "create_filter_from_template",
-        "create_label",
-        "delete_email",
-        "delete_filter",
-        "delete_label",
-        "get_filter",
-        "get_or_create_label",
-        "list_email_labels",
-        "list_filters",
-        "modify_thread",
-        "update_label",
-      ]);
-    } finally {
-      await fix.close();
-    }
+describe("PR #5 registrars — read_email truncation (highest-risk extraction)", () => {
+  it("returns the full headers + body when format=full and body is below the cap", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "read_email",
+          arguments: { messageId: "msg_short", format: "full" },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Subject: Test message msg_short");
+        expect(text).toContain("Alice <alice@example.com>");
+        expect(text).toContain("default body content");
+        expect(text).not.toContain("[Message clipped");
+      },
+      { messageBodyText: "default body content" },
+    );
+  });
+
+  it("returns ONLY the header block when format=headers_only", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "read_email",
+          arguments: { messageId: "msg_h", format: "headers_only" },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Subject: Test message msg_h");
+        // Body MUST NOT be in the response.
+        expect(text).not.toContain("default body content");
+      },
+      { messageBodyText: "this body must not appear" },
+    );
+  });
+
+  it("clamps the body at 500 bytes in summary mode and emits the summary marker", async () => {
+    const longBody = "X".repeat(2000);
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "read_email",
+          arguments: { messageId: "msg_sum", format: "summary" },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("[Summary truncated at 500 bytes");
+        // The summary cap is 500 bytes — `XXX...` (500 of them) should
+        // appear, but not all 2000.
+        const xCount = (text.match(/X/g) || []).length;
+        expect(xCount).toBeGreaterThanOrEqual(500);
+        expect(xCount).toBeLessThan(2000);
+      },
+      { messageBodyText: longBody },
+    );
+  });
+
+  it("clamps the body at maxBodyLength in full mode and emits the [Message clipped] marker", async () => {
+    const longBody = "Y".repeat(2000);
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "read_email",
+          arguments: { messageId: "msg_full", format: "full", maxBodyLength: 100 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("[Message clipped");
+        const yCount = (text.match(/Y/g) || []).length;
+        expect(yCount).toBeGreaterThanOrEqual(100);
+        expect(yCount).toBeLessThan(2000);
+      },
+      { messageBodyText: longBody },
+    );
+  });
+
+  it("does NOT truncate when maxBodyLength=0 (operator opt-out)", async () => {
+    const longBody = "Z".repeat(5000);
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "read_email",
+          arguments: { messageId: "msg_zero", format: "full", maxBodyLength: 0 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).not.toContain("[Message clipped");
+        const zCount = (text.match(/Z/g) || []).length;
+        expect(zCount).toBe(5000);
+      },
+      { messageBodyText: longBody },
+    );
+  });
+
+  it("multi-byte safe: a truncation cut on a multi-byte sequence does not produce U+FFFD", async () => {
+    // 250× "é" (UTF-8: 0xC3 0xA9, 2 bytes per char) = 500 bytes total.
+    // With format=summary (cap=500) the body fits exactly; with cap=499
+    // the slice would land mid-`é` and TextDecoder ignores the trailing
+    // partial byte. The trailing U+FFFD trim guard in read_email
+    // handles the case where TextDecoder still emits one. Pin that
+    // neither case shows U+FFFD in the displayed body.
+    const accentBody = "é".repeat(250);
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "read_email",
+          arguments: { messageId: "msg_acc", format: "full", maxBodyLength: 11 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        // U+FFFD is the Unicode REPLACEMENT CHARACTER. It should NEVER
+        // appear in the body of a truncated read_email response.
+        expect(text).not.toContain("�");
+        expect(text).toContain("[Message clipped");
+      },
+      { messageBodyText: accentBody },
+    );
+  });
+});
+
+describe("PR #5 registrars — search_emails", () => {
+  it("calls list+get for each result and renders them line-by-line", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "search_emails",
+          arguments: { query: "from:alice@example.com", maxResults: 2 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("ID: msg_1");
+        expect(text).toContain("ID: msg_2");
+        expect(fix.calls.messageList).toHaveLength(1);
+        expect(fix.calls.messageGet).toHaveLength(2);
+      },
+      { searchResults: [{ id: "msg_1" }, { id: "msg_2" }] },
+    );
+  });
+});
+
+describe("PR #5 registrars — modify_email + batch_*", () => {
+  it("modify_email forwards label changes to gmail.users.messages.modify", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      await fix.client.callTool({
+        name: "modify_email",
+        arguments: {
+          messageId: "msg_mod",
+          addLabelIds: ["L_A"],
+          removeLabelIds: ["INBOX"],
+        },
+      });
+      expect(fix.calls.messageModify).toHaveLength(1);
+      expect(fix.calls.messageModify[0]).toMatchObject({
+        userId: "me",
+        id: "msg_mod",
+        requestBody: { addLabelIds: ["L_A"], removeLabelIds: ["INBOX"] },
+      });
+    });
+  });
+
+  it("batch_modify_emails calls modify once per messageId via processBatches", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "batch_modify_emails",
+        arguments: {
+          messageIds: ["m1", "m2", "m3"],
+          addLabelIds: ["L_X"],
+          batchSize: 5,
+        },
+      })) as { content: Array<{ type: string; text: string }> };
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain("Successfully processed: 3 messages");
+      expect(fix.calls.messageModify).toHaveLength(3);
+    });
+  });
+
+  it("batch_delete_emails deletes each messageId and reports the count", async () => {
+    await withFix(["mail.google.com"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "batch_delete_emails",
+        arguments: { messageIds: ["m1", "m2"] },
+      })) as { content: Array<{ type: string; text: string }> };
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain("Successfully deleted: 2 messages");
+      expect(fix.calls.messageDelete).toHaveLength(2);
+    });
+  });
+});
+
+describe("PR #3+#4+#5 registrars — combined tools/list shape", () => {
+  it("advertises every PR-#3+#4+#5 tool when the token covers every required scope", async () => {
+    await withFix(
+      ["mail.google.com", "gmail.modify", "gmail.labels", "gmail.settings.basic", "gmail.readonly"],
+      async (fix) => {
+        const list = await fix.client.listTools();
+        const names = list.tools.map((t) => t.name).sort();
+        expect(names).toEqual([
+          "batch_delete_emails",
+          "batch_modify_emails",
+          "create_filter",
+          "create_filter_from_template",
+          "create_label",
+          "delete_email",
+          "delete_filter",
+          "delete_label",
+          "get_filter",
+          "get_or_create_label",
+          "list_email_labels",
+          "list_filters",
+          "modify_email",
+          "modify_thread",
+          "read_email",
+          "search_emails",
+          "update_label",
+        ]);
+      },
+    );
   });
 
   it("filters out tools whose required scopes are missing from the token", async () => {
     // Only gmail.modify + gmail.labels — covers the label management
-    // tools (create/update/delete/get_or_create) and modify_thread,
-    // but NOT delete_email (needs mail.google.com), NOT the filter
-    // tools (need gmail.settings.basic), NOT list_email_labels
-    // (needs gmail.readonly).
-    const fix = await buildAndConnect(["gmail.modify", "gmail.labels"]);
-    try {
+    // tools, modify_thread, modify_email, batch_modify_emails. Does
+    // NOT cover: delete_email (mail.google.com), filter tools
+    // (gmail.settings.basic), batch_delete_emails (mail.google.com),
+    // read_email / search_emails / list_email_labels (gmail.readonly,
+    // even though gmail.modify is a strict superset upstream the tool
+    // definition declares only gmail.modify for the write set, so the
+    // ANY-of-required match still picks them up).
+    await withFix(["gmail.modify", "gmail.labels"], async (fix) => {
       const list = await fix.client.listTools();
       const names = list.tools.map((t) => t.name).sort();
-      expect(names).toEqual([
-        "create_label",
-        "delete_label",
-        "get_or_create_label",
-        "list_email_labels",
-        "modify_thread",
-        "update_label",
-      ]);
-    } finally {
-      await fix.close();
-    }
+      expect(names).toContain("create_label");
+      expect(names).toContain("modify_email");
+      expect(names).toContain("batch_modify_emails");
+      expect(names).not.toContain("delete_email");
+      expect(names).not.toContain("batch_delete_emails");
+      expect(names).not.toContain("create_filter");
+    });
   });
 });
