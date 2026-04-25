@@ -46,7 +46,25 @@ export function defineTool<S extends ZodRawShape>(
   requiredScopes: readonly string[],
   authorizedScopes: readonly string[],
 ): boolean {
-  if (!hasScope([...authorizedScopes], [...requiredScopes])) {
+  // ANY-of-required semantics — INTENTIONAL, mirrors the legacy
+  // dispatcher's `hasScope` filter at `src/index.ts:516-521`. Each
+  // entry in `tools.ts:toolDefinitions[].scopes` lists the scopes
+  // that ALTERNATIVELY grant access (e.g. `read_email` declares
+  // `["gmail.readonly", "gmail.modify"]` — either one is enough,
+  // since `modify` is a strict superset of `readonly`). All-of-
+  // required would silently de-list every read tool for tokens that
+  // have only `gmail.modify`, breaking the production behaviour the
+  // legacy dispatcher ships today.
+  //
+  // Special case: an empty `requiredScopes` (no scope needed at all)
+  // always registers — `hasScope([], [])` returns false because of
+  // its `.some()` implementation, which would otherwise drop a
+  // hypothetical no-auth tool. None of the 26 gmail tools currently
+  // hit this branch, but pinning the behaviour now avoids a sharp
+  // edge for any future MCP-spec utility tool that needs no OAuth.
+  if (requiredScopes.length === 0) {
+    // proceed — no auth needed, register unconditionally
+  } else if (!hasScope([...authorizedScopes], [...requiredScopes])) {
     return false;
   }
 

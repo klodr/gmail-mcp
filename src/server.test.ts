@@ -130,20 +130,25 @@ describe("defineTool", () => {
     const client = new Client({ name: "test-client", version: "0.0.0" });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
-    const result = (await client.callTool({
-      name: "echo_tool",
-      arguments: { msg: "hello world" },
-    })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
-    // The text travels through `wrapToolHandler` which wraps every tool
-    // response in the `<untrusted-tool-output>` sanitize fence — pin
-    // both the fence wrapping AND the inner echoed payload so a future
-    // change that drops the fence (or that double-fences it) is caught.
-    expect(result.isError).toBeFalsy();
-    expect(result.content[0]?.text).toContain("<untrusted-tool-output>");
-    expect(result.content[0]?.text).toContain("echo: hello world");
-    expect(result.content[0]?.text).toContain("</untrusted-tool-output>");
-
-    await Promise.all([client.close(), server.close()]);
+    try {
+      const result = (await client.callTool({
+        name: "echo_tool",
+        arguments: { msg: "hello world" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      // The text travels through `wrapToolHandler` which wraps every tool
+      // response in the `<untrusted-tool-output>` sanitize fence — pin
+      // both the fence wrapping AND the inner echoed payload so a future
+      // change that drops the fence (or that double-fences it) is caught.
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("<untrusted-tool-output>");
+      expect(result.content[0]?.text).toContain("echo: hello world");
+      expect(result.content[0]?.text).toContain("</untrusted-tool-output>");
+    } finally {
+      // Always close — without this, an assertion failure inside the
+      // `try` would leak the InMemoryTransport pair into subsequent
+      // tests. CR finding on PR #84.
+      await Promise.all([client.close(), server.close()]);
+    }
   });
 
   it("rejects unknown keys in the argument object (Zod strict mode)", async () => {
@@ -171,18 +176,21 @@ describe("defineTool", () => {
     const client = new Client({ name: "test-client", version: "0.0.0" });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
-    // The SDK surfaces parse failure as `{ isError: true }` rather than
-    // a thrown rejection — the equivalent of an MCP `-32602` shape
-    // wrapped through the tool-result envelope. Pin the contract on
-    // the `isError` channel + the text containing a Zod-shaped clue.
-    const result = (await client.callTool({
-      name: "strict_tool",
-      arguments: { foo: "ok", smuggled: "extra" },
-    })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text.toLowerCase()).toMatch(/unrecognized|smuggled|strict/);
-
-    await Promise.all([client.close(), server.close()]);
+    try {
+      // The SDK surfaces parse failure as `{ isError: true }` rather than
+      // a thrown rejection — the equivalent of an MCP `-32602` shape
+      // wrapped through the tool-result envelope. Pin the contract on
+      // the `isError` channel + the text containing a Zod-shaped clue.
+      const result = (await client.callTool({
+        name: "strict_tool",
+        arguments: { foo: "ok", smuggled: "extra" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text.toLowerCase()).toMatch(/unrecognized|smuggled|strict/);
+    } finally {
+      // Always close — see the echo test above.
+      await Promise.all([client.close(), server.close()]);
+    }
   });
 
   it("accepts the URL form of an authorized scope (matches the shorthand requirement)", () => {
