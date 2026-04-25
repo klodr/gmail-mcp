@@ -810,11 +810,11 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "DO NOT USE: for common patterns (newsletter routing, vendor invoices, etc.) — `create_filter_from_template` covers those with safer defaults. Filters are not idempotent — calling twice creates two filters firing duplicate actions.",
       "",
-      "SIDE EFFECTS: writes a new filter rule on Gmail's side. Persistent. Affects every future incoming message that matches the criteria. Requires `gmail.settings.basic` scope.",
+      "SIDE EFFECTS: writes a new filter rule on Gmail's side. Persistent. Affects every future incoming message that matches the criteria. The optional `action.forward` field installs a persistent forwarding rule and is therefore gated by the same recipient-pairing allowlist as `send_email` / `reply_all` / `draft_email` when `GMAIL_MCP_RECIPIENT_PAIRING=true` — pair the address via `pair_recipient` first. Requires `gmail.settings.basic` scope.",
     ].join("\n"),
     schema: CreateFilterSchema,
     scopes: ["gmail.settings.basic"],
-    annotations: { title: "Create Filter", destructiveHint: false },
+    annotations: { title: "Create Filter", destructiveHint: true },
   },
   {
     name: "delete_filter",

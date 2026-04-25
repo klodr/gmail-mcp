@@ -1409,6 +1409,17 @@ async function main() {
           // Filter management handlers
           case "create_filter": {
             const validatedArgs = CreateFilterSchema.parse(args);
+            // The `action.forward` field installs a persistent server-side
+            // mail-forwarding rule. Gmail itself only allows forwarding to
+            // pre-verified addresses, but a prompt-injected agent on a
+            // settings.basic token could still pick any verified address —
+            // including one the human added long ago and forgot. Gate the
+            // forward action through the same recipient-pairing allowlist
+            // that protects send_email / reply_all / draft_email so the
+            // exfil channel stays closed when the gate is enabled.
+            if (validatedArgs.action.forward) {
+              requirePairedRecipients([validatedArgs.action.forward]);
+            }
             const result = await createFilter(gmail, validatedArgs.criteria, validatedArgs.action);
 
             // Format criteria for display

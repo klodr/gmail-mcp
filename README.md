@@ -75,7 +75,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: npm provenance statement | ❌ | ❌ | ✅ |
 | Release: single-file `tsup` ESM bundle (smaller tarball, easier to verify) | ❌ (multi-file `tsc`) | ❌ (multi-file `tsc`) | ✅ (target `node22`, `ES2024`) |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (386 tests) |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (412 tests) |
 | Statement coverage across `src/**` | 0% | 16.14% | **>50%** |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
