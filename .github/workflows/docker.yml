@@ -23,6 +23,7 @@ on:
       - "tsconfig.json"
       - "tsup.config.ts"
       - ".github/workflows/docker.yml"
+  merge_group:
 
 permissions:
   contents: read
