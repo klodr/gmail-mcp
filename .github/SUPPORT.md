@@ -25,7 +25,8 @@ explicitly out-of-scope are listed there.
 ## 🔒 Security issues
 
 **Do not open a public issue.** Follow the coordinated-disclosure procedure
-in [`SECURITY.md`](SECURITY.md). Critical CVEs are patched within 24 h.
+in [`SECURITY.md`](SECURITY.md). Acknowledgement target: 72 h. Critical-CVE
+patch target: 7 days.
 
 ## ❓ Questions
 
@@ -38,7 +39,8 @@ with the **Bug report** template and label it `question`.
 
 | Severity | Target |
 |---|---|
-| Critical security CVE | 24 h |
+| Security issue acknowledgement | 72 h (per `SECURITY.md`) |
+| Critical CVE patch released | 7 days |
 | Bug blocking normal usage | 48 h |
 | Other issue / PR | 7 days |
 
