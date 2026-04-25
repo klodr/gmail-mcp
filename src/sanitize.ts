@@ -25,7 +25,7 @@
  *      explicit and survives prompt-template processing.
  *
  * This is NOT a substitute for the read-then-write-confirmation discipline
- * documented in SECURITY.md, just defense in depth.
+ * documented in .github/SECURITY.md, just defense in depth.
  */
 
 // The regex below targets exactly the characters whose presence in tool

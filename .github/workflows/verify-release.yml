@@ -1,7 +1,7 @@
 name: Verify published release
 
 # Runs after the publish job in release.yml has put the package on npm.
-# Exercises the three verification paths documented in SECURITY.md so we
+# Exercises the three verification paths documented in .github/SECURITY.md so we
 # catch any regression in the release pipeline (broken provenance, missing
 # Sigstore bundle, asset upload mismatch) within minutes of publish.
 on:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   verify:
-    name: Re-run the three SECURITY.md verify paths
+    name: Re-run the three .github/SECURITY.md verify paths
     # Only fire when the upstream workflow was triggered by a tag push
     # (event == 'push'), succeeded, and the ref looks like a version tag.
     # We re-validate the exact tag format in the first step below.

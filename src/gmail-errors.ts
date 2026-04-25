@@ -41,7 +41,7 @@ export function asGmailApiError(err: unknown): GmailApiErrorView {
  * Structured payload surfaced when Google rejects the stored refresh
  * token. Clients/agents can branch on `code === "INVALID_GRANT"`
  * instead of regex-matching free-form error text. Contract defined in
- * ROADMAP.md "Graceful invalid_grant handling".
+ * docs/ROADMAP.md "Graceful invalid_grant handling".
  */
 export interface InvalidGrantPayload {
   readonly code: "INVALID_GRANT";

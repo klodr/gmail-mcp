@@ -26,7 +26,7 @@ issueRules:
   # Silence the alerts that are intrinsic to what this MCP does (read env,
   # read local files, call Gmail API, hardcode a small list of Google
   # endpoint URLs). Each is intentional and documented in README.md
-  # (Configuration / Security sections) and SECURITY.md.
+  # (Configuration / Security sections) and .github/SECURITY.md.
   envVars: false
   filesystemAccess: false
   networkAccess: false

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: "@klodr/gmail-mcp"
+abstract: "Quality-built Gmail MCP server. Security-first by design, drops into Claude Desktop, Code, Cursor, OpenClaw."
+message: "If you use this software, please cite it using the metadata below."
+type: software
+version: "0.10.0"
+date-released: "2026-04-23"
+authors:
+  - given-names: Claude
+    family-names: Perrin
+    alias: klodr
+repository-code: "https://github.com/klodr/gmail-mcp"
+url: "https://github.com/klodr/gmail-mcp"
+license: MIT
+keywords:
+  - mcp
+  - model-context-protocol
+  - gmail
+  - claude
+  - llm
+  - email
+  - oauth

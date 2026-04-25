@@ -7,7 +7,7 @@ body:
       value: |
         Feature proposals should map to the Gmail API surface or to the
         MCP safeguards (jails, scope filtering, rate limits, audit log).
-        For broader direction questions, check `ROADMAP.md` first — the
+        For broader direction questions, check `docs/ROADMAP.md` first — the
         item may already be scheduled or explicitly out-of-scope.
 
   - type: textarea

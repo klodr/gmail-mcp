@@ -28,7 +28,7 @@
 
 ## Security checklist (only if you ticked `security` above)
 
-- [ ] Threat model in `ASSURANCE_CASE.md` still accurate after this change — or has been updated
+- [ ] Threat model in `docs/ASSURANCE_CASE.md` still accurate after this change — or has been updated
 - [ ] New file-system writes routed through `resolveDownloadSavePath()` or `assertAttachmentPathAllowed()` (`src/utl.ts`)
 - [ ] New user-supplied RFC-822 header values passed through `sanitizeHeaderValue()`
 - [ ] New Zod input schema has `.max()` bounds on any unbounded field

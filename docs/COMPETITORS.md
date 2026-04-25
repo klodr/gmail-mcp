@@ -95,7 +95,7 @@ Sorted by stars, snapshot `2026-04-23`.
 
 ## Ideas we borrowed
 
-All of these end up tracked in [ROADMAP.md](../ROADMAP.md) with attribution to their source.
+All of these end up tracked in [ROADMAP.md](./ROADMAP.md) with attribution to their source.
 
 - **Gmail Settings API completeness** — vacation responder, forwarding, IMAP/POP settings, delegates, S/MIME, language. Inspired by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp).
 - **`users.watch` / `users.stop` push notifications** — lets an agent wait on Gmail Pub/Sub events instead of polling. Inspired by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp).

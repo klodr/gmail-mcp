@@ -1,7 +1,7 @@
 # Assurance case — `@klodr/gmail-mcp`
 
 This document is the project's **assurance case**: an argument for why the
-security requirements documented in [SECURITY.md](./SECURITY.md#security-model--what-this-mcp-provides)
+security requirements documented in [SECURITY.md](../.github/SECURITY.md#security-model--what-this-mcp-provides)
 hold. It covers four pillars: the threat model, the trust boundaries,
 the secure-design principles applied, and how common implementation
 weaknesses have been countered.
@@ -81,7 +81,7 @@ weaknesses have been countered.
    version of `@klodr/gmail-mcp`. **Mitigations:** Sigstore signing
    of every release, SLSA in-toto attestation, npm provenance,
    documented verification path
-   (see [SECURITY.md → Verifying releases](./SECURITY.md#verifying-releases-once-v1-is-out)).
+   (see [SECURITY.md → Verifying releases](../.github/SECURITY.md#verifying-releases)).
 8. **Malicious transitive dependency** — a sub-dep ships malicious
    code. **Mitigations:** Socket Security PR alerts, Dependabot
    grouped updates, CodeQL Advanced
@@ -160,7 +160,7 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 | **CWE-89** SQL injection | N/A | No database. |
 | **CWE-79** XSS | Out-of-scope for this process (MCP never renders HTML) — downstream responsibility | The `download_email` tool writes HTML bodies (via `emailToHtml()`) verbatim to `GMAIL_MCP_DOWNLOAD_DIR` and the `read_email` tool returns HTML string content to the MCP client. This MCP does not render HTML itself. If the consuming agent forwards that HTML to a browser, PDF pipeline, or any other HTML-executing surface, the agent must sanitise before rendering. Flagged transparently rather than claimed N/A. |
 | **CWE-88 / CWE-93 / CWE-113** CRLF / header injection | Countered | `sanitizeHeaderValue` strips `\r`, `\n`, `\0` from every user-supplied RFC-822 header value (`From`, `To`, `Cc`, `Bcc`, `Subject`, `In-Reply-To`, `References`). |
-| **CWE-117** Log injection | N/A | MCP emits no log file of its own (tracked as a future audit-log feature in [SECURITY.md](./SECURITY.md)). |
+| **CWE-117** Log injection | N/A | MCP emits no log file of its own (tracked as a future audit-log feature in [SECURITY.md](../.github/SECURITY.md)). |
 | **CWE-200 / CWE-209** Information exposure / verbose errors | Countered | Error messages never include the OAuth refresh token or the Google OAuth client secret. |
 | **CWE-295** Improper certificate validation | Inherited from Node | Node's built-in `fetch` + `googleapis` use the system trust store. `NODE_TLS_REJECT_UNAUTHORIZED` is never set by the project. |
 | **CWE-321 / CWE-798** Hardcoded credentials | Countered | No secret lives in the checked-in source. The user supplies their own OAuth client via `~/.gmail-mcp/gcp-oauth.keys.json`; the refresh token is stored locally after first auth. |
@@ -175,4 +175,4 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 | **CWE-1357** Reliance on insufficiently trustworthy component | Countered | All GitHub Actions pinned by full commit SHA; Dependabot + Socket monitor for compromised deps. |
 
 Outstanding weaknesses are listed transparently in
-[SECURITY.md → What this MCP does NOT protect against](./SECURITY.md#what-this-mcp-does-not-protect-against).
+[SECURITY.md → What this MCP does NOT protect against](../.github/SECURITY.md#what-this-mcp-does-not-protect-against).

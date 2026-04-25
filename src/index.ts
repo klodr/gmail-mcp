@@ -368,7 +368,7 @@ async function authenticate(scopes: string[]) {
           // writeFileSync's `mode` option only applies on CREATE, so an
           // existing credentials.json with broader perms (e.g. 0o644
           // from a prior setup) would keep those bytes after re-auth.
-          // Force 0o600 explicitly after write to match SECURITY.md.
+          // Force 0o600 explicitly after write to match .github/SECURITY.md.
           const credentials = { tokens, scopes };
           fs.mkdirSync(path.dirname(CREDENTIALS_PATH), { recursive: true, mode: 0o700 });
           fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2), {

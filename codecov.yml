@@ -8,7 +8,7 @@ coverage:
         # apparent coverage to ~93%). With the realistic scope, global
         # stmt coverage sits around 39% — `src/index.ts` (25 MCP handlers
         # + OAuth callback) is the only large 0% surface left, tracked as
-        # a v1.0.0-blocking item on ROADMAP.md. Floor set 4 points below
+        # a v1.0.0-blocking item on docs/ROADMAP.md. Floor set 4 points below
         # the current baseline so small drift (a few defensive branches
         # added in a PR) doesn't red-flag the gate. Raise toward 80% once
         # the handler-extraction refactor lands.
@@ -41,7 +41,7 @@ coverage:
     # at 0% coverage today because every handler body is inlined as a
     # switch case — not a callable function — so vitest has nothing to
     # import and assert against. Tracked as the handler-extraction
-    # item in ROADMAP.md (near-term, blocks the 70%+ global coverage
+    # item in docs/ROADMAP.md (near-term, blocks the 70%+ global coverage
     # target and v1.0.0).
     #
     # Ignoring here keeps structural refactors of the dispatcher (e.g.

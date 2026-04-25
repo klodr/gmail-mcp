@@ -43,7 +43,7 @@ Brought `klodr/gmail-mcp` up to the hardening baseline already shipped in the si
 
 ## Gmail API surface not yet wrapped
 
-The MCP currently covers ~25 tools across messages, threads, labels, and filters. Planned additions as demand emerges; much of this catches up with the broader surface exposed by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp) (see [COMPETITORS.md](./docs/COMPETITORS.md)).
+The MCP currently covers ~25 tools across messages, threads, labels, and filters. Planned additions as demand emerges; much of this catches up with the broader surface exposed by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp) (see [COMPETITORS.md](./COMPETITORS.md)).
 
 - **Drafts CRUD** — `drafts.list`, `drafts.get`, `drafts.update`, `drafts.delete`, `drafts.send` (only `drafts.create` is wired today via `draft_email`).
 - **Send-as aliases** — `settings.sendAs.*` (create / update / delete / verify) for managing Gmail aliases programmatically.
@@ -57,7 +57,7 @@ The MCP currently covers ~25 tools across messages, threads, labels, and filters
 
 ## Ergonomic tool wrappers
 
-Dedicated wrappers that save the agent from reconstructing MIME headers, fetching thread context, or multi-step lookups. Inspired by tools seen in [ustikya/mcp-gmail](https://github.com/ustikya/mcp-gmail) and [fernandezdiegoh/gmail-mcp](https://github.com/fernandezdiegoh/gmail-mcp) (see [COMPETITORS.md](./docs/COMPETITORS.md)).
+Dedicated wrappers that save the agent from reconstructing MIME headers, fetching thread context, or multi-step lookups. Inspired by tools seen in [ustikya/mcp-gmail](https://github.com/ustikya/mcp-gmail) and [fernandezdiegoh/gmail-mcp](https://github.com/fernandezdiegoh/gmail-mcp) (see [COMPETITORS.md](./COMPETITORS.md)).
 
 - **`reply_to_email`** — first-class single-recipient reply. `reply_all` exists today but forcing the agent to choose `reply_all` with manually-trimmed recipients is error-prone; a dedicated `reply_to_email` that replies to the message's `From` address only (or an explicit recipient) fills the common case cleanly and threads `In-Reply-To` / `References` automatically.
 - **`forward_email`** — single-call forward that preserves the original subject with a `Fwd:` prefix, includes a quoted body, carries the attachments forward, and lets the agent add a cover note in one parameter. Today the agent has to fetch the message, assemble a new MIME, and re-upload attachments.
@@ -65,6 +65,7 @@ Dedicated wrappers that save the agent from reconstructing MIME headers, fetchin
 ## Transport
 
 - **HTTP / SSE transport alongside stdio** — track the MCP spec's move toward streamable-HTTP. When the SDK makes the HTTP transport first-class, add it as an opt-in mode (`--transport http --port …`) so the server can be self-hosted and reached by remote MCP clients. A `docker-compose.yml` example will land with this item, not before (a compose file only makes sense once there is a long-running daemon to compose).
+- **Headless OAuth mode for hosted deployments** — today gmail-mcp expects a local `gcp-oauth.keys.json` file plus an interactive browser-based OAuth flow that writes `~/.gmail-mcp/credentials.json`. That's incompatible with hosted MCP runners that can only pass secrets as environment variables. Add an env-var path: `GMAIL_OAUTH_CLIENT_ID` + `GMAIL_OAUTH_CLIENT_SECRET` + `GMAIL_OAUTH_REFRESH_TOKEN`, all three pre-obtained by a one-shot `npx @klodr/gmail-mcp auth` run on the user's local machine. When all three are set, skip the file-loading + interactive-flow code paths entirely and instantiate the OAuth2 client directly from the env triplet. Doc the flow in README. Threat-model the new env vars in `.github/SECURITY.md` (the refresh_token is as sensitive as `credentials.json`).
 
 ## Discoverability
 
