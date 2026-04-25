@@ -20,15 +20,9 @@ import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { gmail_v1 } from "googleapis";
-import { OAuth2Client } from "google-auth-library";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../server.js";
-import { registerMessageTools } from "./messages.js";
-import { registerLabelTools } from "./labels.js";
-import { registerFilterTools } from "./filters.js";
-import { registerThreadTools } from "./threads.js";
-import { registerDownloadTools } from "./downloads.js";
 import { resetRateLimitHistory } from "../rate-limit.js";
 import { resetJailDirCache } from "../utl.js";
 
@@ -395,16 +389,15 @@ async function buildAndConnect(
   scopes: string[],
   mockOpts: MockGmailOpts = {},
 ): Promise<ConnectedFixture> {
+  const { client: gmail, calls } = mockGmail(mockOpts);
+  // PR #7 wired createServer to take a gmail client directly and to
+  // register every per-domain tool via `registerAllTools`. The fixture
+  // now passes the mock gmail straight to the factory; the per-tool
+  // `register*Tools` calls are not needed (and would double-register).
   const server = createServer({
-    oauth2Client: new OAuth2Client(),
+    gmail,
     authorizedScopes: scopes,
   });
-  const { client: gmail, calls } = mockGmail(mockOpts);
-  registerMessageTools(server, gmail, scopes);
-  registerLabelTools(server, gmail, scopes);
-  registerFilterTools(server, gmail, scopes);
-  registerThreadTools(server, gmail, scopes);
-  registerDownloadTools(server, gmail, scopes);
 
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "registrars-test", version: "0.0.0" });
@@ -692,7 +685,10 @@ describe("PR #4 registrars — filter management", () => {
           name: "list_filters",
           arguments: {},
         })) as { content: Array<{ type: string; text: string }> };
-        expect(result.content[0]?.text).toBe("No filters found.");
+        // The text travels through `wrapToolHandler` which wraps every
+        // tool response in the `<untrusted-tool-output>` sanitize fence.
+        expect(result.content[0]?.text).toContain("No filters found.");
+        expect(result.content[0]?.text).toContain("<untrusted-tool-output>");
       },
       { noFilters: true },
     );
@@ -1099,6 +1095,7 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "delete_label",
           "download_attachment",
           "download_email",
+          "draft_email",
           "get_filter",
           "get_inbox_with_threads",
           "get_or_create_label",
@@ -1108,8 +1105,11 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "list_inbox_threads",
           "modify_email",
           "modify_thread",
+          "pair_recipient",
           "read_email",
+          "reply_all",
           "search_emails",
+          "send_email",
           "update_label",
         ]);
       },

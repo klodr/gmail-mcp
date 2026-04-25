@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { OAuth2Client } from "google-auth-library";
+import type { gmail_v1 } from "googleapis";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -7,10 +7,19 @@ import { createServer, VERSION } from "./server.js";
 import { defineTool } from "./tools/_shared.js";
 import { z } from "zod";
 
+// PR #7 changed `createServer` to take a `gmail` client directly
+// (instead of an `OAuth2Client` from which gmail is derived). For the
+// smoke tests in this file the gmail object is never actually invoked
+// (we register `defineTool` calls with custom handlers that bypass it),
+// so the simplest stub is `{} as gmail_v1.Gmail`.
+function mockGmail(): gmail_v1.Gmail {
+  return {} as gmail_v1.Gmail;
+}
+
 describe("createServer", () => {
   it("returns an McpServer instance", () => {
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: [],
     });
     expect(server).toBeInstanceOf(McpServer);
@@ -25,7 +34,7 @@ describe("createServer", () => {
 
   it("accepts an authorizedScopes list and returns a usable server", () => {
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: ["gmail.readonly"],
     });
     expect(server).toBeInstanceOf(McpServer);
@@ -36,9 +45,7 @@ describe("createServer", () => {
     // when no OAuth keys are mounted, authorizedScopes is `[]` and
     // tools/list returns the empty surface. createServer must accept
     // this without complaint.
-    expect(() =>
-      createServer({ oauth2Client: new OAuth2Client(), authorizedScopes: [] }),
-    ).not.toThrow();
+    expect(() => createServer({ gmail: mockGmail(), authorizedScopes: [] })).not.toThrow();
   });
 });
 
@@ -49,7 +56,7 @@ describe("defineTool", () => {
 
   it("registers the tool when the OAuth scopes match", () => {
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: ["gmail.readonly"],
     });
     const registered = defineTool(
@@ -67,7 +74,7 @@ describe("defineTool", () => {
 
   it("skips registration when the OAuth scopes do not cover the requirement", () => {
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: ["gmail.readonly"],
     });
     // Tool needs gmail.modify but the token only has gmail.readonly →
@@ -88,7 +95,7 @@ describe("defineTool", () => {
 
   it("registers when the OAuth set is a strict superset of the requirement", () => {
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: ["gmail.modify", "gmail.send"],
     });
     const registered = defineTool(
@@ -109,7 +116,7 @@ describe("defineTool", () => {
     // adapter validates args via the strict Zod schema, the handler
     // runs, and the result reaches the client unchanged.
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: ["gmail.readonly"],
     });
     defineTool(
@@ -158,7 +165,7 @@ describe("defineTool", () => {
     // — defence against prompt-injection payloads that try to slip
     // extra fields past the validator.
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: ["gmail.readonly"],
     });
     defineTool(
@@ -200,7 +207,7 @@ describe("defineTool", () => {
     // that the URL form coming back from a real OAuth token does
     // not silently break registration for the matching tool.
     const server = createServer({
-      oauth2Client: new OAuth2Client(),
+      gmail: mockGmail(),
       authorizedScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
     });
     const registered = defineTool(
