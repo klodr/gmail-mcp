@@ -234,11 +234,22 @@ function loadCredentials() {
     }
 
     if (!fs.existsSync(OAUTH_PATH)) {
+      // Lazy-boot mode: no OAuth keys at startup. Hosted MCP runners
+      // (Glama, Smithery, etc.) run a smoke test on `tools/list` before
+      // the user has any chance to mount credentials, and exiting here
+      // would mark the server as broken on the registry. Boot with a
+      // stub OAuth2Client instead — `tools/list` (which does not touch
+      // gmail.users.*) succeeds, and any tool call that needs auth
+      // fails cleanly through the `asGmailApiError` path with an
+      // `INVALID_GRANT`-shaped payload that surfaces the missing-auth
+      // condition to the agent.
       console.error(
-        "Error: OAuth keys file not found. Please place gcp-oauth.keys.json in current directory or",
-        CONFIG_DIR,
+        "Warning: OAuth keys file not found at",
+        OAUTH_PATH,
+        "— booting in lazy-auth mode. Tool calls that need Gmail will fail until `npx @klodr/gmail-mcp auth` is run.",
       );
-      process.exit(1);
+      oauth2Client = new OAuth2Client();
+      return;
     }
 
     const keysContent = JSON.parse(fs.readFileSync(OAUTH_PATH, "utf8"));

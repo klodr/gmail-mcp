@@ -97,6 +97,18 @@ describe("isInvalidGrantError", () => {
     expect(isInvalidGrantError(new Error("ECONNRESET"))).toBe(false);
   });
 
+  it("matches the lazy-boot stub OAuth2Client error shape", () => {
+    // Real google-auth-library text when `new OAuth2Client()` is queried
+    // without credentials. The lazy-boot path needs this to flow into
+    // the same INVALID_GRANT-shaped payload as a revoked refresh token.
+    expect(
+      isInvalidGrantError(
+        new Error("No access, refresh token, API key or refresh handler callback is set."),
+      ),
+    ).toBe(true);
+    expect(isInvalidGrantError(new Error("no credentials configured"))).toBe(true);
+  });
+
   it("returns false for non-Error throwables", () => {
     expect(isInvalidGrantError("invalid_grant")).toBe(false);
     expect(isInvalidGrantError(null)).toBe(false);
