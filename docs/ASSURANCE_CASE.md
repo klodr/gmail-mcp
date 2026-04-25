@@ -81,7 +81,7 @@ weaknesses have been countered.
    version of `@klodr/gmail-mcp`. **Mitigations:** Sigstore signing
    of every release, SLSA in-toto attestation, npm provenance,
    documented verification path
-   (see [SECURITY.md → Verifying releases](../.github/SECURITY.md#verifying-releases-once-v1-is-out)).
+   (see [SECURITY.md → Verifying releases](../.github/SECURITY.md#verifying-releases)).
 8. **Malicious transitive dependency** — a sub-dep ships malicious
    code. **Mitigations:** Socket Security PR alerts, Dependabot
    grouped updates, CodeQL Advanced
