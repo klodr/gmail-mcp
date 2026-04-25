@@ -23,12 +23,22 @@ function mockGmail(opts: {
     threadGet: Array<unknown>;
     messageSend: Array<unknown>;
     draftCreate: Array<unknown>;
+    sendAsList: Array<unknown>;
+    getProfile: Array<unknown>;
   };
 } {
   const calls = {
     threadGet: [] as Array<unknown>,
     messageSend: [] as Array<unknown>,
     draftCreate: [] as Array<unknown>,
+    // The resolver-path methods are tracked too so a test can pin
+    // "we did NOT call resolveDefaultSender" by asserting both
+    // sendAs.list and getProfile counters stayed at zero — without
+    // these we could only check the indirect mutation of `args.from`,
+    // which leaves a hole if the resolver fired but happened to
+    // produce the same value the caller had set.
+    sendAsList: [] as Array<unknown>,
+    getProfile: [] as Array<unknown>,
   };
 
   const client = {
@@ -58,12 +68,18 @@ function mockGmail(opts: {
       // resolver pick a value without throwing.
       settings: {
         sendAs: {
-          list: async () => ({
-            data: { sendAs: [{ sendAsEmail: "me@example.com", isDefault: true }] },
-          }),
+          list: async (params: unknown) => {
+            calls.sendAsList.push(params);
+            return {
+              data: { sendAs: [{ sendAsEmail: "me@example.com", isDefault: true }] },
+            };
+          },
         },
       },
-      getProfile: async () => ({ data: { emailAddress: "me@example.com" } }),
+      getProfile: async (params: unknown) => {
+        calls.getProfile.push(params);
+        return { data: { emailAddress: "me@example.com" } };
+      },
     },
   } as unknown as gmail_v1.Gmail;
 
@@ -149,13 +165,19 @@ describe("sendOrDraftEmail — thread-header auto-resolve", () => {
     const args = baseArgs({ from: "me@example.com", threadId: "T_broken" });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await sendOrDraftEmail(client, "send", args);
-    warnSpy.mockRestore();
+    try {
+      const result = await sendOrDraftEmail(client, "send", args);
 
-    expect(args.inReplyTo).toBeUndefined();
-    expect(args.references).toBeUndefined();
-    expect(calls.messageSend).toHaveLength(1);
-    expect(result.content[0]?.text).toContain("sent successfully");
+      expect(args.inReplyTo).toBeUndefined();
+      expect(args.references).toBeUndefined();
+      expect(calls.messageSend).toHaveLength(1);
+      expect(result.content[0]?.text).toContain("sent successfully");
+    } finally {
+      // Always restore the spy — without `finally`, an unexpected
+      // throw or assertion failure inside the `try` would leak the
+      // mocked `console.warn` into every subsequent test in this run.
+      warnSpy.mockRestore();
+    }
   });
 
   it("does NOT re-fetch the thread when inReplyTo is already supplied by the caller", async () => {
@@ -190,6 +212,14 @@ describe("sendOrDraftEmail — from auto-resolution", () => {
     await sendOrDraftEmail(client, "send", args);
     expect(args.from).toBe("explicit@example.com");
     expect(calls.messageSend).toHaveLength(1);
+    // Pin the contract directly: if `from` is supplied, the resolver
+    // path is fully short-circuited — neither `sendAs.list` nor
+    // `getProfile` (the two API calls inside `resolveDefaultSender`)
+    // is invoked. Without this, the test would still pass even if the
+    // resolver fired and happened to produce the same value the
+    // caller had set, hiding a wasted round-trip on every send.
+    expect(calls.sendAsList).toHaveLength(0);
+    expect(calls.getProfile).toHaveLength(0);
   });
 });
 
