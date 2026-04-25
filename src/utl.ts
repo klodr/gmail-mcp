@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { randomBytes } from "crypto";
+import emailAddresses from "email-addresses";
 import nodemailer from "nodemailer";
 
 // Env-var names for the two jails. Hoisted to constants so a future
@@ -242,19 +243,34 @@ function encodeEmailHeader(text: string): string {
   return text;
 }
 
+/**
+ * Validate that `email` is a parseable RFC 5322 single address.
+ *
+ * Delegates to `email-addresses.parseOneAddress`, which is the same
+ * source-of-truth used by `email-export.ts` and `reply-all-helpers.ts`
+ * — keeping a single validator avoids drift where one layer accepted a
+ * shape the next rejected (and where the rejected shape would have
+ * thrown later, after the recipient-pairing gate or the attachment
+ * jail).
+ */
 export const validateEmail = (email: string): boolean => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  if (typeof email !== "string" || email.length === 0) return false;
+  return emailAddresses.parseOneAddress(email) !== null;
 };
 
 /**
  * Sanitize a value destined for an email header to prevent CRLF injection.
- * Strips \r, \n, and \0 characters that could inject additional headers.
+ * Strips ASCII control characters (\r, \n, \0) plus the Unicode line and
+ * paragraph separators (U+2028, U+2029) that some downstream parsers
+ * treat as line breaks. Belt-and-suspenders: Gmail itself accepts the
+ * Unicode separators in headers, but mail clients and forwarding hops
+ * may not.
+ *
  * Exported so test/fuzz.test.ts can fuzz the real implementation instead
  * of a drift-prone mirror.
  */
 export function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n\0]/g, "");
+  return value.replace(/[\r\n\0\u2028\u2029]/g, "");
 }
 
 /**

@@ -1,3 +1,4 @@
+import emailAddresses from "email-addresses";
 import { z } from "zod";
 
 // Gmail API IDs (messageId, threadId, labelId, attachmentId) are base64url
@@ -425,6 +426,12 @@ export const GetInboxWithThreadsSchema = z
 // Recipient pairing gate schema — opt-in allowlist ops (add/remove/list).
 // Gate itself is enforced in handleEmailAction + reply_all when
 // GMAIL_MCP_RECIPIENT_PAIRING=true. See src/recipient-pairing.ts.
+//
+// `email` is shape-checked at the schema layer with the same RFC 5322
+// parser (`email-addresses.parseOneAddress`) used by send/reply/draft —
+// so a malformed address is rejected pre-dispatch instead of bubbling
+// out of `addPairedAddress` at runtime, and the agent sees a Zod
+// validation error rather than a generic Error.
 export const PairRecipientSchema = z.object({
   action: z
     .enum(["add", "remove", "list"])
@@ -432,6 +439,10 @@ export const PairRecipientSchema = z.object({
   email: z
     .string()
     .max(512)
+    .refine(
+      (addr) => emailAddresses.parseOneAddress(addr) !== null,
+      "Must be a parseable RFC 5322 address (e.g. user@example.com).",
+    )
     .optional()
     .describe("Email address to add or remove. Required when action is add or remove."),
 });
