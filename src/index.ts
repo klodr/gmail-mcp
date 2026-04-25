@@ -84,7 +84,7 @@ import {
   ModifyThreadSchema,
   PairRecipientSchema,
 } from "./tools.js";
-import { gmailMessageToJson, emailToTxt, emailToHtml, EmailAttachment } from "./email-export.js";
+import { gmailMessageToJson, emailToTxt, emailToHtml } from "./email-export.js";
 import { makeHeaderGetter } from "./gmail-headers.js";
 import { logAudit } from "./audit-log.js";
 import { listPrompts, getPrompt } from "./prompts.js";
@@ -98,6 +98,16 @@ import {
   removePairedAddress,
   requirePairedRecipients,
 } from "./recipient-pairing.js";
+import {
+  MAX_MIME_DEPTH,
+  collectAttachmentsForThread,
+  extractAttachments,
+  extractEmailContent,
+} from "./mime-walkers.js";
+
+// Re-export for downstream consumers / tests that previously imported
+// from this module's barrel.
+export { MAX_MIME_DEPTH, extractAttachments, extractEmailContent };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -113,10 +123,10 @@ const CREDENTIALS_PATH =
 import type { gmail_v1 as gmail_v1_types } from "googleapis";
 type GmailMessagePart = gmail_v1_types.Schema$MessagePart;
 
-interface EmailContent {
-  text: string;
-  html: string;
-}
+// `EmailContent`, `MAX_MIME_DEPTH`, `extractEmailContent`, and
+// `extractAttachments` live in src/mime-walkers.ts so they can be
+// unit-tested without importing this dispatcher (which calls main()
+// on module load).
 
 // OAuth2 configuration
 let oauth2Client: OAuth2Client;
@@ -126,40 +136,6 @@ let authorizedScopes: string[] = DEFAULT_SCOPES;
 // `resolveDefaultSender` + its cache live in their own module so they
 // can be unit-tested without exercising the 1300-line dispatcher
 // below. See src/sender-resolver.ts for the fallback chain (GongRzhe#77).
-
-/**
- * Recursively extract email body content from MIME message parts
- * Handles complex email structures with nested parts
- */
-function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
-  // Initialize containers for different content types
-  let textContent = "";
-  let htmlContent = "";
-
-  // If the part has a body with data, process it based on MIME type
-  if (messagePart.body && messagePart.body.data) {
-    const content = Buffer.from(messagePart.body.data, "base64").toString("utf8");
-
-    // Store content based on its MIME type
-    if (messagePart.mimeType === "text/plain") {
-      textContent = content;
-    } else if (messagePart.mimeType === "text/html") {
-      htmlContent = content;
-    }
-  }
-
-  // If the part has nested parts, recursively process them
-  if (messagePart.parts && messagePart.parts.length > 0) {
-    for (const part of messagePart.parts) {
-      const { text, html } = extractEmailContent(part);
-      if (text) textContent += text;
-      if (html) htmlContent += html;
-    }
-  }
-
-  // Return both plain text and HTML content
-  return { text: textContent, html: htmlContent };
-}
 
 /**
  * Extract common headers from Gmail message payload
@@ -179,30 +155,6 @@ function extractHeaders(payload: GmailMessagePart | undefined): {
     date: getHeader("date"),
     rfcMessageId: getHeader("message-id"),
   };
-}
-
-/**
- * Extract attachments from Gmail message payload
- */
-function extractAttachments(payload: GmailMessagePart): EmailAttachment[] {
-  const attachments: EmailAttachment[] = [];
-
-  function processAttachmentParts(part: GmailMessagePart) {
-    if (part.body && part.body.attachmentId) {
-      attachments.push({
-        id: part.body.attachmentId,
-        filename: part.filename || `attachment-${part.body.attachmentId}`,
-        mimeType: part.mimeType || "application/octet-stream",
-        size: part.body.size || 0,
-      });
-    }
-    if (part.parts) {
-      part.parts.forEach((subpart: GmailMessagePart) => processAttachmentParts(subpart));
-    }
-  }
-
-  processAttachmentParts(payload);
-  return attachments;
 }
 
 function loadCredentials() {
@@ -249,6 +201,14 @@ function loadCredentials() {
         "— booting in lazy-auth mode. Tool calls that need Gmail will fail until `npx @klodr/gmail-mcp auth` is run.",
       );
       oauth2Client = new OAuth2Client();
+      // Narrow the advertised tool surface to the empty set until
+      // credentials are mounted — none of the 26 Gmail tools can
+      // succeed without an authorised scope, so advertising them on
+      // `tools/list` is misleading to agent operators inspecting
+      // capabilities pre-auth. `tools/list` then returns `[]`, and the
+      // first authenticated `tools/list` (post `npx @klodr/gmail-mcp
+      // auth`) sees the real surface.
+      authorizedScopes = [];
       return;
     }
 
@@ -331,15 +291,45 @@ async function authenticate(scopes: string[]) {
   }
 
   const port = parsed.port ? Number(parsed.port) : 80;
+  // Range-check the callback port up-front. The built-in auth server
+  // is a non-privileged loopback listener — privileged ports (1-1023)
+  // require root and are almost certainly a misconfiguration; ports
+  // outside 1-65535 are not valid TCP at all. Catching this here gives
+  // a clean error before `server.listen` would emit a less obvious
+  // EACCES/RANGE_ERR diagnostic.
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error(
+      `Callback port '${parsed.port || "(default)"}' is invalid. ` +
+        `The built-in auth server requires an unprivileged TCP port (1024-65535). ` +
+        `Pick a free port in that range and pass it via the callback URL.`,
+    );
+  }
   const callbackPath = parsed.pathname || "/oauth2callback";
 
   const server = http.createServer();
-  server.listen(port, hostname);
-
   // Convert shorthand scope names (e.g., "gmail.readonly") to full Google API URLs
   const scopeUrls = scopeNamesToUrls(scopes);
 
   return new Promise<void>((resolve, reject) => {
+    // Surface listen-time failures (port in use, address bind, etc.)
+    // immediately. Without this listener, `server.listen` failures would
+    // crash the process via an `uncaughtException`, hiding the real
+    // cause behind a generic stack trace.
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      const hint =
+        err.code === "EADDRINUSE"
+          ? ` Another process is already listening on that port — pick a different one or stop the conflicting process.`
+          : err.code === "EACCES"
+            ? ` Insufficient privilege to bind that port — pick a port >= 1024.`
+            : "";
+      reject(
+        new Error(`OAuth callback server failed to listen on ${hostname}:${port}.${hint}`, {
+          cause: err,
+        }),
+      );
+    });
+    server.listen(port, hostname);
+
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: "offline",
       scope: scopeUrls,
@@ -1745,27 +1735,11 @@ async function main() {
                 body = pickBodyAnnotated(text, html).body;
               }
 
-              // Extract attachment metadata
-              const attachments: EmailAttachment[] = [];
-              const processAttachmentParts = (part: GmailMessagePart) => {
-                if (part.body && part.body.attachmentId) {
-                  const filename = part.filename || `attachment-${part.body.attachmentId}`;
-                  attachments.push({
-                    id: part.body.attachmentId,
-                    filename: filename,
-                    mimeType: part.mimeType || "application/octet-stream",
-                    size: part.body.size || 0,
-                  });
-                }
-                if (part.parts) {
-                  part.parts.forEach((subpart: GmailMessagePart) =>
-                    processAttachmentParts(subpart),
-                  );
-                }
-              };
-              if (msg.payload) {
-                processAttachmentParts(msg.payload);
-              }
+              // Extract attachment metadata.
+              // Depth-bounded via collectAttachmentsForThread.
+              const attachments = msg.payload
+                ? collectAttachmentsForThread(msg.payload, "get_thread.processAttachmentParts")
+                : [];
 
               return {
                 messageId: msg.id || "",
@@ -1942,27 +1916,14 @@ async function main() {
                   // Same HTML-fallback note as `read_email` / `get_thread`.
                   const body = pickBodyAnnotated(text, html).body;
 
-                  // Extract attachment metadata
-                  const attachments: EmailAttachment[] = [];
-                  const processAttachmentParts = (part: GmailMessagePart) => {
-                    if (part.body && part.body.attachmentId) {
-                      const filename = part.filename || `attachment-${part.body.attachmentId}`;
-                      attachments.push({
-                        id: part.body.attachmentId,
-                        filename: filename,
-                        mimeType: part.mimeType || "application/octet-stream",
-                        size: part.body.size || 0,
-                      });
-                    }
-                    if (part.parts) {
-                      part.parts.forEach((subpart: GmailMessagePart) =>
-                        processAttachmentParts(subpart),
-                      );
-                    }
-                  };
-                  if (msg.payload) {
-                    processAttachmentParts(msg.payload);
-                  }
+                  // Extract attachment metadata.
+                  // Depth-bounded via collectAttachmentsForThread.
+                  const attachments = msg.payload
+                    ? collectAttachmentsForThread(
+                        msg.payload,
+                        "get_inbox_with_threads.processAttachmentParts",
+                      )
+                    : [];
 
                   return {
                     messageId: msg.id || "",

@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { randomBytes } from "crypto";
+import emailAddresses from "email-addresses";
 import nodemailer from "nodemailer";
 
 // Env-var names for the two jails. Hoisted to constants so a future
@@ -242,19 +243,44 @@ function encodeEmailHeader(text: string): string {
   return text;
 }
 
+/**
+ * Validate that `email` is a parseable RFC 5322 single address.
+ *
+ * Delegates to `email-addresses.parseOneAddress`, which is the same
+ * source-of-truth used by `email-export.ts` and `reply-all-helpers.ts`
+ * — keeping a single validator avoids drift where one layer accepted a
+ * shape the next rejected (and where the rejected shape would have
+ * thrown later, after the recipient-pairing gate or the attachment
+ * jail).
+ *
+ * `parseOneAddress` returns nodes whose `.type` may be `"mailbox"` (a
+ * single recipient like `"foo@bar.com"`), `"group"` (an RFC 5322
+ * group: `"team: a@b, c@d;"`), or `"address"`. A group parses fine
+ * but is NOT a single mailbox — accepting it here would let a caller
+ * pass `"team: a@b.com, c@d.com;"` past every recipient-level guard
+ * (pairing gate, audit log, scope check) since the downstream code
+ * assumes a single deliverable address. Restrict to `type === "mailbox"`.
+ * (Caught by CodeRabbit on PR #81.)
+ */
 export const validateEmail = (email: string): boolean => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  if (typeof email !== "string" || email.length === 0) return false;
+  const parsed = emailAddresses.parseOneAddress(email);
+  return parsed !== null && parsed.type === "mailbox";
 };
 
 /**
  * Sanitize a value destined for an email header to prevent CRLF injection.
- * Strips \r, \n, and \0 characters that could inject additional headers.
+ * Strips ASCII control characters (\r, \n, \0) plus the Unicode line and
+ * paragraph separators (U+2028, U+2029) that some downstream parsers
+ * treat as line breaks. Belt-and-suspenders: Gmail itself accepts the
+ * Unicode separators in headers, but mail clients and forwarding hops
+ * may not.
+ *
  * Exported so test/fuzz.test.ts can fuzz the real implementation instead
  * of a drift-prone mirror.
  */
 export function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n\0]/g, "");
+  return value.replace(/[\r\n\0\u2028\u2029]/g, "");
 }
 
 /**
