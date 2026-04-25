@@ -68,17 +68,31 @@ export interface InvalidGrantPayload {
  */
 export function isInvalidGrantError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  const needle = "invalid_grant";
-  if (err.message.toLowerCase().includes(needle)) return true;
+  const lowerMsg = err.message.toLowerCase();
+  // Classic OAuth `invalid_grant` shape — Google's response on a
+  // revoked / expired / reissued refresh token.
+  if (lowerMsg.includes("invalid_grant")) return true;
+  // Lazy-boot stub case: when no OAuth keys file exists, the server
+  // boots with `new OAuth2Client()` (no credentials). The very first
+  // `getAccessToken()` (or any tool call) then throws something
+  // shaped like:
+  //   "No access, refresh token, API key or refresh handler callback is set"
+  // or simply "no credentials". The remediation for the operator is
+  // identical to the invalid_grant case (run `auth`), so collapse
+  // both into a single agent-visible payload via the same predicate
+  // (per CR finding on PR #79).
+  if (lowerMsg.includes("no access, refresh token") || lowerMsg.includes("no credentials")) {
+    return true;
+  }
   const data = (err as unknown as GaxiosError).response?.data as
     | { error?: unknown; error_description?: unknown }
     | undefined;
-  if (typeof data?.error === "string" && data.error.toLowerCase().includes(needle)) {
+  if (typeof data?.error === "string" && data.error.toLowerCase().includes("invalid_grant")) {
     return true;
   }
   if (
     typeof data?.error_description === "string" &&
-    data.error_description.toLowerCase().includes(needle)
+    data.error_description.toLowerCase().includes("invalid_grant")
   ) {
     return true;
   }

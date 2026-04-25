@@ -92,16 +92,23 @@ jobs:
           fi
 
       - name: Smoke-test (container is executable and reaches the entrypoint)
-        # The stdio MCP server blocks on stdin. Healthy outcomes are
-        # either:
-        #   - exit 1: fail-fast when no gcp-oauth.keys.json is present
-        #     (no credentials volume mounted — the container refuses
-        #     to start). Must be accompanied by an error message
-        #     mentioning gcp-oauth.keys or GMAIL_OAUTH_PATH.
+        # The stdio MCP server blocks on stdin. Healthy outcomes are:
         #   - exit 124: `timeout` killed the process while it was
-        #     waiting on stdin for a JSON-RPC frame (would happen if
-        #     credentials WERE present, which CI never ships).
-        # Any other exit code fails CI so a broken entrypoint cannot
+        #     waiting on stdin for a JSON-RPC frame (the standard
+        #     happy-path when stdin stays open).
+        #   - exit 0 with the "lazy-auth mode" warning: lazy-boot
+        #     branch (no gcp-oauth.keys.json present) — the server
+        #     booted, registered handlers, then stdin EOF closed the
+        #     transport cleanly. This is the expected path on hosted
+        #     MCP runners (Glama, Smithery, Docker MCP Registry) that
+        #     run a `tools/list` smoke test before any credentials
+        #     volume is mounted. Must be accompanied by the lazy-boot
+        #     warning so a silent crash cannot impersonate this case.
+        #   - exit 1 with the legacy missing-credentials message:
+        #     kept for backwards compatibility with any deployment
+        #     that still expects the pre-lazy-boot fail-fast shape;
+        #     the runtime no longer takes this path on a fresh boot.
+        # Any other outcome fails CI so a broken entrypoint cannot
         # silently ship.
         run: |
           set +e
@@ -112,16 +119,30 @@ jobs:
             124)
               echo "Startup OK (exit=124 — stdin wait)"
               ;;
+            0)
+              # Tighten the guard: require the explicit lazy-auth warning,
+              # not just any mention of the OAuth keys path. The previous
+              # broader pattern accepted stderr that mentioned the path
+              # name without proving the lazy-boot branch actually fired
+              # — a real crash that happened to print the path during
+              # error formatting would have slipped through (CR finding).
+              if echo "$out" | grep -qF "booting in lazy-auth mode"; then
+                echo "Startup OK (exit=0 — lazy-auth boot, stdin EOF closed transport)"
+              else
+                echo "Exit 0 without the expected lazy-auth warning — real crash or wrong entrypoint" >&2
+                exit 1
+              fi
+              ;;
             1)
               if echo "$out" | grep -qEi "gcp-oauth\.keys|GMAIL_OAUTH_PATH"; then
-                echo "Startup OK (exit=1 — fail-fast on missing OAuth keys)"
+                echo "Startup OK (exit=1 — legacy fail-fast on missing OAuth keys)"
               else
                 echo "Exit 1 without the expected missing-credentials error — real crash" >&2
                 exit 1
               fi
               ;;
             *)
-              echo "Unexpected exit code $ec — only 1 (with missing-credentials message) or 124 (stdin wait) are healthy" >&2
+              echo "Unexpected exit code $ec — only 0 (with lazy-auth warning), 1 (with missing-credentials message), or 124 (stdin wait) are healthy" >&2
               exit 1
               ;;
           esac
