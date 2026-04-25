@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { gmail_v1 } from "googleapis";
@@ -28,18 +28,25 @@ import { registerMessageTools } from "./messages.js";
 import { registerLabelTools } from "./labels.js";
 import { registerFilterTools } from "./filters.js";
 import { registerThreadTools } from "./threads.js";
+import { registerDownloadTools } from "./downloads.js";
 import { resetRateLimitHistory } from "../rate-limit.js";
+import { resetJailDirCache } from "../utl.js";
 
 // Per-test rate-limit isolation: each test gets its own GMAIL_MCP_STATE_DIR
 // so the persistent rate-limit ledger does not leak across tests (without
 // this, the ~20 filter-tool calls below the 24h cap of the "filters"
-// bucket and subsequent tests get 429-ed).
+// bucket and subsequent tests get 429-ed). Same for download-jail
+// (GMAIL_MCP_DOWNLOAD_DIR + the in-process jail-root cache) so the
+// download tests in PR #6 do not write to one another's directories.
 let stateDir: string;
+let downloadDir: string;
 const originalEnv = { ...process.env };
 
 beforeEach(() => {
   stateDir = mkdtempSync(join(tmpdir(), "gmail-mcp-registrars-test-"));
+  downloadDir = mkdtempSync(join(tmpdir(), "gmail-mcp-download-test-"));
   process.env.GMAIL_MCP_STATE_DIR = stateDir;
+  process.env.GMAIL_MCP_DOWNLOAD_DIR = downloadDir;
   delete process.env.GMAIL_MCP_RATE_LIMIT_DISABLE;
   for (const k of Object.keys(process.env)) {
     if (k.startsWith("GMAIL_MCP_RATE_LIMIT_") && k !== "GMAIL_MCP_RATE_LIMIT_DISABLE") {
@@ -47,12 +54,15 @@ beforeEach(() => {
     }
   }
   resetRateLimitHistory();
+  resetJailDirCache();
 });
 
 afterEach(() => {
   rmSync(stateDir, { recursive: true, force: true });
+  rmSync(downloadDir, { recursive: true, force: true });
   process.env = { ...originalEnv };
   resetRateLimitHistory();
+  resetJailDirCache();
 });
 
 interface MockedGmailCalls {
@@ -60,7 +70,10 @@ interface MockedGmailCalls {
   messageGet: Array<unknown>;
   messageList: Array<unknown>;
   messageModify: Array<unknown>;
+  attachmentGet: Array<unknown>;
   threadModify: Array<unknown>;
+  threadGet: Array<unknown>;
+  threadList: Array<unknown>;
   filterDelete: Array<unknown>;
   filterCreate: Array<unknown>;
   filterList: Array<unknown>;
@@ -87,6 +100,30 @@ interface MockGmailOpts {
    * `search_emails`.
    */
   searchResults?: Array<{ id: string; subject?: string; from?: string; date?: string }>;
+  /**
+   * Pre-existing thread structure returned by
+   * `gmail.users.threads.list` + `gmail.users.threads.get`. Keyed by
+   * threadId for the `get` lookup.
+   */
+  threads?: Record<
+    string,
+    {
+      snippet?: string;
+      historyId?: string;
+      messages: Array<{
+        id: string;
+        labelIds?: string[];
+        bodyText?: string;
+        from?: string;
+        subject?: string;
+      }>;
+    }
+  >;
+  /**
+   * Attachment payload returned by `gmail.users.messages.attachments.get`
+   * (base64url-encoded). Used by `download_attachment` tests.
+   */
+  attachmentData?: string;
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -98,7 +135,10 @@ function mockGmail(opts: MockGmailOpts = {}): {
     messageGet: [],
     messageList: [],
     messageModify: [],
+    attachmentGet: [],
     threadModify: [],
+    threadGet: [],
+    threadList: [],
     filterDelete: [],
     filterCreate: [],
     filterList: [],
@@ -111,6 +151,15 @@ function mockGmail(opts: MockGmailOpts = {}): {
   const client = {
     users: {
       messages: {
+        attachments: {
+          get: async (params: unknown) => {
+            calls.attachmentGet.push(params);
+            const data =
+              opts.attachmentData ??
+              Buffer.from("%PDF-1.4 fake pdf content", "utf-8").toString("base64url");
+            return { data: { data, size: data.length } };
+          },
+        },
         delete: async (params: unknown) => {
           calls.messageDelete.push(params);
           return { data: {} };
@@ -122,36 +171,45 @@ function mockGmail(opts: MockGmailOpts = {}): {
         get: async (params: unknown) => {
           calls.messageGet.push(params);
           const id = (params as { id?: string }).id ?? "msg_unknown";
+          const format = (params as { format?: string }).format ?? "full";
           // Build a minimal MIME tree with one text/plain part
           // carrying the supplied body. Sufficient for read_email's
-          // header + body + truncation logic.
+          // header + body + truncation logic, and for download_email
+          // (json/txt/html) which extracts the same shape.
           const bodyText = opts.messageBodyText ?? "default body content";
           const bodyB64 = Buffer.from(bodyText, "utf-8")
             .toString("base64")
             .replace(/\+/g, "-")
             .replace(/\//g, "_")
             .replace(/=+$/, "");
-          return {
-            data: {
-              id,
-              threadId: `thread_for_${id}`,
-              payload: {
-                headers: [
-                  { name: "From", value: "Alice <alice@example.com>" },
-                  { name: "To", value: "bob@example.com" },
-                  { name: "Subject", value: `Test message ${id}` },
-                  { name: "Date", value: "Fri, 25 Apr 2026 10:00:00 +0000" },
-                  { name: "Message-ID", value: `<${id}@example.com>` },
-                ],
-                parts: [
-                  {
-                    mimeType: "text/plain",
-                    body: { size: bodyText.length, data: bodyB64 },
-                  },
-                ],
-              },
+          const fullBase = {
+            id,
+            threadId: `thread_for_${id}`,
+            payload: {
+              headers: [
+                { name: "From", value: "Alice <alice@example.com>" },
+                { name: "To", value: "bob@example.com" },
+                { name: "Subject", value: `Test message ${id}` },
+                { name: "Date", value: "Fri, 25 Apr 2026 10:00:00 +0000" },
+                { name: "Message-ID", value: `<${id}@example.com>` },
+              ],
+              parts: [
+                {
+                  mimeType: "text/plain",
+                  body: { size: bodyText.length, data: bodyB64 },
+                },
+              ],
             },
           };
+          if (format === "raw") {
+            // download_email format=eml issues a separate raw fetch
+            // alongside the full one. Return a minimal RFC822 payload.
+            const rfc822 = `From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Test message ${id}\r\n\r\n${bodyText}`;
+            return {
+              data: { ...fullBase, raw: Buffer.from(rfc822, "utf-8").toString("base64url") },
+            };
+          }
+          return { data: fullBase };
         },
         list: async (params: unknown) => {
           calls.messageList.push(params);
@@ -165,6 +223,58 @@ function mockGmail(opts: MockGmailOpts = {}): {
         modify: async (params: unknown) => {
           calls.threadModify.push(params);
           return { data: {} };
+        },
+        get: async (params: unknown) => {
+          calls.threadGet.push(params);
+          const id = (params as { id?: string }).id ?? "thread_unknown";
+          const t = opts.threads?.[id];
+          if (!t) {
+            return { data: { messages: [] } };
+          }
+          return {
+            data: {
+              messages: t.messages.map((m) => {
+                const bodyText = m.bodyText ?? "thread body";
+                const bodyB64 = Buffer.from(bodyText, "utf-8")
+                  .toString("base64")
+                  .replace(/\+/g, "-")
+                  .replace(/\//g, "_")
+                  .replace(/=+$/, "");
+                return {
+                  id: m.id,
+                  threadId: id,
+                  labelIds: m.labelIds ?? [],
+                  payload: {
+                    headers: [
+                      { name: "From", value: m.from ?? "alice@example.com" },
+                      { name: "Subject", value: m.subject ?? `Msg ${m.id}` },
+                      { name: "Date", value: "Fri, 25 Apr 2026 10:00:00 +0000" },
+                      { name: "Message-ID", value: `<${m.id}@example.com>` },
+                    ],
+                    parts: [
+                      {
+                        mimeType: "text/plain",
+                        body: { size: bodyText.length, data: bodyB64 },
+                      },
+                    ],
+                  },
+                };
+              }),
+            },
+          };
+        },
+        list: async (params: unknown) => {
+          calls.threadList.push(params);
+          const ids = Object.keys(opts.threads ?? {});
+          return {
+            data: {
+              threads: ids.map((id) => ({
+                id,
+                snippet: opts.threads?.[id]?.snippet ?? "",
+                historyId: opts.threads?.[id]?.historyId ?? "",
+              })),
+            },
+          };
         },
       },
       labels: {
@@ -285,6 +395,7 @@ async function buildAndConnect(
   registerLabelTools(server, gmail, scopes);
   registerFilterTools(server, gmail, scopes);
   registerThreadTools(server, gmail, scopes);
+  registerDownloadTools(server, gmail, scopes);
 
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "registrars-test", version: "0.0.0" });
@@ -808,8 +919,149 @@ describe("PR #5 registrars — modify_email + batch_*", () => {
   });
 });
 
-describe("PR #3+#4+#5 registrars — combined tools/list shape", () => {
-  it("advertises every PR-#3+#4+#5 tool when the token covers every required scope", async () => {
+describe("PR #6 registrars — download_email + download_attachment", () => {
+  it("download_email json format writes a JSON file under the download jail", async () => {
+    await withFix(["gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "download_email",
+        arguments: { messageId: "msg_dl_json", savePath: downloadDir, format: "json" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain('"status": "saved"');
+      expect(text).toContain("msg_dl_json.json");
+      // Verify the file actually exists in the jail.
+      const written = readdirSync(downloadDir);
+      expect(written).toContain("msg_dl_json.json");
+    });
+  });
+
+  it("download_email eml format issues both full+raw fetches in parallel", async () => {
+    await withFix(["gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "download_email",
+        arguments: { messageId: "msg_dl_eml", savePath: downloadDir, format: "eml" },
+      })) as { content: Array<{ type: string; text: string }> };
+      expect(result.content[0]?.text).toContain("msg_dl_eml.eml");
+      // Two get calls: one full, one raw.
+      expect(fix.calls.messageGet).toHaveLength(2);
+      const formats = fix.calls.messageGet.map((c) => (c as { format?: string }).format).sort();
+      expect(formats).toEqual(["full", "raw"]);
+    });
+  });
+
+  it("download_attachment writes the bytes under the download jail", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "download_attachment",
+        arguments: {
+          messageId: "msg_with_att",
+          attachmentId: "att_1",
+          filename: "report.pdf",
+          savePath: downloadDir,
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("report.pdf");
+      const written = readdirSync(downloadDir);
+      expect(written).toContain("report.pdf");
+    });
+  });
+});
+
+describe("PR #6 registrars — get_thread + list_inbox_threads + get_inbox_with_threads", () => {
+  const fixtureThreads = {
+    thread_a: {
+      snippet: "thread A snippet",
+      historyId: "h1",
+      messages: [
+        { id: "m1", from: "alice@example.com", subject: "First", bodyText: "First body" },
+        { id: "m2", from: "bob@example.com", subject: "Second", bodyText: "Second body" },
+      ],
+    },
+    thread_b: {
+      snippet: "thread B snippet",
+      historyId: "h2",
+      messages: [{ id: "m3", from: "carol@example.com", subject: "Third", bodyText: "Body 3" }],
+    },
+  };
+
+  it("get_thread returns each message's headers + body in JSON", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "get_thread",
+          arguments: { threadId: "thread_a" },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain('"messageCount": 2');
+        expect(text).toContain("First body");
+        expect(text).toContain("Second body");
+        expect(text).toContain("alice@example.com");
+        expect(text).toContain("bob@example.com");
+      },
+      { threads: fixtureThreads },
+    );
+  });
+
+  it("list_inbox_threads returns a metadata summary per thread", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "list_inbox_threads",
+          arguments: { query: "in:inbox", maxResults: 10 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain('"resultCount": 2');
+        expect(text).toContain("thread_a");
+        expect(text).toContain("thread_b");
+        // Latest message metadata pulled.
+        expect(text).toContain("Second");
+      },
+      { threads: fixtureThreads },
+    );
+  });
+
+  it("get_inbox_with_threads expandThreads=false returns the lightweight summary", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "get_inbox_with_threads",
+          arguments: { expandThreads: false, query: "in:inbox", maxResults: 10 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("thread_a");
+        // Summary path → no body content rendered.
+        expect(text).not.toContain("First body");
+      },
+      { threads: fixtureThreads },
+    );
+  });
+
+  it("get_inbox_with_threads expandThreads=true fetches and renders every message body", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "get_inbox_with_threads",
+          arguments: { expandThreads: true, query: "in:inbox", maxResults: 10 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        // Both bodies rendered.
+        expect(text).toContain("First body");
+        expect(text).toContain("Second body");
+        expect(text).toContain("Body 3");
+      },
+      { threads: fixtureThreads },
+    );
+  });
+});
+
+describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
+  it("advertises every PR-#3+#4+#5+#6 tool when the token covers every required scope", async () => {
     await withFix(
       ["mail.google.com", "gmail.modify", "gmail.labels", "gmail.settings.basic", "gmail.readonly"],
       async (fix) => {
@@ -824,10 +1076,15 @@ describe("PR #3+#4+#5 registrars — combined tools/list shape", () => {
           "delete_email",
           "delete_filter",
           "delete_label",
+          "download_attachment",
+          "download_email",
           "get_filter",
+          "get_inbox_with_threads",
           "get_or_create_label",
+          "get_thread",
           "list_email_labels",
           "list_filters",
+          "list_inbox_threads",
           "modify_email",
           "modify_thread",
           "read_email",
