@@ -120,7 +120,13 @@ jobs:
               echo "Startup OK (exit=124 — stdin wait)"
               ;;
             0)
-              if echo "$out" | grep -qEi "lazy-auth mode|gcp-oauth\.keys|GMAIL_OAUTH_PATH"; then
+              # Tighten the guard: require the explicit lazy-auth warning,
+              # not just any mention of the OAuth keys path. The previous
+              # broader pattern accepted stderr that mentioned the path
+              # name without proving the lazy-boot branch actually fired
+              # — a real crash that happened to print the path during
+              # error formatting would have slipped through (CR finding).
+              if echo "$out" | grep -qF "booting in lazy-auth mode"; then
                 echo "Startup OK (exit=0 — lazy-auth boot, stdin EOF closed transport)"
               else
                 echo "Exit 0 without the expected lazy-auth warning — real crash or wrong entrypoint" >&2
