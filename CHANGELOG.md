@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-04-25 — Tool descriptions polish
+
+A documentation-quality release. Every one of the 26 tool definitions in `src/tools.ts` is rewritten in a structured TDQS form (USE WHEN / DO NOT USE / SIDE EFFECTS / RETURNS), driven by an LLM-agent-orientation review of the Mercury runbook from Glama and cross-validated against [Anthropic — Writing Tools for Agents](https://www.anthropic.com/engineering/writing-tools-for-agents), the [MCP Tools Specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools), and [SEP-1382](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1382). Two small dependency-hygiene fixes ride along (gaxios moved to devDependencies; `packageManager` and `pnpm.onlyBuiltDependencies` pinned for reproducibility on pnpm-based registries). No runtime change. No schema change.
+
+### Changed
+
+- **Tool descriptions adopt the TDQS pattern** — every one of the 26 tool definitions in `src/tools.ts` is restructured into explicit USE WHEN / DO NOT USE / SIDE EFFECTS / RETURNS sections. Read-only tools (10) drop the trivial `SIDE EFFECTS` line — the `read_/list_/get_/download_` prefix and the `readOnlyHint: true` annotation already encode the property machine-readably. Non-destructive write tools (8) surface persistence, idempotency, and the recipient-pairing gate. Destructive tools (8) carry explicit `PERMANENT` / `irrecoverable` / `ALWAYS confirm with user` warnings on `delete_email`, `batch_delete_emails`, `delete_label`, and `delete_filter`; modify-class tools are flagged reversible.
+- **Disambiguation of overlapping read paths** — `read_email` vs `search_emails` vs `list_inbox_threads` vs `get_thread` vs `get_inbox_with_threads` vs `download_email` (six distinct read entry points) cross-referenced in the `DO NOT USE` of each. Same for `send_email` vs `reply_all` vs `draft_email`, `modify_email` vs `modify_thread` vs `batch_modify_emails`, `delete_email` vs `modify_email`-to-Trash, `create_label` vs `get_or_create_label`.
+- **`gaxios` moved from `dependencies` to `devDependencies`** — `src/gmail-errors.ts:12` only uses `gaxios` as `import type { GaxiosError }`, and `tsup.config.ts` has `dts: false`, so no runtime require nor `.d.ts` is shipped to consumers. Glama / pnpm strict builds still resolve at build time (devDependencies are installed during build).
+- **`packageManager` field pinned to `npm@10.9.7`** — matches the npm version bundled with Node 22.22.2 (our `engines.node` floor), so Corepack stays a no-op for default Node 22 installs and a no-cost pin elsewhere. Stops a contributor or CI runner with an older npm from regenerating a lockfileVersion 2 lockfile.
+- **`pnpm.onlyBuiltDependencies: ["esbuild"]`** — pnpm-based registries (Glama, Smithery, etc.) can now build cleanly without operator-prompt for esbuild's post-install hook. Other transitive post-install scripts stay blocked.
+- **README MIT badge dropped** — license is already surfaced by GitHub (sidebar, auto-detected from `LICENSE`) and npm (right rail, parsed from `package.json` `license`). The third copy in the README was noise without information.
+
+### Added
+
+- **`docs/ROADMAP.md` — MCP `outputSchema` per tool item** — once the `Server` → `McpServer` migration lands and a `defineTool()` wrapper replaces today's monolithic `CallToolRequestSchema` switch, extend it with an optional `outputSchema?: ZodRawShape` and write a Zod schema for each of the 26 tools (MCP spec 2025-06-18+). Lets us drop the textual `RETURNS:` block from tool descriptions and rely on a machine-readable contract instead.
+
 ## [0.20.0] - 2026-04-25 — Security release
 
 A minor-version jump from `0.10.0` (skipping `0.11`–`0.19`) signals the
@@ -199,7 +216,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 This repository is a fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Pre-fork changelog is not reproduced here — see the upstream history and the acknowledgments in the README.
 
-[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/klodr/gmail-mcp/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/klodr/gmail-mcp/compare/v0.10.0...v0.20.0
 [0.10.0]: https://github.com/klodr/gmail-mcp/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/klodr/gmail-mcp/compare/v0.9.1...v0.9.2
