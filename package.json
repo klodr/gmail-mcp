@@ -59,10 +59,11 @@
   "engines": {
     "node": ">=22.22.2"
   },
-  "packageManager": "npm@11.12.1",
+  "packageManager": "npm@10.9.7",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "email-addresses": "^5.0.0",
+    "gaxios": "^7.1.4",
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
     "nodemailer": "^8.0.5",
@@ -82,5 +83,10 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.2",
     "vitest": "^4.1.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
