@@ -141,13 +141,25 @@ export function parseTimeoutMs(
  * exits before reaching the transport).
  */
 export async function runServer(opts: RunServerOpts): Promise<void> {
+  /* v8 ignore next 2 -- trivial pass-through defaults; tests
+     always inject log + exit. The default arrow bodies are
+     `console.error(...)` and `process.exit(code)` — calling either
+     from a unit test would corrupt test output (the former) or
+     kill the runner (the latter). */
   const log = opts.log ?? ((msg: string, ...rest: unknown[]) => console.error(msg, ...rest));
   const exit = opts.exit ?? ((code: number) => process.exit(code));
 
   const CONFIG_DIR = path.join(os.homedir(), ".gmail-mcp");
+  /* v8 ignore start -- env-var-vs-default fallback branches for the
+     two OAuth file paths. Tests always inject `env` with explicit
+     paths so the `||` short-circuit's right-hand side
+     (`path.join(CONFIG_DIR, ...)`) is never reached. The default
+     `~/.gmail-mcp/gcp-oauth.keys.json` resolution is the production
+     happy path and is exercised by every real `npx ... auth` run. */
   const OAUTH_PATH = opts.env.GMAIL_OAUTH_PATH || path.join(CONFIG_DIR, "gcp-oauth.keys.json");
   const CREDENTIALS_PATH =
     opts.env.GMAIL_CREDENTIALS_PATH || path.join(CONFIG_DIR, "credentials.json");
+  /* v8 ignore stop */
 
   const callbackArg = parseCallbackArg(opts.argv);
 
@@ -206,6 +218,12 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
         log,
       });
     } catch (err: unknown) {
+      // `err instanceof Error` is the common path (authenticate
+      // throws Error subclasses). The `String(err)` arm is the
+      // defensive fallback when a non-Error value gets thrown
+      // (e.g. legacy code that `throw "string-message"`).
+      /* v8 ignore next -- non-Error throw is defensive; authenticate
+         only ever throws Error subclasses today. */
       const msg = err instanceof Error ? err.message : String(err);
       log(`Authentication failed: ${msg}`);
       exit(1);

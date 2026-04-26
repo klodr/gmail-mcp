@@ -165,21 +165,30 @@ export function registerDownloadTools(
         // basename to strip; belt-and-braces basename after.
         filename = path.basename(sanitizeAttachmentFilename(filename));
 
-        // Edge case: a filename made entirely of NULs / control chars
-        // collapses to "" through sanitizeAttachmentFilename, then
-        // path.basename("") stays "". `path.resolve(savePath, "")`
-        // would equal `savePath` itself — a directory — and
-        // safeWriteFile would either error obscurely or overwrite the
-        // jail root. Fall back to a synthetic non-empty name so the
-        // attachment lands as a regular file.
+        /* v8 ignore start -- defence-in-depth fallback that's
+           unreachable through the public surface today:
+           sanitizeAttachmentFilename collapses empty/NUL/control
+           inputs to the literal "attachment", so path.basename
+           never returns "" or "." here. Kept as a guard against a
+           future sanitize change that returns "" or "." instead
+           of "attachment". */
         if (filename === "" || filename === ".") {
           filename = `attachment-${args.attachmentId}`;
         }
+        /* v8 ignore stop */
 
         const fullPath = path.resolve(savePath, filename);
+        /* v8 ignore start -- defence-in-depth path-traversal guard
+           that's unreachable through the public surface today:
+           sanitizeAttachmentFilename replaces `/` with `_`, so a
+           hostile `../../etc/passwd` filename becomes
+           `..___etc_passwd` and resolves INSIDE savePath. Kept as
+           a guard against a future sanitize change that lets a
+           separator slip through. */
         if (!fullPath.startsWith(savePath + path.sep) && fullPath !== savePath) {
           throw new Error("Invalid filename: path traversal detected");
         }
+        /* v8 ignore stop */
         const writtenPath = safeWriteFile(fullPath, buffer, { onCollision: "suffix" });
 
         return {
