@@ -307,4 +307,88 @@ describe("defineTool", () => {
     );
     expect(registered).toBe(true);
   });
+
+  it("exposes the optional outputSchema via tools/list when supplied", async () => {
+    // Pin the new MCP `outputSchema` contract: when defineTool is
+    // called with the optional 9th argument, the schema must be
+    // exposed verbatim on `tools/list` (so an agent can introspect
+    // the structured-content shape without parsing the textual
+    // RETURNS: block in `description`). Verifies the wiring on
+    // `_shared.ts:127-138` — the `outputSchema` arg threads
+    // through to the SDK's `registerTool` config.
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    defineTool(
+      server,
+      "test_with_output",
+      "Tool that emits a typed structuredContent payload.",
+      { foo: z.string() },
+      async () =>
+        Promise.resolve({
+          content: [{ type: "text", text: '{"id":"x","count":1}' }],
+          structuredContent: { id: "x", count: 1 },
+        }),
+      { readOnlyHint: true },
+      ["gmail.readonly"],
+      ["gmail.readonly"],
+      { id: z.string(), count: z.number().int() },
+    );
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const list = await client.listTools();
+      const t = list.tools.find((tool) => tool.name === "test_with_output");
+      expect(t).toBeDefined();
+      // `outputSchema` is a JSON Schema with `type: "object"` + the
+      // shape's properties. Pin both that it exists and that the
+      // properties match the Zod shape we supplied.
+      expect(t?.outputSchema).toBeDefined();
+      expect(t?.outputSchema?.type).toBe("object");
+      const props = (t?.outputSchema as { properties?: Record<string, unknown> }).properties;
+      expect(props?.id).toBeDefined();
+      expect(props?.count).toBeDefined();
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
+  it("omits outputSchema from tools/list when none is supplied (back-compat)", async () => {
+    // Tools registered WITHOUT the new optional 9th arg keep the
+    // pre-PR behaviour: `tools/list` does not advertise an
+    // `outputSchema` field. Pin this so the migration is safe to
+    // roll out tool-by-tool without breaking existing clients
+    // that ignore `outputSchema`.
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    defineTool(
+      server,
+      "test_without_output",
+      "Tool with no outputSchema (back-compat).",
+      { foo: z.string() },
+      noopHandler,
+      { readOnlyHint: true },
+      ["gmail.readonly"],
+      ["gmail.readonly"],
+    );
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const list = await client.listTools();
+      const t = list.tools.find((tool) => tool.name === "test_without_output");
+      expect(t).toBeDefined();
+      expect(t?.outputSchema).toBeUndefined();
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
 });

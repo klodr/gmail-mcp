@@ -62,7 +62,7 @@ export function pullToolMeta(name: string): {
  * `ListToolsRequestSchema` filter in the legacy dispatcher. Returns
  * `true` when the tool was actually registered, `false` when skipped.
  */
-export function defineTool<S extends ZodRawShape>(
+export function defineTool<S extends ZodRawShape, O extends ZodRawShape = ZodRawShape>(
   server: McpServer,
   name: string,
   description: string,
@@ -71,6 +71,7 @@ export function defineTool<S extends ZodRawShape>(
   annotations: ToolAnnotations,
   requiredScopes: readonly string[],
   authorizedScopes: readonly string[],
+  outputSchema?: O,
 ): boolean {
   // ANY-of-required semantics — INTENTIONAL, mirrors the legacy
   // dispatcher's `hasScope` filter at `src/index.ts:516-521`. Each
@@ -120,7 +121,35 @@ export function defineTool<S extends ZodRawShape>(
   // what the SDK expects (every emit is `{ type: "text", text: … }`),
   // so the cast is sound. Documented in `src/middleware.ts:91`.
   const sdkCallback = adapter as unknown as Parameters<McpServer["registerTool"]>[2];
-  server.registerTool(name, { description, inputSchema: strictSchema, annotations }, sdkCallback);
+  // Pin the optional `outputSchema` onto the SDK's registerTool
+  // config when supplied. Two consumer sides:
+  //   1. `tools/list` advertises the schema in its `outputSchema`
+  //      field, so an MCP client / agent can introspect the
+  //      structured contract without parsing the textual `RETURNS:`
+  //      block in `description`.
+  //   2. The SDK validates each `structuredContent` payload against
+  //      the schema before emitting — a regression that drops a
+  //      field or returns the wrong type fails at the MCP boundary
+  //      instead of silently producing a malformed agent input.
+  // Schemas are intentionally `ZodRawShape` (not `z.object(...)`),
+  // matching the inputSchema convention; the SDK wraps them with
+  // `z.object(...).passthrough()` internally.
+  //
+  // The SDK's registerTool config type is over-loaded with an
+  // unwieldy generic discriminator that confuses TS's structural
+  // inference here — we hand-roll the config object as `unknown`
+  // and let the SDK accept it. The runtime shape is exactly what
+  // the SDK expects; the type-side gymnastics are purely about
+  // working around the deprecated overload disambiguation.
+  const config: Record<string, unknown> = {
+    description,
+    inputSchema: strictSchema,
+    annotations,
+  };
+  if (outputSchema) {
+    config.outputSchema = outputSchema;
+  }
+  server.registerTool(name, config, sdkCallback);
 
   return true;
 }
