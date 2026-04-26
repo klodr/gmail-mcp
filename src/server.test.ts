@@ -391,4 +391,65 @@ describe("defineTool", () => {
       await Promise.all([client.close(), server.close()]);
     }
   });
+
+  it("rejects a tool call when structuredContent violates the declared outputSchema", async () => {
+    // Pin the RUNTIME validation path (not just discovery via
+    // tools/list). The SDK validates each `structuredContent`
+    // payload against the schema BEFORE emitting — a regression
+    // that drops the validation wiring would still leave
+    // tools/list looking correct but quietly let malformed
+    // payloads slip through to the agent. Define a tool with a
+    // strict numeric schema, have its handler return a string
+    // where a number is expected, and assert the SDK throws an
+    // `Output validation error: ...` typed McpError.
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    defineTool(
+      server,
+      "test_runtime_validation",
+      "Tool whose handler emits a structuredContent that violates its schema.",
+      { foo: z.string() },
+      async () =>
+        Promise.resolve({
+          content: [{ type: "text", text: '{"id":"x","count":"NOT-A-NUMBER"}' }],
+          // Deliberately malformed: schema below requires count: number,
+          // we emit a string. The SDK's outputSchema validator must
+          // catch this BEFORE the call returns.
+          structuredContent: { id: "x", count: "NOT-A-NUMBER" },
+        }),
+      { readOnlyHint: true },
+      ["gmail.readonly"],
+      ["gmail.readonly"],
+      { id: z.string(), count: z.number().int() },
+    );
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "validation-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      // The SDK throws `McpError(InvalidParams, "Output validation
+      // error: ...")` inside the request handler. wrapToolHandler's
+      // sanitize-fence catch arm intercepts it and surfaces it
+      // through the MCP-standard `{ isError: true, content: [...] }`
+      // envelope rather than as a JSON-RPC-level rejection — pin
+      // both that the call lands as isError AND that the diagnostic
+      // text names "Output validation error" so an agent can branch
+      // on the contract violation specifically.
+      const result = (await client.callTool({
+        name: "test_runtime_validation",
+        arguments: { foo: "bar" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain("Output validation error");
+      expect(text).toContain("test_runtime_validation");
+      // Pin the offending field name in the diagnostic.
+      expect(text).toContain("count");
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
 });
