@@ -217,7 +217,7 @@ See [ROADMAP.md](docs/ROADMAP.md).
 
 ### Wider Gmail-MCP landscape
 
-29 standalone repositories and 323 forks of the original GongRzhe server are reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md) — which ideas we borrowed, which we chose not to, and where `klodr/gmail-mcp` sits on the maturity axes.
+29 standalone repositories and 349 forks of the original GongRzhe server are reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md) — which ideas we borrowed, which we chose not to, and where `klodr/gmail-mcp` sits on the maturity axes.
 
 ## 🤝 Contributing
 

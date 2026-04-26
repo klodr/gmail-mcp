@@ -69,7 +69,8 @@ rate-limit semantics are all preserved.
   on GongRzhe upstream: 323 → 349. The "GongRzhe is dormant" line is
   reworded to "**ARCHIVED**". No new "Serious contender" emerged in
   the 4-day window; classification is unchanged. Footer
-  `klodr/gmail-mcp` line updated to "We just shipped v0.30.0".
+  `klodr/gmail-mcp` line updated to "First tagged version April 2026"
+  (stable across future releases — no per-cut edit needed).
 
 ### Added
 
