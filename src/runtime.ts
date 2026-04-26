@@ -143,6 +143,12 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
       Boolean(opts.env.GMAIL_OAUTH_PATH) || Boolean(opts.env.GMAIL_CREDENTIALS_PATH),
     callbackArg,
     log,
+    // Thread the runServer-injected exit handler through to
+    // loadCredentials. Without this, a malformed `gcp-oauth.keys.json`
+    // (missing `installed`/`web`, partial keys, JSON.parse failure)
+    // would call `process.exit(1)` directly, killing the test runner
+    // even when the test injected its own `exit` to capture the code.
+    exitOnInvalidKeys: exit,
   });
 
   if (opts.argv[2] === "auth") {

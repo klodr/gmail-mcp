@@ -274,4 +274,39 @@ describe("runServer auth subcommand", () => {
     // emitted; the precise port-1023 error message is the proof.
     expect(caughtErr?.message).toMatch(/Callback port '1023' is invalid/);
   });
+
+  it("threads the injected exit handler through to loadCredentials (malformed keys)", async () => {
+    // CR Major: runServer injects `exit` but previously did not
+    // forward it to `loadCredentials`. A malformed
+    // `gcp-oauth.keys.json` (missing `installed`/`web`, partial
+    // shape, JSON.parse failure) would call `process.exit(1)`
+    // directly — killing the test runner even when the test
+    // injected its own `exit` to capture the code. Pin the
+    // `exitOnInvalidKeys: exit` propagation by writing a partial
+    // keys file (no client_secret), confirming the runServer's
+    // injected exit is the one that fires (caught via the sentinel
+    // error pattern rather than crashing the runner).
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, JSON.stringify({ installed: { client_id: "x" } }));
+    let caughtErr: Error | undefined;
+    let exitCode: number | undefined;
+    const exitFn = (code: number): never => {
+      exitCode = code;
+      throw new Error(`__runserver_exit_${code}__`);
+    };
+    await runServer({
+      argv: ["node", "index.js"],
+      env: { GMAIL_OAUTH_PATH: oauthPath, GMAIL_CREDENTIALS_PATH: credentialsPath },
+      log,
+      exit: exitFn,
+    }).catch((err: unknown) => {
+      caughtErr = err instanceof Error ? err : new Error(String(err));
+    });
+    // Sentinel error proves the INJECTED exit fired (not
+    // process.exit, which would have killed the runner before we
+    // could observe anything). Code is 1 — the invalid-keys path.
+    expect(caughtErr?.message).toBe("__runserver_exit_1__");
+    expect(exitCode).toBe(1);
+    expect(logCapture.join("\n")).toContain("non-empty client_id and client_secret values");
+  });
 });
