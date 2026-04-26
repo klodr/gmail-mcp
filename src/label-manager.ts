@@ -231,7 +231,16 @@ export async function findLabelByName(gmail: gmail_v1.Gmail, labelName: string) 
  */
 export interface GetOrCreateLabelResult {
   label: GmailLabel;
-  /** True when `findLabelByName` returned a hit; false when `createLabel` ran. */
+  /**
+   * True when the label was already on the account at the time of the
+   * call — covers two paths:
+   *   1. `findLabelByName` returned a hit on the first lookup.
+   *   2. `createLabel` raced against another caller, threw
+   *      `DuplicateLabelError`, and the TOCTOU rescan via
+   *      `findLabelByName` then succeeded.
+   * False ONLY when `createLabel` actually ran to completion (the
+   * label did not exist before this call and we created it).
+   */
   found: boolean;
 }
 

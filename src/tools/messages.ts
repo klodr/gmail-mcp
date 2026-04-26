@@ -184,9 +184,23 @@ export function registerMessageTools(
     modifyEmail.description,
     ModifyEmailSchema.shape,
     async (args) => {
+      // ModifyEmailSchema exposes BOTH `labelIds` (legacy "apply
+      // these labels" naming inherited from the GongRzhe fork chain)
+      // AND `addLabelIds` (Gmail-API-aligned "add these labels"
+      // naming). The Gmail API only accepts `addLabelIds`, so both
+      // schema fields map onto the same request payload key. When a
+      // caller supplies both, merge into a deduplicated set rather
+      // than letting the second overwrite the first — the caller
+      // clearly meant "all of these", and silently dropping half the
+      // request would be a foot-gun. Mirrors the underlying Gmail
+      // API's union-of-labels semantics. CR finding on PR #84.
       const requestBody: Record<string, unknown> = {};
-      if (args.labelIds) requestBody.addLabelIds = args.labelIds;
-      if (args.addLabelIds) requestBody.addLabelIds = args.addLabelIds;
+      const additions: string[] = [];
+      if (args.labelIds) additions.push(...args.labelIds);
+      if (args.addLabelIds) additions.push(...args.addLabelIds);
+      if (additions.length > 0) {
+        requestBody.addLabelIds = Array.from(new Set(additions));
+      }
       if (args.removeLabelIds) requestBody.removeLabelIds = args.removeLabelIds;
       await gmail.users.messages.modify({ userId: "me", id: args.messageId, requestBody });
       return {

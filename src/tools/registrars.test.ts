@@ -172,6 +172,19 @@ function mockGmail(opts: MockGmailOpts = {}): {
           calls.messageGet.push(params);
           const id = (params as { id?: string }).id ?? "msg_unknown";
           const format = (params as { format?: string }).format ?? "full";
+          // Reject unsupported formats so the test fixture does not
+          // accidentally pass when a registrar regression switches to
+          // `format: "minimal"` (or anything else not actually wired).
+          // The 3 supported formats are: "full" (read_email,
+          // download_email, get_inbox_with_threads), "raw"
+          // (download_email format=eml), "metadata" (search_emails
+          // header-only fetch). CR finding on PR #84.
+          const SUPPORTED = new Set(["full", "raw", "metadata"]);
+          if (!SUPPORTED.has(format)) {
+            throw new Error(
+              `mockGmail: messages.get called with unexpected format=${format}; supported: ${[...SUPPORTED].join(", ")} (id=${id})`,
+            );
+          }
           // Build a minimal MIME tree with one text/plain part
           // carrying the supplied body. Sufficient for read_email's
           // header + body + truncation logic, and for download_email
@@ -880,6 +893,14 @@ describe("PR #5 registrars — search_emails", () => {
         expect(text).toContain("ID: msg_1");
         expect(text).toContain("ID: msg_2");
         expect(fix.calls.messageList).toHaveLength(1);
+        // Pin the forwarded query + maxResults so a regression that
+        // drops them (e.g. switching to a hard-coded "in:inbox") is
+        // caught at test time. CR finding on PR #84.
+        expect(fix.calls.messageList[0]).toMatchObject({
+          userId: "me",
+          q: "from:alice@example.com",
+          maxResults: 2,
+        });
         expect(fix.calls.messageGet).toHaveLength(2);
       },
       { searchResults: [{ id: "msg_1" }, { id: "msg_2" }] },
@@ -1022,13 +1043,13 @@ describe("PR #6 registrars — get_thread + list_inbox_threads + get_inbox_with_
     );
   });
 
-  it("list_inbox_threads returns a metadata summary per thread", async () => {
+  it("list_inbox_threads returns a metadata summary per thread + forwards q/maxResults", async () => {
     await withFix(
       ["gmail.readonly"],
       async (fix) => {
         const result = (await fix.client.callTool({
           name: "list_inbox_threads",
-          arguments: { query: "in:inbox", maxResults: 10 },
+          arguments: { query: "in:inbox label:Project", maxResults: 25 },
         })) as { content: Array<{ type: string; text: string }> };
         const text = result.content[0]?.text ?? "";
         expect(text).toContain('"resultCount": 2');
@@ -1036,6 +1057,13 @@ describe("PR #6 registrars — get_thread + list_inbox_threads + get_inbox_with_
         expect(text).toContain("thread_b");
         // Latest message metadata pulled.
         expect(text).toContain("Second");
+        // Pin the forwarded q + maxResults — CR finding on PR #84.
+        expect(fix.calls.threadList).toHaveLength(1);
+        expect(fix.calls.threadList[0]).toMatchObject({
+          userId: "me",
+          q: "in:inbox label:Project",
+          maxResults: 25,
+        });
       },
       { threads: fixtureThreads },
     );

@@ -163,6 +163,17 @@ export function registerDownloadTools(
         // basename to strip; belt-and-braces basename after.
         filename = path.basename(sanitizeAttachmentFilename(filename));
 
+        // Edge case: a filename made entirely of NULs / control chars
+        // collapses to "" through sanitizeAttachmentFilename, then
+        // path.basename("") stays "". `path.resolve(savePath, "")`
+        // would equal `savePath` itself — a directory — and
+        // safeWriteFile would either error obscurely or overwrite the
+        // jail root. Fall back to a synthetic non-empty name so the
+        // attachment lands as a regular file.
+        if (filename === "" || filename === ".") {
+          filename = `attachment-${args.attachmentId}`;
+        }
+
         const fullPath = path.resolve(savePath, filename);
         if (!fullPath.startsWith(savePath + path.sep) && fullPath !== savePath) {
           throw new Error("Invalid filename: path traversal detected");
