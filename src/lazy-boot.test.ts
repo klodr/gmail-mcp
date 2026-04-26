@@ -24,15 +24,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = __dirname;
 
 describe("lazy-boot tools/list surface", () => {
-  it("source: lazy-boot branch resets authorizedScopes to []", () => {
-    const source = fs.readFileSync(path.join(srcDir, "index.ts"), "utf-8");
-    // After creating the stub OAuth2Client in the lazy-boot path,
-    // authorizedScopes must be set to the empty array so tools/list
-    // returns 0 tools. Guarding both the comment cue and the actual
-    // assignment so a future refactor can't silently drop one.
-    expect(source).toContain("oauth2Client = new OAuth2Client();");
+  it("source: lazy-boot branch returns an empty authorizedScopes set", () => {
+    // The lazy-boot logic now lives in oauth-flow.ts (loadCredentials
+    // returns `{ oauth2Client: new OAuth2Client(), authorizedScopes: [] }`
+    // when `gcp-oauth.keys.json` is absent). Pin both the stub-client
+    // construction AND the empty-scopes return in the same return
+    // statement so a refactor that drops either silently can't pass
+    // both regex matches.
+    const source = fs.readFileSync(path.join(srcDir, "oauth-flow.ts"), "utf-8");
+    expect(source).toContain("new OAuth2Client()");
     expect(source).toMatch(
-      /oauth2Client = new OAuth2Client\(\);[\s\S]{0,1500}authorizedScopes = \[\];/,
+      /oauth2Client: new OAuth2Client\(\),[\s\S]{0,300}authorizedScopes: \[\],/,
     );
   });
 
