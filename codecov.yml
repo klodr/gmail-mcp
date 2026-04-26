@@ -28,30 +28,6 @@ coverage:
     - "**/*.json"
     - ".github/**"
     - "scripts/**"
-    # `src/index.ts` is the thin CLI entry point. The OAuth flow
-    # (`loadCredentials` + `authenticate`) was extracted into
-    # `src/oauth-flow.ts` so it could be unit-tested without invoking
-    # `main()` on import — `oauth-flow.test.ts` now covers the
-    # lazy-boot path, the `installed`/`web` keys variants, the legacy
-    # vs v1.2.0+ credentials shape, the cwd-keys-copy + 0o600 chmod,
-    # the invalid-keys exit, and the authenticate() URL/port/listen
-    # rejection branches at ~92% statements.
-    #
-    # What remains in `src/index.ts` is bootstrap-only: argv parsing
-    # (callback URL + `--scopes`), `GMAIL_MCP_TIMEOUT_MS` parsing,
-    # the `google.options` + `google.gmail` + `createServer` +
-    # `transport.connect` glue, and the fire-and-forget
-    # `getAccessToken` startup probe. None of those are reachable
-    # without invoking `main()` (which boots a real stdio server),
-    # so they stay ignored until a future `runServer()` extraction
-    # makes them testable.
-    #
-    # `tools.ts` and `tools-coercion.ts` carry the long Zod schema
-    # definitions + the tool registry array; the schemas themselves
-    # are exercised through the registrar tests, but the descriptive
-    # prose attached via `.describe()` is not "executed" in the
-    # coverage sense.
-    - "src/index.ts"
 
 comment:
   layout: "reach,diff,flags,files,footer"
