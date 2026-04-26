@@ -49,6 +49,91 @@ describe("createServer", () => {
   });
 });
 
+describe("createServer — prompts surface", () => {
+  it("emits the prompts/list capability and returns the slash-command catalogue", async () => {
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "prompts-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const list = await client.listPrompts();
+      // src/prompts.ts ships at least one slash command — pin that
+      // the surface is non-empty and that each entry has the full
+      // PromptInfo contract (name + title + description + arguments
+      // array). A regression that drops any of those would silently
+      // shrink the public surface that LLM hosts use to render the
+      // slash-command picker.
+      expect(list.prompts.length).toBeGreaterThan(0);
+      for (const p of list.prompts) {
+        expect(typeof p.name).toBe("string");
+        expect(p.name.length).toBeGreaterThan(0);
+        expect(typeof p.title).toBe("string");
+        expect(p.title.length).toBeGreaterThan(0);
+        expect(typeof p.description).toBe("string");
+        expect(Array.isArray(p.arguments)).toBe(true);
+      }
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
+  it("getPrompt returns the rendered template for a known prompt name", async () => {
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "getprompt-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const list = await client.listPrompts();
+      // Pick a prompt that has no required arguments so the test stays
+      // deterministic across catalogue reorders. Falls back to the
+      // first prompt only if every prompt has required args (which
+      // would itself be a regression worth flagging).
+      const noArgPrompt =
+        list.prompts.find((p) =>
+          (p.arguments ?? []).every((a: { required?: boolean }) => !a.required),
+        ) ?? list.prompts[0];
+      expect(noArgPrompt).toBeDefined();
+      const result = await client.getPrompt({ name: noArgPrompt!.name });
+      // Pin both the array shape AND the per-message contract
+      // (role + content.type + non-empty text) — without these, a
+      // regression that returns an empty messages array OR drops the
+      // role/type fields would still pass the length check.
+      expect(Array.isArray(result.messages)).toBe(true);
+      expect(result.messages.length).toBeGreaterThan(0);
+      const first = result.messages[0]!;
+      expect(first.role).toBe("user");
+      const content = first.content as { type: string; text: string };
+      expect(content.type).toBe("text");
+      expect(content.text.length).toBeGreaterThan(0);
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
+  it("getPrompt rejects an unknown prompt name with a JSON-RPC error", async () => {
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "unknown-prompt-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      await expect(
+        client.getPrompt({ name: "definitely-not-a-real-prompt-name" }),
+      ).rejects.toThrow();
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+});
+
 describe("defineTool", () => {
   function noopHandler(): Promise<{ content: { type: string; text: string }[] }> {
     return Promise.resolve({ content: [{ type: "text", text: "ok" }] });
