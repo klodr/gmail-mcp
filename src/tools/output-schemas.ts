@@ -58,7 +58,13 @@ export const downloadEmailOutputSchema = {
     z.object({
       filename: z.string().optional(),
       mimeType: z.string().optional(),
-      size: z.number().optional(),
+      // Byte counts: integer + non-negative. The previous
+      // unconstrained `z.number().optional()` would accept
+      // fractional bytes (`size: 1024.5`) and negative values
+      // (`size: -1`), both physically meaningless and a sign
+      // of upstream data corruption. Mirrors the top-level
+      // `size` constraint at line 52.
+      size: z.number().int().nonnegative().optional(),
       attachmentId: z.string().optional(),
     }),
   ),
