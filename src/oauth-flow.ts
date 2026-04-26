@@ -116,16 +116,45 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
     const localOAuthPath = opts.localOAuthPath ?? path.join(process.cwd(), "gcp-oauth.keys.json");
 
     if (fs.existsSync(localOAuthPath)) {
-      // Copy from cwd to the global config. The `mkdir` here covers
-      // the case where `skipConfigDirCreate` is true because only
-      // `GMAIL_CREDENTIALS_PATH` was overridden — `OAUTH_PATH` still
-      // defaults under `~/.gmail-mcp` and would ENOENT without
-      // explicit mkdir. Also force `0o600`: `copyFileSync` preserves
-      // the source mode, so a `0o644` cwd file would keep that mode.
-      fs.mkdirSync(path.dirname(opts.oauthPath), { recursive: true, mode: 0o700 });
-      fs.copyFileSync(localOAuthPath, opts.oauthPath);
-      fs.chmodSync(opts.oauthPath, 0o600);
-      log("OAuth keys found in current directory, copied to global config.");
+      // Skip the copy when source and destination are the same
+      // file — e.g. `GMAIL_OAUTH_PATH=$(pwd)/gcp-oauth.keys.json`
+      // (the cwd file IS the configured path), or the default
+      // resolution lands on the same realpath. Without this guard
+      // `fs.copyFileSync` opens the destination with `O_TRUNC`
+      // BEFORE reading the source, which on POSIX truncates the
+      // file to 0 bytes and silently destroys the OAuth keys.
+      // Compare absolute paths up-front; fall back to
+      // `realpathSync` on the destination only if it exists (it
+      // may not — that's the whole point of the copy).
+      const srcAbs = path.resolve(localOAuthPath);
+      const dstAbs = path.resolve(opts.oauthPath);
+      const sameByPath = srcAbs === dstAbs;
+      let sameByRealpath = false;
+      if (!sameByPath && fs.existsSync(opts.oauthPath)) {
+        try {
+          sameByRealpath = fs.realpathSync(srcAbs) === fs.realpathSync(dstAbs);
+        } catch {
+          // realpath failure (broken symlink, EACCES) — fall through
+          // to the copy. Worst case: the existing file gets
+          // overwritten with itself, but that's safe via two
+          // different inodes.
+        }
+      }
+      if (sameByPath || sameByRealpath) {
+        // No-op: source == destination already.
+      } else {
+        // Copy from cwd to the global config. The `mkdir` here
+        // covers the case where `skipConfigDirCreate` is true
+        // because only `GMAIL_CREDENTIALS_PATH` was overridden —
+        // `OAUTH_PATH` still defaults under `~/.gmail-mcp` and
+        // would ENOENT without explicit mkdir. Also force `0o600`:
+        // `copyFileSync` preserves the source mode, so a `0o644`
+        // cwd file would keep that mode.
+        fs.mkdirSync(path.dirname(opts.oauthPath), { recursive: true, mode: 0o700 });
+        fs.copyFileSync(localOAuthPath, opts.oauthPath);
+        fs.chmodSync(opts.oauthPath, 0o600);
+        log("OAuth keys found in current directory, copied to global config.");
+      }
     }
 
     if (!fs.existsSync(opts.oauthPath)) {

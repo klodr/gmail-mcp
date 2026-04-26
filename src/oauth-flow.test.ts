@@ -285,6 +285,39 @@ describe("loadCredentials", () => {
     expect(logCapture.join("\n")).toContain("OAuth keys found in current directory");
   });
 
+  it("does not truncate the keys file when localOAuthPath equals oauthPath (data-loss defence)", () => {
+    // Regression: `fs.copyFileSync(samePath, samePath)` opens the
+    // destination with `O_TRUNC` BEFORE reading the source, which
+    // on POSIX truncates the file to 0 bytes and silently destroys
+    // the OAuth keys. Pins the new same-path guard. Realistic
+    // trigger: `GMAIL_OAUTH_PATH=$(pwd)/gcp-oauth.keys.json`.
+    const samePath = join(scratch, "gcp-oauth.keys.json");
+    const original = JSON.stringify({
+      installed: { client_id: "id-same", client_secret: "secret-same" },
+    });
+    writeFileSync(samePath, original, { mode: 0o600 });
+    const beforeBytes = readFileSync(samePath, "utf-8");
+    expect(beforeBytes).toBe(original);
+
+    const result = loadCredentials({
+      oauthPath: samePath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      localOAuthPath: samePath,
+      log,
+    });
+    // File is still on disk and intact — no truncation.
+    const afterBytes = readFileSync(samePath, "utf-8");
+    expect(afterBytes).toBe(original);
+    // The copy log line MUST NOT have been emitted (the no-op
+    // branch fired instead).
+    expect(logCapture.join("\n")).not.toContain("OAuth keys found in current directory");
+    // And the loader still hydrates an OAuth2Client from the
+    // unchanged on-disk keys.
+    expect(result.oauth2Client).toBeInstanceOf(OAuth2Client);
+  });
+
   it("re-throws non-Invalid errors via exitOnInvalidKeys after logging only the message (no Error object)", () => {
     // A JSON.parse failure on a partial OAuth file — the catch block
     // must log only the error MESSAGE (not the full Error which can
