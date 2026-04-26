@@ -1,0 +1,450 @@
+/**
+ * Unit tests for `loadCredentials` and `authenticate` (`src/oauth-flow.ts`).
+ *
+ * Both helpers were extracted from `src/index.ts` so they can be
+ * exercised without the side-effect of `main()` running on import.
+ * Tests use `tmpdir`-rooted scratch directories + dependency injection
+ * (`exitOnInvalidKeys`, `log`, `openBrowser`) so the real `process.exit`,
+ * `console.error`, and `open` are never touched.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import http from "node:http";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, statSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { OAuth2Client } from "google-auth-library";
+import { loadCredentials, authenticate, InvalidOAuthKeysError } from "./oauth-flow.js";
+
+let scratch: string;
+let oauthPath: string;
+let credentialsPath: string;
+let configDir: string;
+let logCapture: string[];
+
+const log = (msg: string, ...rest: unknown[]) => {
+  // Stringify Error objects so `.toContain("EADDRINUSE")` style checks
+  // match the captured representation.
+  logCapture.push(
+    [msg, ...rest.map((x) => (x instanceof Error ? x.message : String(x)))].join(" "),
+  );
+};
+
+beforeEach(() => {
+  scratch = mkdtempSync(join(tmpdir(), "gmail-mcp-oauth-flow-test-"));
+  configDir = join(scratch, ".gmail-mcp");
+  oauthPath = join(configDir, "gcp-oauth.keys.json");
+  credentialsPath = join(configDir, "credentials.json");
+  logCapture = [];
+});
+
+afterEach(() => {
+  rmSync(scratch, { recursive: true, force: true });
+});
+
+describe("loadCredentials", () => {
+  it("returns a stub OAuth2Client + empty scopes when oauthPath does not exist (lazy-boot)", () => {
+    const result = loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: false,
+      log,
+    });
+    expect(result.oauth2Client).toBeInstanceOf(OAuth2Client);
+    expect(result.authorizedScopes).toEqual([]);
+    // No callback URL in lazy-boot mode: no auth flow can run yet.
+    expect(result.oauthCallbackUrl).toBeUndefined();
+    // Should have logged a clear lazy-boot warning (used by hosted MCP
+    // runners' log scrapers to identify a not-yet-authed instance).
+    expect(logCapture.join("\n")).toContain("lazy-auth mode");
+  });
+
+  it("auto-creates the configDir at 0o700 when neither env var is set (skipConfigDirCreate=false)", () => {
+    loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: false,
+      log,
+    });
+    const stats = statSync(configDir);
+    expect(stats.isDirectory()).toBe(true);
+    // POSIX permission bits in lower 9 bits — pin 0o700 to confirm
+    // host-other readers cannot list config files.
+    expect(stats.mode & 0o777).toBe(0o700);
+  });
+
+  it("does NOT create the configDir when skipConfigDirCreate=true and no oauth keys present", () => {
+    // Mirrors `src/index.ts` logic when GMAIL_OAUTH_PATH or
+    // GMAIL_CREDENTIALS_PATH override the default — the operator
+    // pointed elsewhere and may not want a stub ~/.gmail-mcp at $HOME.
+    loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      // Force the local-OAuth check to look at a path that does not
+      // exist either (so we don't fall through to the copy branch
+      // which has its own mkdirSync).
+      localOAuthPath: join(scratch, "no-such-keys.json"),
+      log,
+    });
+    expect(() => statSync(configDir)).toThrow(/ENOENT/);
+  });
+
+  it("loads OAuth keys with `installed` shape and constructs an OAuth2Client", () => {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      oauthPath,
+      JSON.stringify({
+        installed: { client_id: "id-installed", client_secret: "secret-installed" },
+      }),
+    );
+    const result = loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      log,
+    });
+    expect(result.oauth2Client).toBeInstanceOf(OAuth2Client);
+    expect(result.oauthCallbackUrl).toBe("http://localhost:3000/oauth2callback");
+    // No credentials.json yet → DEFAULT_SCOPES carry through.
+    expect(result.authorizedScopes.length).toBeGreaterThan(0);
+  });
+
+  it("loads OAuth keys with the `web` shape (alternate Google Cloud Console export)", () => {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      oauthPath,
+      JSON.stringify({ web: { client_id: "id-web", client_secret: "secret-web" } }),
+    );
+    const result = loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      log,
+    });
+    expect(result.oauth2Client).toBeInstanceOf(OAuth2Client);
+  });
+
+  it("calls exitOnInvalidKeys when the keys file is missing both `installed` and `web`", () => {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, JSON.stringify({ unknown: "shape" }));
+    let exitCode: number | undefined;
+    const exitFn = (code: number): never => {
+      exitCode = code;
+      // Throw a sentinel so loadCredentials' catch block re-throws and
+      // we can `expect(...).toThrow` cleanly. `process.exit` in
+      // production is `(code) => never`, so the catch path never
+      // continues past `exit(1)` either.
+      throw new InvalidOAuthKeysError(oauthPath);
+    };
+    expect(() =>
+      loadCredentials({
+        oauthPath,
+        credentialsPath,
+        configDir,
+        skipConfigDirCreate: true,
+        exitOnInvalidKeys: exitFn,
+        log,
+      }),
+    ).toThrow(InvalidOAuthKeysError);
+    expect(exitCode).toBe(1);
+    expect(logCapture.join("\n")).toContain("Invalid OAuth keys file format");
+  });
+
+  it("uses the new credentials.json shape (`{ tokens, scopes }`) and surfaces the stored scopes", () => {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, JSON.stringify({ installed: { client_id: "x", client_secret: "y" } }));
+    writeFileSync(
+      credentialsPath,
+      JSON.stringify({
+        tokens: { access_token: "at", refresh_token: "rt" },
+        scopes: ["gmail.readonly"],
+      }),
+    );
+    const result = loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      log,
+    });
+    expect(result.authorizedScopes).toEqual(["gmail.readonly"]);
+  });
+
+  it("falls back to DEFAULT_SCOPES when the credentials.json is the legacy flat shape", () => {
+    // Legacy shape from before the v1.2.0 scope-storage rework — bare
+    // OAuth tokens at the root, no `scopes` key. We have to keep
+    // honouring this so users with an existing credentials.json don't
+    // get logged out by an upgrade.
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, JSON.stringify({ installed: { client_id: "x", client_secret: "y" } }));
+    writeFileSync(credentialsPath, JSON.stringify({ access_token: "at", refresh_token: "rt" }));
+    const result = loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      log,
+    });
+    // No `scopes` key → default scope set carries through.
+    expect(result.authorizedScopes.length).toBeGreaterThan(0);
+  });
+
+  it("honours an explicit callbackArg when provided (overrides the localhost:3000 default)", () => {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, JSON.stringify({ installed: { client_id: "x", client_secret: "y" } }));
+    const result = loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      callbackArg: "http://localhost:9999/cb",
+      log,
+    });
+    expect(result.oauthCallbackUrl).toBe("http://localhost:9999/cb");
+  });
+
+  it("copies a cwd `gcp-oauth.keys.json` to oauthPath at 0o600 and creates the parent dir", () => {
+    const localOAuthPath = join(scratch, "gcp-oauth.keys.json");
+    writeFileSync(
+      localOAuthPath,
+      JSON.stringify({ installed: { client_id: "id-cwd", client_secret: "secret-cwd" } }),
+      { mode: 0o644 },
+    );
+    // configDir does not exist yet — the copy path must mkdir it.
+    loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      // Even when skipConfigDirCreate is true, the copy branch's own
+      // `mkdirSync(path.dirname(oauthPath))` should still fire so the
+      // copy target exists.
+      skipConfigDirCreate: true,
+      localOAuthPath,
+      log,
+    });
+    const stats = statSync(oauthPath);
+    expect(stats.isFile()).toBe(true);
+    // copyFileSync preserves the source mode (0o644 above), so the
+    // explicit chmodSync is what brings it down to 0o600. Pin it.
+    expect(stats.mode & 0o777).toBe(0o600);
+    expect(logCapture.join("\n")).toContain("OAuth keys found in current directory");
+  });
+
+  it("re-throws non-Invalid errors via exitOnInvalidKeys after logging only the message (no Error object)", () => {
+    // A JSON.parse failure on a partial OAuth file — the catch block
+    // must log only the error MESSAGE (not the full Error which can
+    // include a content snippet near `client_secret`).
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, "{ this is not json"); // truncated → SyntaxError
+    let exitCode: number | undefined;
+    const exitFn = (code: number): never => {
+      exitCode = code;
+      throw new Error(`exit-${code}`);
+    };
+    expect(() =>
+      loadCredentials({
+        oauthPath,
+        credentialsPath,
+        configDir,
+        skipConfigDirCreate: true,
+        exitOnInvalidKeys: exitFn,
+        log,
+      }),
+    ).toThrow(/exit-1/);
+    expect(exitCode).toBe(1);
+    const captured = logCapture.join("\n");
+    expect(captured).toContain("Error loading credentials");
+    // Belt-and-braces: confirm the captured log doesn't accidentally
+    // dump a JSON content snippet (e.g. raw file bytes) into stderr —
+    // this would be the regression-trap if a future change replaces
+    // `error.message` with `error` (which on JSON.parse failures
+    // includes a position pointer that may show partial content).
+    expect(captured).not.toContain("this is not json");
+  });
+});
+
+describe("authenticate", () => {
+  /**
+   * Build a hydrated OAuth2Client suitable for authenticate(). We
+   * cannot rely on loadCredentials here because the OAuth2Client's
+   * `redirect_uri` field is part of its private state, so the test
+   * sets it directly with the expected callback URL.
+   */
+  function makeClient(callbackUrl: string): OAuth2Client {
+    return new OAuth2Client("id-test", "secret-test", callbackUrl);
+  }
+
+  it("rejects an https:// callback URL (only loopback http is supported)", async () => {
+    await expect(
+      authenticate({
+        oauth2Client: makeClient("https://localhost:3000/oauth2callback"),
+        oauthCallbackUrl: "https://localhost:3000/oauth2callback",
+        scopes: ["gmail.readonly"],
+        credentialsPath,
+        openBrowser: () => undefined,
+        log,
+      }),
+    ).rejects.toThrow(/Callback protocol 'https:' is not supported/);
+  });
+
+  it("rejects a non-loopback callback hostname", async () => {
+    await expect(
+      authenticate({
+        oauth2Client: makeClient("http://example.com/oauth2callback"),
+        oauthCallbackUrl: "http://example.com/oauth2callback",
+        scopes: ["gmail.readonly"],
+        credentialsPath,
+        openBrowser: () => undefined,
+        log,
+      }),
+    ).rejects.toThrow(/Callback hostname 'example.com' is not loopback/);
+  });
+
+  it("rejects a privileged callback port (port < 1024 requires root)", async () => {
+    // Port 1023 is privileged but URL-parser-friendly (port 80 would
+    // be stripped from `new URL("http://localhost:80/...").port`).
+    await expect(
+      authenticate({
+        oauth2Client: makeClient("http://localhost:1023/oauth2callback"),
+        oauthCallbackUrl: "http://localhost:1023/oauth2callback",
+        scopes: ["gmail.readonly"],
+        credentialsPath,
+        openBrowser: () => undefined,
+        log,
+      }),
+    ).rejects.toThrow(/Callback port '1023' is invalid/);
+  });
+
+  it("rejects port-stripped default ports as the `(default)` placeholder", async () => {
+    // `new URL("http://localhost:80/...")` strips :80 → `parsed.port`
+    // becomes "". The port range check then logs `'(default)'`. Pin
+    // the placeholder so a refactor that switches to `parsed.port` raw
+    // (which would be the empty string) is caught.
+    await expect(
+      authenticate({
+        oauth2Client: makeClient("http://localhost/oauth2callback"),
+        oauthCallbackUrl: "http://localhost/oauth2callback",
+        scopes: ["gmail.readonly"],
+        credentialsPath,
+        openBrowser: () => undefined,
+        log,
+      }),
+    ).rejects.toThrow(/Callback port '\(default\)' is invalid/);
+  });
+
+  it("surfaces EADDRINUSE with a hint when the callback port is already taken", async () => {
+    // Squat on a free port first, then ask authenticate() to listen
+    // on the same port — the listener errors with EADDRINUSE which
+    // the catch turns into a typed rejection with a hint.
+    const squat = http.createServer();
+    await new Promise<void>((res) => squat.listen(0, "127.0.0.1", res));
+    const port = (squat.address() as { port: number }).port;
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    try {
+      await expect(
+        authenticate({
+          oauth2Client: makeClient(cb),
+          oauthCallbackUrl: cb,
+          scopes: ["gmail.readonly"],
+          credentialsPath,
+          openBrowser: () => undefined,
+          log,
+        }),
+      ).rejects.toThrow(
+        /OAuth callback server failed to listen on 127\.0\.0\.1:\d+\..*Another process is already listening/s,
+      );
+    } finally {
+      await new Promise<void>((res) => squat.close(() => res()));
+    }
+  });
+
+  it("rejects when the OAuth callback request omits the `code` query parameter", async () => {
+    const port = await pickFreePort();
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    // Capture-on-reject pattern: attach the .catch handler
+    // synchronously so the listener-side `reject(new Error("No code
+    // provided"))` always lands on a registered handler. Without
+    // this, vitest can race the rejection against the
+    // `await expect.rejects` and flag it as unhandled.
+    let caughtErr: Error | undefined;
+    const settled = authenticate({
+      oauth2Client: makeClient(cb),
+      oauthCallbackUrl: cb,
+      scopes: ["gmail.readonly"],
+      credentialsPath,
+      openBrowser: () => undefined,
+      log,
+    }).catch((err: unknown) => {
+      caughtErr = err instanceof Error ? err : new Error(String(err));
+    });
+    // Hit the callback with a missing `code` — this triggers the
+    // `400 No code provided` branch + a reject inside the listener.
+    const res = await fetch(`${cb}?state=foo`);
+    expect(res.status).toBe(400);
+    await settled;
+    expect(caughtErr).toBeInstanceOf(Error);
+    expect(caughtErr?.message).toBe("No code provided");
+  });
+
+  it("writes credentials at 0o600 when the OAuth code exchange succeeds", async () => {
+    const port = await pickFreePort();
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    const client = makeClient(cb);
+    // Stub the token exchange so we don't hit Google. Because
+    // OAuth2Client.getToken is what `authenticate` calls in the
+    // happy path, replacing it lets us simulate a successful grant.
+    (
+      client as unknown as {
+        getToken: (code: string) => Promise<{ tokens: Record<string, unknown> }>;
+      }
+    ).getToken = async (code: string) => {
+      expect(code).toBe("auth-code-xyz");
+      return Promise.resolve({
+        tokens: { access_token: "at", refresh_token: "rt" },
+      });
+    };
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+
+    const flow = authenticate({
+      oauth2Client: client,
+      oauthCallbackUrl: cb,
+      scopes: ["gmail.readonly"],
+      credentialsPath,
+      openBrowser: () => undefined,
+      log,
+    });
+    // Trigger the success branch.
+    const res = await fetch(`${cb}?code=auth-code-xyz`);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("Authentication successful");
+    await flow;
+
+    const stats = statSync(credentialsPath);
+    expect(stats.mode & 0o777).toBe(0o600);
+    const stored = JSON.parse(readFileSync(credentialsPath, "utf-8")) as {
+      tokens: Record<string, unknown>;
+      scopes: string[];
+    };
+    // Pin both halves of the v1.2.0+ credentials.json shape so a
+    // refactor that drops the scopes key (or that flips back to the
+    // legacy flat shape) is caught.
+    expect(stored.scopes).toEqual(["gmail.readonly"]);
+    expect(stored.tokens).toMatchObject({ access_token: "at", refresh_token: "rt" });
+  });
+});
+
+/** Helper: bind to port 0, capture the OS-assigned port, release. */
+async function pickFreePort(): Promise<number> {
+  const probe = http.createServer();
+  await new Promise<void>((res) => probe.listen(0, "127.0.0.1", res));
+  const port = (probe.address() as { port: number }).port;
+  await new Promise<void>((res) => probe.close(() => res()));
+  return port;
+}
