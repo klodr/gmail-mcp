@@ -180,7 +180,7 @@ describe("runServer auth subcommand", () => {
     env: NodeJS.ProcessEnv;
     expectedCode: number;
   }): Promise<{ caughtCode: number; logs: string }> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const exitCalls: number[] = [];
       const exitFn = (code: number): never => {
         exitCalls.push(code);
@@ -188,8 +188,15 @@ describe("runServer auth subcommand", () => {
       };
       runServer({ argv: opts.argv, env: opts.env, log, exit: exitFn }).catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
+        // CR finding: if an unexpected (non-sentinel) error fires,
+        // `throw err` inside this `.catch` becomes an unhandled
+        // rejection on the inner promise — the OUTER Promise stays
+        // pending forever and the test hangs silently. Calling
+        // `reject(err)` instead surfaces the unexpected failure
+        // through the test's `await expectExit(...)`.
         if (!msg.startsWith("__exit_")) {
-          throw err;
+          reject(err instanceof Error ? err : new Error(String(err)));
+          return;
         }
         resolve({ caughtCode: exitCalls[0]!, logs: logCapture.join("\n") });
       });
@@ -238,22 +245,19 @@ describe("runServer auth subcommand", () => {
     expect(logs).toContain("Available scopes:");
   });
 
-  it("threads a positional callback URL through to loadCredentials", async () => {
+  it("threads a positional callback URL through loadCredentials → authenticate, then exits via the injected handler", async () => {
     // Hydrate a real OAuth keys file so loadCredentials returns a
     // real OAuth2Client (not the lazy-boot stub) and the callback
     // URL is honoured. The auth flow then reaches the
     // `authenticate(...)` call — which we don't want to actually
-    // run — so we rely on a port-binding failure to exit (port 1
-    // is privileged, fails the `port < 1024` validation in
-    // authenticate). We pass a privileged-port callback in the
-    // positional arg to trigger that path.
+    // run — so we rely on a port-validation failure (port 1023 is
+    // privileged, fails the `port < 1024` guard in authenticate).
+    // The CR-Major fix wraps authenticate in try/catch + `exit(1)`,
+    // so the rejection is now caught inside runServer and the
+    // INJECTED exit fires with the diagnostic in the log capture.
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
     writeFileSync(oauthPath, JSON.stringify({ installed: { client_id: "x", client_secret: "y" } }));
-    let caughtErr: Error | undefined;
-    const exitFn = (code: number): never => {
-      throw new Error(`__exit_${code}__`);
-    };
-    await runServer({
+    const { caughtCode, logs } = await expectExit({
       argv: [
         "node",
         "index.js",
@@ -262,17 +266,15 @@ describe("runServer auth subcommand", () => {
         "--scopes=gmail.readonly",
       ],
       env: { GMAIL_OAUTH_PATH: oauthPath, GMAIL_CREDENTIALS_PATH: credentialsPath },
-      log,
-      exit: exitFn,
-    }).catch((err: unknown) => {
-      caughtErr = err instanceof Error ? err : new Error(String(err));
+      expectedCode: 1,
     });
-    // Should have rejected via authenticate's port < 1024 guard,
-    // confirming the positional callback URL was threaded through
-    // loadCredentials → authenticate. The port-validation guard
-    // fires BEFORE listen, so no "Requesting scopes" log is
-    // emitted; the precise port-1023 error message is the proof.
-    expect(caughtErr?.message).toMatch(/Callback port '1023' is invalid/);
+    expect(caughtCode).toBe(1);
+    // The "Authentication failed: ..." prefix proves the wrap
+    // caught the rejection; the inner port-1023 error proves the
+    // positional callback URL was threaded all the way through to
+    // authenticate's URL/port validator.
+    expect(logs).toContain("Authentication failed:");
+    expect(logs).toMatch(/Callback port '1023' is invalid/);
   });
 
   it("threads the injected exit handler through to loadCredentials (malformed keys)", async () => {

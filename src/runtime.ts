@@ -174,13 +174,26 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
       exit(1);
     }
 
-    await authenticate({
-      oauth2Client,
-      oauthCallbackUrl: oauthCallbackUrl!,
-      scopes,
-      credentialsPath: CREDENTIALS_PATH,
-      log,
-    });
+    // Wrap authenticate's rejection paths so they exit through the
+    // injected `exit` hook instead of propagating up to the
+    // process-level uncaught handler. authenticate uses Promise
+    // rejection (URL/port validation, EADDRINUSE, missing code,
+    // state mismatch, getToken throw) — without this wrap, a test
+    // that injects `exit` only sees the rejection on the
+    // runServer promise but never observes the exit code.
+    try {
+      await authenticate({
+        oauth2Client,
+        oauthCallbackUrl: oauthCallbackUrl!,
+        scopes,
+        credentialsPath: CREDENTIALS_PATH,
+        log,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`Authentication failed: ${msg}`);
+      exit(1);
+    }
     /* v8 ignore start -- success path runs only after a real
        browser-driven OAuth round-trip; the authenticate() success
        branch + the credentials-on-disk shape are pinned in
