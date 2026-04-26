@@ -1223,8 +1223,10 @@ describe("PR #7 registrars — pair_recipient", () => {
         arguments: { action: "list" },
       })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
       expect(result.isError).toBeFalsy();
+      // Pin the exact handler wording so a wording change is caught.
+      // Source of truth: src/tools/messaging.ts:71-79.
       const text = result.content[0]?.text ?? "";
-      expect(text).toContain("Paired recipients (0)");
+      expect(text).toContain("Paired recipients (0):");
       expect(text).toContain("(none)");
     });
   });
@@ -1235,15 +1237,18 @@ describe("PR #7 registrars — pair_recipient", () => {
         name: "pair_recipient",
         arguments: { action: "add", email: "trusted@example.com" },
       })) as { content: Array<{ type: string; text: string }> };
-      expect(addRes.content[0]?.text).toContain("Added");
-      expect(addRes.content[0]?.text).toContain("trusted@example.com");
+      // Pin the exact "Added X to the paired allowlist." wording.
+      expect(addRes.content[0]?.text).toContain(
+        'Added "trusted@example.com" to the paired allowlist.',
+      );
 
       const listRes = (await fix.client.callTool({
         name: "pair_recipient",
         arguments: { action: "list" },
       })) as { content: Array<{ type: string; text: string }> };
-      expect(listRes.content[0]?.text).toContain("Paired recipients (1)");
-      expect(listRes.content[0]?.text).toContain("trusted@example.com");
+      // Count went from 0 to 1, and the address appears as "  - …".
+      expect(listRes.content[0]?.text).toContain("Paired recipients (1):");
+      expect(listRes.content[0]?.text).toContain("  - trusted@example.com");
     });
   });
 
@@ -1257,7 +1262,10 @@ describe("PR #7 registrars — pair_recipient", () => {
         name: "pair_recipient",
         arguments: { action: "remove", email: "ephemeral@example.com" },
       })) as { content: Array<{ type: string; text: string }> };
-      expect(removeRes.content[0]?.text).toContain("Removed");
+      // Pin the exact "Removed X from the paired allowlist." wording.
+      expect(removeRes.content[0]?.text).toContain(
+        'Removed "ephemeral@example.com" from the paired allowlist.',
+      );
     });
   });
 
@@ -1294,18 +1302,31 @@ describe("PR #7 registrars — reply_all", () => {
         },
       })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
       expect(result.isError).toBeFalsy();
-      const text = result.content[0]?.text ?? "";
-      expect(text).toContain("Reply-all sent successfully");
-      // The mocked original message has From=Alice, So replyTo should
-      // include alice@example.com (the original sender). My own
-      // address (me@example.com from getProfile) must NOT appear.
-      expect(text).toContain("alice@example.com");
-      expect(text).not.toMatch(/To:.*me@example\.com/);
+      expect(result.content[0]?.text).toContain("Reply-all sent successfully");
       // gmail.users.messages.get fetched the original; getProfile
       // fetched my own address; messages.send sent the reply.
       expect(fix.calls.messageGet).toHaveLength(1);
       expect(fix.calls.getProfile).toHaveLength(1);
       expect(fix.calls.messageSend).toHaveLength(1);
+      // Pin the recipient filter on the encoded RFC822 payload, not
+      // the user-facing status text — the success message is just a
+      // log line, the actual `To:`/`Cc:` headers ride on
+      // `requestBody.raw`. A regression that drops the
+      // `me@example.com` filter from `buildReplyAllRecipients` would
+      // still produce a "Reply-all sent successfully" message but
+      // would silently CC the user themselves.
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      expect(decoded).toContain("alice@example.com");
+      // me@example.com legitimately appears in `From:` (the sender);
+      // what must NOT happen is buildReplyAllRecipients leaving it
+      // in `To:` or `Cc:` — that would CC the user themselves on
+      // their own reply. Pin that contract on the recipient lines
+      // only, not the whole MIME blob.
+      const toLine = /^To:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+      const ccLine = /^Cc:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+      expect(toLine).not.toContain("me@example.com");
+      expect(ccLine).not.toContain("me@example.com");
     });
   });
 });
@@ -1341,7 +1362,7 @@ describe("PR #4 registrars — filter templates (4 paths)", () => {
     });
   });
 
-  it("create_filter_from_template (containingText) propagates markImportant", async () => {
+  it("create_filter_from_template (containingText) propagates markImportant on the wire", async () => {
     await withFix(["gmail.settings.basic"], async (fix) => {
       const result = (await fix.client.callTool({
         name: "create_filter_from_template",
@@ -1352,6 +1373,16 @@ describe("PR #4 registrars — filter templates (4 paths)", () => {
       })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
       expect(result.isError).toBeFalsy();
       expect(result.content[0]?.text).toContain("containingText");
+      // Pin the actual filter payload — without this assertion a
+      // regression that silently drops `markImportant` from the
+      // template-to-action mapping would still pass the success-text
+      // check. `filterTemplates.containingText(text, labels, true)`
+      // appends the system "IMPORTANT" label to the user labels.
+      expect(fix.calls.filterCreate).toHaveLength(1);
+      const body = (
+        fix.calls.filterCreate[0] as { requestBody: { action: { addLabelIds?: string[] } } }
+      ).requestBody;
+      expect(body.action.addLabelIds).toEqual(expect.arrayContaining(["Label_urg", "IMPORTANT"]));
     });
   });
 
