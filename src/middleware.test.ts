@@ -290,6 +290,23 @@ describe("wrapToolHandler", () => {
       }
     });
 
+    it("leaves structuredContent unset when the text starts with `{` but is not valid JSON", async () => {
+      // Pin the JSON.parse catch arm in `attachStructuredContent`
+      // (`middleware.ts:160-163`). The cheap pre-filter at line 147
+      // accepts any text that starts with `{` or `[` — invalid JSON
+      // makes the parse throw, the catch swallows, and the
+      // `return result` at the end leaves `structuredContent`
+      // unset. Without this test, a regression that drops the
+      // try/catch would crash the wrapToolHandler on every
+      // brace-prefixed-but-not-JSON tool response.
+      const result = await wrapToolHandler("send_email", {}, async () => ({
+        content: [{ type: "text", text: "{not valid json: missing quotes" }],
+      }));
+      expect(result.structuredContent).toBeUndefined();
+      // The original text is still emitted (sanitize-fenced).
+      expect(unfence(result.content[0].text)).toBe("{not valid json: missing quotes");
+    });
+
     it("does not overwrite a structuredContent that the handler already set", async () => {
       const handlerPayload = { explicit: true };
       const result = await wrapToolHandler("send_email", {}, async () => ({
