@@ -23,7 +23,7 @@
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/klodr)
 
 > [!NOTE]
-> This repository has not yet undergone a full independent third-party security review end-to-end. The hardening layer (path jails with `realpath` + `O_NOFOLLOW`, CRLF sanitization on both email-assembly paths, OAuth scope filtering at startup, Zod bounds on every Gmail ID, crypto MIME boundary, credentials at `0o600`, opt-in redacted JSONL audit log with counterparty-PII elision by default (`GMAIL_MCP_AUDIT_LOG` + `GMAIL_MCP_AUDIT_LOG_VERBOSE` opt-out), per-bucket daily+monthly write rate limits (send/delete/modify/drafts/labels/filters), LLM-output defense-in-depth fence (`<untrusted-tool-output>`) with control / zero-width / BiDi-override stripping on every tool response, attachment-filename neutralisation before disk write, protocol-error flagging (`isError: true`) on tool failures, Sigstore + SLSA + SBOM-signed releases, fast-check fuzz suite) is tested on every CI run. Against the two parent forks, `klodr/gmail-mcp` is already a meaningful step forward on prompt-injection and supply-chain posture. For mission-critical or high-sensitivity deployments, treat the server as carefully as any third-party MCP: prefer a narrowly-scoped OAuth token, enable human-in-the-loop confirmation on write tools, and track this repo's release notes for security-relevant updates. See [SECURITY.md](.github/SECURITY.md) for the detailed threat model.
+> Hardened + enhanced fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) (archived 2026-03-03), via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Since the divergence point: **121 commits** (75 ahead of ArtyMcLabin) and **+26 700 / -10 400 lines** across security hardening, Gmail-surface improvements (reply-all, send-as alias, thread-level tools, download-to-disk, recipient pairing, batch ops with retry…), supply-chain hygiene, and CI gating. Every PR goes through CodeRabbit + dual-model Qodo Merge before merge. See [SECURITY.md](.github/SECURITY.md) for the controls and threat model, and the [comparison table](#-why-this-mcp) below for the parent-forks delta.
 
 A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, Claude Code, Cursor, Continue, OpenClaw…) read and manage a Gmail account through scope-gated tools. Exposes the Gmail v1 API surface you actually need (messages, threads, labels, filters, attachments, drafts, reply-all) behind a single `npx` install.
 
@@ -58,13 +58,12 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Zod bounds on `maxResults` / `batchSize` / `messageIds` length | ❌ | ❌ | ✅ |
 | Cryptographic MIME boundary (`crypto.randomBytes`, not `Math.random`) | ❌ | ❌ | ✅ |
 | **MCP protocol & tool surface** | | | |
-| MCP SDK version | v0.4.x (outdated) | v1.27.x | v1.29.x |
+| MCP SDK version | v0.4.x | v1.27.x | v1.29.x |
 | Tool annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) | ❌ | ✅ | ✅ |
 | `llms-install.md` (LLM-readable install guide) | ❌ | ❌ | ✅ |
 | **Publishing / discoverability** | | | |
-| Published on npm | ✅ stale — no release since the fork diverged | ❌ (consumed as a GitHub install from the intermediate fork) | ✅ dedicated scoped package, signed releases |
-| GitHub repo | [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) | [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) | [klodr/gmail-mcp](https://github.com/klodr/gmail-mcp) |
-| Active maintenance (last 30 d) | ❌ (dormant since Aug 2025) | ⚠️ sporadic | ✅ daily review cycle (CodeRabbit + human) |
+| Published on npm | ❌ stale — no future releases (repo archived) | ❌ (consumed as a GitHub install from the intermediate fork) | ✅ dedicated scoped package, signed releases |
+| Active maintenance (last 30 d) | ❌ (archived 2026-03-03) | ⚠️ sporadic | ✅ daily review cycle (CodeRabbit + human) |
 | **Supply-chain integrity** | | | |
 | Node.js floor | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ✅ `>=22` (Active LTS, maintenance until 2027-04-30) |
 | CI: CodeQL Advanced (`javascript-typescript` + `actions`) | ❌ | ❌ | ✅ |
@@ -73,10 +72,10 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | CI: CodeRabbit assertive reviews on every PR | ❌ | ❌ | ✅ |
 | Release: Sigstore-signed `dist/index.js` + SLSA in-toto attestation | ❌ | ❌ | ✅ |
 | Release: npm provenance statement | ❌ | ❌ | ✅ |
-| Release: single-file `tsup` ESM bundle (smaller tarball, easier to verify) | ❌ (multi-file `tsc`) | ❌ (multi-file `tsc`) | ✅ (target `node22`, `ES2024`) |
+| Release: single-file ESM bundle | ❌ | ❌ | ✅ |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (529 tests) |
-| Statement coverage across `src/**` | 0% | 16.14% | **>86%** |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (560 tests) |
+| Statement coverage across `src/**` | 0% | 16.14% | **>93%** |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
 | **CI/CD hardening** | | | |
@@ -86,8 +85,6 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | **Operational** | | | |
 | `CHANGELOG.md` (Keep-a-Changelog) | ❌ | ❌ | ✅ |
 | `SECURITY.md` (vulnerability reporting) | ❌ | ❌ | ✅ |
-| `CONTRIBUTING.md` | ❌ | ❌ | ✅ |
-| `.github/FUNDING.yml` | ❌ | ❌ | ✅ |
 
 `klodr/gmail-mcp` is the only one of the three with **(a)** source-path jails that make prompt-injection attachment exfiltration inert, **(b)** a modern supply chain (Scorecard, Socket, Sigstore), and **(c)** an in-repo review policy (`.coderabbit.yaml`) that every PR must pass before merge.
 

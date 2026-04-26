@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **README cleanup** — replaced the long "no third-party audit" NOTE block with a concise positive summary that names the divergence delta from upstream (121 commits / +26 700 / −10 400 lines vs `GongRzhe/Gmail-MCP-Server`, archived 2026-03-03) and the in-tree review chain (CodeRabbit + dual-model Qodo Merge). The detailed list of hardening controls moved out of the README and stays in [SECURITY.md](.github/SECURITY.md) where it belongs.
+- **README comparison table** — simplified: dropped the duplicate `GitHub repo` row (already in the column headers), the `CONTRIBUTING.md` and `.github/FUNDING.yml` rows (low signal — both are visible from the repo root), and the parenthetical clutter (`(outdated)`, `(multi-file tsc)`, `(target node22, ES2024)`). Updated `Active maintenance` to reflect that the upstream is archived. Test count and coverage floor bumped to `560 tests` / `>93%` to match the post-PR-#91 state.
+
+### Added
+
+- **Test coverage backfill (PR #91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%, downloads.ts 61% → 63%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
+
 ## [0.30.0] - 2026-04-26 — Server → McpServer migration + tool extraction
 
 A minor release that ships the full architectural cut-over from the
