@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-04-26 — Server → McpServer migration + tool extraction
+
+A minor release that ships the full architectural cut-over from the
+legacy `Server` + monolithic `CallToolRequestSchema` switch dispatcher
+(inherited from the GongRzhe → ArtyMcLabin fork chain) to the modern
+`McpServer` + per-domain `defineTool()` pattern already used by
+`klodr/mercury-invoicing-mcp` and `klodr/faxdrop-mcp`. The 1300-line
+switch is gone; every tool now lives in its own module under
+`src/tools/*.ts`, registered through a thin `defineTool()` wrapper
+that applies the OAuth scope filter at registration time so
+`tools/list` is auto-emitted by the SDK without a custom handler.
+
+This release deliberately stays on the `0.x` line — version `1.0.0`
+is reserved for the second major shipping over a longer maturity
+window (a few more weeks of production traffic on the new
+architecture, plus the `outputSchema`-per-tool work tracked in
+`docs/ROADMAP.md`). The `0.21 → 0.30` jump signals the size of the
+internal refactor; on-the-wire tool surface, schemas, audit-log
+states, and rate-limit semantics are all preserved.
+
+### Changed
+
+- **`src/index.ts` rewritten from 2124 LOC to ~370 LOC** — only OAuth
+  bootstrap (`loadCredentials`, `authenticate`) and the CLI entry
+  point remain; everything tool-related delegates to the new
+  `createServer({ gmail, authorizedScopes })` factory in
+  `src/server.ts`.
+- **`McpServer` replaces `Server`** as the underlying SDK type;
+  `tools/list` is now auto-emitted by the SDK from the per-domain
+  registrar declarations rather than served by a manual
+  `ListToolsRequestSchema` handler. The scope-aware filter that
+  previously gated `tools/list` is now applied at registration time
+  inside `defineTool()` (ANY-of-required match — preserves the
+  legacy semantics where `["gmail.readonly", "gmail.modify"]` means
+  "either scope grants access").
+- **Codecov thresholds restored** — `project.target: auto` /
+  `patch.target: 95%` (was relaxed to `35%` / `75%` during the
+  bridge while `src/index.ts` sat at 0% coverage). Global statement
+  coverage is now ~81%; `src/index.ts` stays in `ignore` because the
+  remaining surface is the OAuth callback flow + the `getAccessToken`
+  startup probe, which require integration runs.
+
+### Added
+
+- **`src/server.ts` — `createServer()` factory** mirroring the
+  mercury / faxdrop convention. Exports `VERSION` (hand-synced with
+  `package.json` by `scripts/sync-version.mjs`).
+- **`src/tools/_shared.ts` — `defineTool()` + `pullToolMeta()`** —
+  the wrapping that every per-domain registrar uses. `defineTool`
+  validates input args via `z.object(shape).strict()` (rejects
+  unknown keys at parse time, defending against prompt-injection
+  payloads that smuggle extra fields), wraps the handler in
+  `wrapToolHandler` (rate-limit, audit log, dry-run,
+  `<untrusted-tool-output>` sanitize fence, `structuredContent`
+  lifting), and applies the OAuth scope filter at registration.
+- **`src/tools/{messages,labels,filters,threads,downloads,messaging}.ts`** —
+  one registrar per domain, each calling `defineTool()` per tool.
+  All 26 tools migrated.
+- **`src/tools/index.ts` — `registerAllTools()` barrel** wiring every
+  per-domain registrar in one call from `createServer`.
+- **`src/email-send.ts` — `sendOrDraftEmail(gmail, action, args)`**
+  extracted from the legacy dispatcher closure. Used by `send_email`,
+  `draft_email`, and `reply_all`.
+- **`src/batch.ts` — `processBatches(items, size, fn)`** generic
+  helper extracted from the legacy dispatcher. Used by
+  `batch_modify_emails` and `batch_delete_emails`.
+- **`src/gmail-headers.ts` — `extractHeaders(payload)`** moved out of
+  `src/index.ts` next to its sibling `makeHeaderGetter`.
+
+### Fixed
+
+- **`getOrCreateLabel` returns `{ label, found }`** instead of a bare
+  `GmailLabel`. The previous `result.type === "user" && result.name
+  === args.name` heuristic the call site used to distinguish "found
+  existing" vs "created new" was unreliable: both `findLabelByName`
+  and `createLabel` return identical `Schema$Label` shapes, so every
+  successful call ended up labelled "found existing". `found = true`
+  on both the find-hit path AND the TOCTOU-recovery rescan after
+  `DuplicateLabelError`; `found = false` only when `createLabel`
+  actually ran to completion.
+- **`modify_email` merges `labelIds` and `addLabelIds`** into a
+  deduplicated set instead of letting the second silently overwrite
+  the first. Both schema fields map onto the same Gmail-API request
+  key (`addLabelIds`); a caller passing both clearly meant "all of
+  these", not "use only one and discard the other".
+- **`download_attachment` falls back to `attachment-${attachmentId}`**
+  when the sanitized filename collapses to `""` (e.g. a hostile
+  sender's `filename` attribute made entirely of NUL / control
+  chars). Without this, `path.resolve(savePath, "")` would equal
+  `savePath` itself and `safeWriteFile` either errors obscurely or
+  attempts to clobber the jail root.
+
+### Coverage
+
+- 9 new unit-test files under `src/{tools/,}*.test.ts` (server,
+  defineTool, batch, email-send, gmail-headers, registrars).
+- 511 tests total (was 412 on `0.21.0`).
+- Global statement coverage: ~39 % → **~81 %**.
+- The `read_email` truncation logic (multi-byte UTF-8 safe via
+  TextDecoder + trailing-FFFD trim) is now pinned by 6 dedicated
+  tests including a U+FFFD-never-appears assertion.
+
 ## [0.21.1] - 2026-04-26 — Security review LOW/INFO findings
 
 A patch release closing the six LOW/INFO findings raised by the
@@ -240,7 +342,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 This repository is a fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Pre-fork changelog is not reproduced here — see the upstream history and the acknowledgments in the README.
 
-[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...HEAD
+[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.0
 [0.21.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/klodr/gmail-mcp/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/klodr/gmail-mcp/compare/v0.10.0...v0.20.0
