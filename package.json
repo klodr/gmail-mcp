@@ -1,6 +1,6 @@
 {
   "name": "@klodr/gmail-mcp",
-  "version": "0.21.1",
+  "version": "0.30.0",
   "description": "Gmail MCP server — scope-gated tools + attachment/download path jails + supply-chain hardening. Fork of GongRzhe/Gmail-MCP-Server via ArtyMcLabin's intermediate fork.",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepublishOnly": "npm run build",
-    "version": "node scripts/sync-version.mjs && git add server.json src/index.ts"
+    "version": "node scripts/sync-version.mjs && git add server.json src/server.ts"
   },
   "files": [
     "dist",

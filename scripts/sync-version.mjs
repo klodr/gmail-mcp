@@ -1,7 +1,8 @@
 // Propagate package.json's `version` into the other places that need it:
-// server.json (top-level + matching package entry) and the hard-coded
-// version string in the MCP `Server(...)` constructor in src/index.ts.
-// Run automatically by `npm version`.
+// server.json (top-level + matching package entry) and the `VERSION`
+// constant in src/server.ts (the McpServer factory). Run automatically
+// by `npm version`. Pre-v0.30.0 this targeted src/index.ts where the
+// legacy `new Server({ name, version })` literal lived.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -20,15 +21,15 @@ for (const p of server.packages ?? []) {
 }
 writeFileSync(serverJsonPath, JSON.stringify(server, null, 2) + "\n");
 
-// 2. src/index.ts — the MCP Server({ name, version }) literal
-const tsPath = join(root, "src", "index.ts");
+// 2. src/server.ts — the exported `VERSION` constant (mirrors mercury / faxdrop)
+const tsPath = join(root, "src", "server.ts");
 const ts = readFileSync(tsPath, "utf8");
-const re = /(name: "gmail",\s*\n\s*version: )"[^"]*"/;
+const re = /(export const VERSION = )"[^"]*"/;
 if (!re.test(ts)) {
-  console.error("sync-version: did not find the Server({ name, version }) literal in src/index.ts");
+  console.error("sync-version: did not find the VERSION constant in src/server.ts");
   process.exit(1);
 }
 const updatedTs = ts.replace(re, `$1"${v}"`);
 writeFileSync(tsPath, updatedTs);
 
-console.log(`Synced version → ${v} (server.json, src/index.ts)`);
+console.log(`Synced version → ${v} (server.json, src/server.ts)`);
