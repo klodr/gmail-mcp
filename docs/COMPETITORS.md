@@ -116,7 +116,7 @@ Not value judgments — scope decisions.
 ## Where klodr/gmail-mcp sits
 
 - **Not the largest catalog** — shinzo-labs covers more Gmail Settings endpoints; we're closing that gap (see ROADMAP).
-- **Not the most stars** — GongRzhe has 1097 (archived). We just shipped v0.30.0 (April 2026).
+- **Not the most stars** — GongRzhe has 1097 (archived). First tagged version April 2026.
 - **The only implementation in the landscape** combining:
   - CodeQL Advanced + Socket Security + OpenSSF Scorecard + Snyk on every PR
   - Sigstore keyless signing + SLSA in-toto attestations + SPDX/CycloneDX SBOMs on every release
