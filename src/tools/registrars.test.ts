@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readdirSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { gmail_v1 } from "googleapis";
@@ -34,12 +34,18 @@ import { resetJailDirCache } from "../utl.js";
 // download tests in PR #6 do not write to one another's directories.
 let stateDir: string;
 let downloadDir: string;
+let attachmentDir: string;
 let pairedPath: string;
 const originalEnv = { ...process.env };
 
 beforeEach(() => {
   stateDir = mkdtempSync(join(tmpdir(), "gmail-mcp-registrars-test-"));
   downloadDir = mkdtempSync(join(tmpdir(), "gmail-mcp-download-test-"));
+  // Send-email attachment jail. Defaults to `~/GmailAttachments/` in
+  // production; pin per-test to a tempdir so the host's real
+  // attachment dir is never touched and each test gets an isolated
+  // realpath-resolved jail root.
+  attachmentDir = mkdtempSync(join(tmpdir(), "gmail-mcp-attach-test-"));
   // pair_recipient writes to GMAIL_MCP_PAIRED_PATH — point it at a
   // file inside the temp state-dir so each test gets a fresh
   // allowlist and the host's real ~/.gmail-mcp/paired.json is never
@@ -48,6 +54,7 @@ beforeEach(() => {
   process.env.GMAIL_MCP_PAIRED_PATH = pairedPath;
   process.env.GMAIL_MCP_STATE_DIR = stateDir;
   process.env.GMAIL_MCP_DOWNLOAD_DIR = downloadDir;
+  process.env.GMAIL_MCP_ATTACHMENT_DIR = attachmentDir;
   delete process.env.GMAIL_MCP_RATE_LIMIT_DISABLE;
   for (const k of Object.keys(process.env)) {
     if (k.startsWith("GMAIL_MCP_RATE_LIMIT_") && k !== "GMAIL_MCP_RATE_LIMIT_DISABLE") {
@@ -61,6 +68,7 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(stateDir, { recursive: true, force: true });
   rmSync(downloadDir, { recursive: true, force: true });
+  rmSync(attachmentDir, { recursive: true, force: true });
   process.env = { ...originalEnv };
   resetRateLimitHistory();
   resetJailDirCache();
@@ -1210,14 +1218,120 @@ describe("PR #7 registrars — send_email / draft_email (messaging.ts)", () => {
     });
   });
 
-  // The `attachments.length > 0` branch in sendOrDraftEmail
-  // (src/email-send.ts:131-178) routes through Nodemailer's
-  // streaming MIME builder. Wiring a deterministic test against
-  // the attachment-jail (assertAttachmentPathAllowed in src/utl.ts)
-  // requires fixture-config plumbing (GMAIL_MCP_ATTACHMENT_DIR +
-  // mocking nodemailer's stream cb) that is out of scope for the
-  // coverage backfill PR. Tracked as a follow-up under
-  // docs/ROADMAP.md attachment-fixture item.
+  it("send_email with an in-jail attachment routes through Nodemailer + messages.send", async () => {
+    await withFix(["gmail.send"], async (fix) => {
+      // Drop a real PDF inside the per-test attachment jail so the
+      // jail check (`assertAttachmentPathAllowed`) accepts it.
+      // Nodemailer reads the file at send-time via its streaming
+      // transport, so the bytes have to actually exist on disk —
+      // a fake / non-existent path would fail at `fs.existsSync`.
+      const pdfPath = join(attachmentDir, "report.pdf");
+      writeFileSync(pdfPath, "%PDF-1.4\n%fake pdf payload for the test\n");
+
+      const result = (await fix.client.callTool({
+        name: "send_email",
+        arguments: {
+          to: ["bob@example.com"],
+          subject: "With attachment",
+          body: "See attached.",
+          from: "me@example.com",
+          attachments: [pdfPath],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("sent successfully");
+      expect(fix.calls.messageSend).toHaveLength(1);
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      // Pin two contracts that fall through Nodemailer's streaming
+      // MIME builder when attachments > 0: the multipart envelope
+      // (`Content-Type: multipart/...`) and the per-attachment
+      // disposition with the original `path.basename(filePath)`
+      // filename.
+      expect(decoded).toMatch(/Content-Type: multipart\//);
+      // Nodemailer emits unquoted filenames for ASCII-safe basenames:
+      // `Content-Disposition: attachment; filename=report.pdf`. Pin
+      // both the disposition AND the basename so a regression that
+      // drops `path.basename(filePath)` (and leaks the full
+      // attachment-jail path) is caught.
+      expect(decoded).toMatch(/Content-Disposition: attachment; filename=report\.pdf/);
+      // The base64-encoded PDF body lands inline in the part — pin
+      // a deterministic prefix so a regression that drops the
+      // attachment payload entirely (zero-byte attachment) fails.
+      expect(decoded).toContain("JVBERi0xLjQK"); // %PDF-1.4\n base64 prefix
+      // Headers still travel correctly through this branch (separate
+      // code path from the no-attachment Buffer-build path above).
+      expect(decoded).toContain("To: bob@example.com");
+      expect(decoded).toContain("Subject: With attachment");
+    });
+  });
+
+  it("send_email rejects an attachment outside the jail with the override hint", async () => {
+    await withFix(["gmail.send"], async (fix) => {
+      // Drop a file in a sibling tempdir — outside the configured
+      // GMAIL_MCP_ATTACHMENT_DIR. The path is absolute and the file
+      // exists, so the rejection comes from `assertInsideJail` (not
+      // from the absolute-path or existsSync guards earlier in
+      // `assertAttachmentPathAllowed`). Pins the prompt-injection
+      // defence: an LLM prompt that names `/etc/passwd` (or any
+      // out-of-jail path) cannot exfiltrate via send_email.
+      const outsidePath = join(downloadDir, "out-of-jail.txt");
+      writeFileSync(outsidePath, "This file is outside the attachment jail.");
+
+      const result = (await fix.client.callTool({
+        name: "send_email",
+        arguments: {
+          to: ["bob@example.com"],
+          subject: "Should be rejected",
+          body: "x",
+          from: "me@example.com",
+          attachments: [outsidePath],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("outside the allowed");
+      // The override hint names the env var so the operator knows
+      // how to widen the jail if intentional.
+      expect(result.content[0]?.text).toContain("GMAIL_MCP_ATTACHMENT_DIR");
+      // No Gmail call was issued — short-circuited inside Nodemailer.
+      expect(fix.calls.messageSend).toHaveLength(0);
+    });
+  });
+
+  it("draft_email with an in-jail attachment routes through drafts.create (not messages.send)", async () => {
+    await withFix(["gmail.compose"], async (fix) => {
+      const pdfPath = join(attachmentDir, "draft.pdf");
+      writeFileSync(pdfPath, "%PDF-1.4\n%fake pdf for the draft test\n");
+
+      const result = (await fix.client.callTool({
+        name: "draft_email",
+        arguments: {
+          to: ["alice@example.com"],
+          subject: "Draft with attachment",
+          body: "Draft body",
+          from: "me@example.com",
+          attachments: [pdfPath],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("draft created");
+      // Pin that the attachment-bearing draft path lands on
+      // `drafts.create` (NOT `messages.send`) — distinct from the
+      // attachment-bearing send path tested above. A regression
+      // that flips the if/else on `action === "send"` would silently
+      // send the draft.
+      expect(fix.calls.draftCreate).toHaveLength(1);
+      expect(fix.calls.messageSend).toHaveLength(0);
+      // The Nodemailer-built RFC822 lives at requestBody.message.raw
+      // for drafts (one extra wrapper level vs send).
+      const draft = fix.calls.draftCreate[0] as {
+        requestBody: { message: { raw: string } };
+      };
+      const decoded = Buffer.from(draft.requestBody.message.raw, "base64url").toString("utf-8");
+      expect(decoded).toMatch(/Content-Type: multipart\//);
+      expect(decoded).toMatch(/Content-Disposition: attachment; filename=draft\.pdf/);
+    });
+  });
 
   it("send_email forwards threadId when supplied (preserves threading on the wire)", async () => {
     await withFix(["gmail.send"], async (fix) => {
