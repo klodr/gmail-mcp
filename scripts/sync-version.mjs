@@ -63,11 +63,19 @@ export function syncVersion(rootDir) {
   // 2. src/server.ts — the exported `VERSION` constant (mirrors mercury / faxdrop)
   const tsPath = join(rootDir, "src", "server.ts");
   const ts = readFileSync(tsPath, "utf8");
-  const re = /(export const VERSION = )"[^"]*"/;
+  // Anchor to a real declaration line — start-of-line + optional
+  // indentation + the exact `export const VERSION = "..."` token
+  // sequence + an optional trailing semicolon. The previous
+  // unanchored shape `(export const VERSION = )"[^"]*"` would
+  // happily rewrite a comment like
+  // `// Old: export const VERSION = "0.0.0"` or a string literal
+  // containing the same byte sequence, silently corrupting the
+  // file. The `m` flag makes `^` match every line start.
+  const re = /^(\s*export const VERSION = )"[^"]*"(;?)$/m;
   if (!re.test(ts)) {
     throw new Error("sync-version: did not find the VERSION constant in src/server.ts");
   }
-  const updatedTs = ts.replace(re, `$1"${v}"`);
+  const updatedTs = ts.replace(re, `$1"${v}"$2`);
   writeFileSync(tsPath, updatedTs);
 
   return v;

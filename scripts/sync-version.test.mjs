@@ -153,6 +153,36 @@ describe("syncVersion", () => {
     expect(() => syncVersion(scratch)).toThrow(/package\.json#name/);
   });
 
+  it("does not rewrite VERSION-like patterns inside comments or string literals", () => {
+    // Pin the anchored regex (`^(\\s*export const VERSION = )"..."(;?)$/m`)
+    // — without the `^...$/m` anchors, the previous unanchored
+    // pattern would happily rewrite a
+    // `// Old: export const VERSION = "0.0.0"` comment or a string
+    // literal containing the same byte sequence, silently corrupting
+    // src/server.ts. Pin: build a fixture with the real declaration
+    // AND a comment + a string literal that reuse the pattern;
+    // assert only the real declaration gets rewritten.
+    writeFixture({
+      pkgVersion: "0.31.0",
+      tsContent:
+        [
+          '// Historical: export const VERSION = "0.1.0";',
+          'const sample = `pre export const VERSION = "0.0.0" mid`;',
+          'export const VERSION = "0.0.0";',
+          '// Trailing: export const VERSION = "9.9.9"',
+        ].join("\n") + "\n",
+    });
+    syncVersion(scratch);
+    const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    // The real declaration was rewritten.
+    expect(ts).toContain('export const VERSION = "0.31.0";');
+    // The historical comment + the inline string + the trailing
+    // comment are untouched.
+    expect(ts).toContain('// Historical: export const VERSION = "0.1.0";');
+    expect(ts).toContain('const sample = `pre export const VERSION = "0.0.0" mid`;');
+    expect(ts).toContain('// Trailing: export const VERSION = "9.9.9"');
+  });
+
   it.each([
     ["JSON null", "null"],
     ["JSON primitive string", '"x"'],
