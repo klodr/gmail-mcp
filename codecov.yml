@@ -27,7 +27,6 @@ coverage:
     - "**/*.yml"
     - "**/*.json"
     - ".github/**"
-    - "scripts/**"
 
 comment:
   layout: "reach,diff,flags,files,footer"

@@ -174,6 +174,18 @@ describe("recipient-pairing", () => {
       process.env[ENV_RECIPIENT_PAIRING] = "true";
       expect(() => requirePairedRecipients([])).not.toThrow();
     });
+
+    it("skips whitespace-only entries instead of treating them as un-paired", () => {
+      // Pin the `if (!normalised) continue;` branch
+      // (`recipient-pairing.ts:154`). An entry that's just
+      // whitespace would `trim() → "" → !normalised → true`. Without
+      // the skip, the empty string would get pushed into `rejected`
+      // and the throw would emit a confusing
+      // `not in the paired allowlist —  (empty)` message.
+      addPairedAddress("alice@example.com");
+      process.env[ENV_RECIPIENT_PAIRING] = "true";
+      expect(() => requirePairedRecipients(["alice@example.com", "   "])).not.toThrow();
+    });
   });
 
   describe("readPairedList validation", () => {
@@ -184,6 +196,26 @@ describe("recipient-pairing", () => {
 
     it("throws a clear error when the file has the wrong shape", () => {
       writeFileSync(getPairedPath(), JSON.stringify({ version: 2, addresses: ["a@b.com"] }));
+      expect(() => readPairedList()).toThrow(/expected .* shape/);
+    });
+
+    it("throws a clear error when the JSON parses to null (falsy guard)", () => {
+      // Pin the `!value` branch in `isPairedFile`
+      // (`recipient-pairing.ts:57`). `JSON.parse("null")` returns
+      // `null` — the guard rejects it BEFORE reaching the
+      // `typeof value !== "object"` check (which would fail on
+      // null since `typeof null === "object"`). Without the
+      // up-front falsy check, the property access on null below
+      // would throw a confusing TypeError.
+      writeFileSync(getPairedPath(), "null");
+      expect(() => readPairedList()).toThrow(/expected .* shape/);
+    });
+
+    it("throws a clear error when the JSON parses to a primitive (not an object)", () => {
+      // Pin the `typeof value !== "object"` branch in `isPairedFile`.
+      // Same regression-trap as the null case above but for
+      // string / number / boolean primitives.
+      writeFileSync(getPairedPath(), '"not an object"');
       expect(() => readPairedList()).toThrow(/expected .* shape/);
     });
 

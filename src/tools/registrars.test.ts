@@ -109,6 +109,22 @@ interface MockGmailOpts {
    */
   messageBodyText?: string;
   /**
+   * Optional `text/html` MIME part body. When set, the mock adds a
+   * second part with `mimeType: "text/html"` so tests that need an
+   * HTML alternative (e.g., `download_email format=html`) can
+   * exercise the `emailToHtml` branch.
+   */
+  messageBodyHtml?: string;
+  /**
+   * Override the default `From: Alice <alice@example.com>` header on
+   * `messages.get` responses. Used by tests that need an
+   * empty-recipients reply_all path (the throw at
+   * `messaging.ts:171`): set `messageFromOverride: "me@example.com"`
+   * so `filterOutEmail` strips the only sender and `replyTo` ends
+   * up empty.
+   */
+  messageFromOverride?: string;
+  /**
    * Messages list returned by `gmail.users.messages.list` for
    * `search_emails`.
    */
@@ -137,6 +153,28 @@ interface MockGmailOpts {
    * (base64url-encoded). Used by `download_attachment` tests.
    */
   attachmentData?: string;
+  /**
+   * When set to an empty string, `gmail.users.messages.attachments.get`
+   * returns `{ data: { data: "", size: 0 } }` so the
+   * "No attachment data received" guard in `download_attachment`
+   * (`src/tools/downloads.ts:125-127`) fires.
+   */
+  attachmentDataEmpty?: boolean;
+  /**
+   * When set, `gmail.users.messages.get` injects an additional
+   * attachment-bearing part into the payload — `{ partId, filename,
+   * mimeType, body: { attachmentId, size } }`. Used by tests that
+   * exercise the attachment-mapping branches in `read_email`,
+   * `get_thread`, `get_inbox_with_threads`, and the
+   * "filename found in payload" path in `download_attachment`.
+   */
+  messageAttachments?: Array<{
+    partId: string;
+    filename: string;
+    mimeType: string;
+    attachmentId: string;
+    size: number;
+  }>;
   /**
    * When true, `gmail.users.settings.filters.list` returns an empty
    * `filter` array instead of the default single-seeded filter.
@@ -199,6 +237,14 @@ function mockGmail(opts: MockGmailOpts = {}): {
               err.code = opts.attachmentGetHttpError;
               throw err;
             }
+            if (opts.attachmentDataEmpty) {
+              // Pin the "No attachment data received" guard branch in
+              // `src/tools/downloads.ts:125-127`. Gmail returns an
+              // empty `data` field rarely (corrupt server-side state,
+              // expired temporary URL) and the guard surfaces it as
+              // a clean error.
+              return { data: { data: "", size: 0 } };
+            }
             const data =
               opts.attachmentData ??
               Buffer.from("%PDF-1.4 fake pdf content", "utf-8").toString("base64url");
@@ -257,13 +303,46 @@ function mockGmail(opts: MockGmailOpts = {}): {
             .replace(/\+/g, "-")
             .replace(/\//g, "_")
             .replace(/=+$/, "");
+          // Optionally inject attachment-bearing parts so tests can
+          // exercise the attachment-mapping branches in read_email
+          // (`messages.ts:108-115`), get_thread / get_inbox_with_threads
+          // (`threads.ts:107`/`289`), and download_attachment's
+          // "filename found in payload" path (`downloads.ts:142-144`).
+          const attParts = (opts.messageAttachments ?? []).map((a) => ({
+            partId: a.partId,
+            filename: a.filename,
+            mimeType: a.mimeType,
+            body: { attachmentId: a.attachmentId, size: a.size },
+          }));
+          // Optional text/html alternative — needed by
+          // `download_email format=html` (otherwise `emailToHtml`
+          // throws "This email has no HTML content") and the
+          // multi-alternative resolver tests in `email-resolver.ts`.
+          const htmlParts = opts.messageBodyHtml
+            ? [
+                {
+                  mimeType: "text/html",
+                  body: {
+                    size: opts.messageBodyHtml.length,
+                    data: Buffer.from(opts.messageBodyHtml, "utf-8")
+                      .toString("base64")
+                      .replace(/\+/g, "-")
+                      .replace(/\//g, "_")
+                      .replace(/=+$/, ""),
+                  },
+                },
+              ]
+            : [];
           const fullBase = {
             id,
             threadId: `thread_for_${id}`,
             payload: {
               headers: [
-                { name: "From", value: "Alice <alice@example.com>" },
-                { name: "To", value: "bob@example.com" },
+                {
+                  name: "From",
+                  value: opts.messageFromOverride ?? "Alice <alice@example.com>",
+                },
+                { name: "To", value: opts.messageFromOverride ? "" : "bob@example.com" },
                 { name: "Subject", value: `Test message ${id}` },
                 { name: "Date", value: "Fri, 25 Apr 2026 10:00:00 +0000" },
                 { name: "Message-ID", value: `<${id}@example.com>` },
@@ -273,6 +352,8 @@ function mockGmail(opts: MockGmailOpts = {}): {
                   mimeType: "text/plain",
                   body: { size: bodyText.length, data: bodyB64 },
                 },
+                ...htmlParts,
+                ...attParts,
               ],
             },
           };
@@ -328,6 +409,17 @@ function mockGmail(opts: MockGmailOpts = {}): {
                   .replace(/\+/g, "-")
                   .replace(/\//g, "_")
                   .replace(/=+$/, "");
+                // Same `messageAttachments` opt as the messages.get
+                // mock — appends attachment-bearing parts to the
+                // thread message payload so the attachment-mapping
+                // branch in `threads.ts:107`/`289` is reachable from
+                // the get_thread / get_inbox_with_threads tests.
+                const attParts = (opts.messageAttachments ?? []).map((a) => ({
+                  partId: a.partId,
+                  filename: a.filename,
+                  mimeType: a.mimeType,
+                  body: { attachmentId: a.attachmentId, size: a.size },
+                }));
                 return {
                   id: m.id,
                   threadId: id,
@@ -344,6 +436,7 @@ function mockGmail(opts: MockGmailOpts = {}): {
                         mimeType: "text/plain",
                         body: { size: bodyText.length, data: bodyB64 },
                       },
+                      ...attParts,
                     ],
                   },
                 };
@@ -1018,6 +1111,46 @@ describe("PR #5 registrars — read_email truncation (highest-risk extraction)",
       { messageBodyText: accentBody },
     );
   });
+
+  it("renders the attachment summary line when the message carries attachments", async () => {
+    // Pin the attachment-mapping branch in `read_email` (`messages.ts:108-115`)
+    // — only fires when the payload has at least one
+    // `body.attachmentId`-bearing part. Without this test, the
+    // `Attachments (N): - filename (mime, KB, ID: X)` formatter is
+    // never executed and a regression that mis-formats the line
+    // (wrong unit, missing ID, off-by-one count) goes undetected.
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "read_email",
+          arguments: { messageId: "msg_with_pdf", format: "full" },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Attachments (2):");
+        expect(text).toContain("- report.pdf (application/pdf, 4 KB, ID: att_pdf)");
+        expect(text).toContain("- icon.png (image/png, 1 KB, ID: att_png)");
+      },
+      {
+        messageAttachments: [
+          {
+            partId: "1.1",
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            attachmentId: "att_pdf",
+            size: 4096,
+          },
+          {
+            partId: "1.2",
+            filename: "icon.png",
+            mimeType: "image/png",
+            attachmentId: "att_png",
+            size: 1024,
+          },
+        ],
+      },
+    );
+  });
 });
 
 describe("PR #5 registrars — search_emails", () => {
@@ -1189,6 +1322,38 @@ describe("PR #6 registrars — download_email + download_attachment", () => {
     });
   });
 
+  it("download_email txt format writes the rendered text file", async () => {
+    // Pin the txt branch (`downloads.ts:68-69` → `emailToTxt`).
+    await withFix(["gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "download_email",
+        arguments: { messageId: "msg_dl_txt", savePath: downloadDir, format: "txt" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("msg_dl_txt.txt");
+      expect(readdirSync(downloadDir)).toContain("msg_dl_txt.txt");
+    });
+  });
+
+  it("download_email html format writes the rendered HTML file", async () => {
+    // Pin the html branch (`downloads.ts:70-71` → `emailToHtml`).
+    // `emailToHtml` throws if the message has no HTML alternative,
+    // so the test fixture supplies one via `messageBodyHtml`.
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "download_email",
+          arguments: { messageId: "msg_dl_html", savePath: downloadDir, format: "html" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        expect(result.content[0]?.text).toContain("msg_dl_html.html");
+        expect(readdirSync(downloadDir)).toContain("msg_dl_html.html");
+      },
+      { messageBodyHtml: "<html><body><p>HTML body</p></body></html>" },
+    );
+  });
+
   it("download_email eml format issues both full+raw fetches in parallel", async () => {
     await withFix(["gmail.readonly"], async (fix) => {
       const result = (await fix.client.callTool({
@@ -1316,6 +1481,72 @@ describe("PR #6 registrars — get_thread + list_inbox_threads + get_inbox_with_
         expect(text).toContain("Body 3");
       },
       { threads: fixtureThreads },
+    );
+  });
+
+  it("get_thread maps attachment metadata onto each message in the JSON output", async () => {
+    // Pin the attachment-mapping callback in `threads.ts:107`. The
+    // map fires only when a thread message has at least one
+    // `body.attachmentId`-bearing part. Without this test, a
+    // regression that drops the attachment array (or that
+    // mis-formats the per-attachment shape) would still pass the
+    // body-rendering tests above.
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "get_thread",
+          arguments: { threadId: "thread_a" },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        // The attachment is added to EVERY message in the fixture
+        // (the mock injects it into all thread messages), so the
+        // filename appears in the JSON output for both messages.
+        expect(text).toContain("contract.pdf");
+        expect(text).toContain("application/pdf");
+      },
+      {
+        threads: fixtureThreads,
+        messageAttachments: [
+          {
+            partId: "1.1",
+            filename: "contract.pdf",
+            mimeType: "application/pdf",
+            attachmentId: "att_contract",
+            size: 8192,
+          },
+        ],
+      },
+    );
+  });
+
+  it("get_inbox_with_threads expandThreads=true maps attachments onto each message", async () => {
+    // Pin the symmetric attachment-mapping callback in
+    // `threads.ts:289` (the get_inbox_with_threads expand path).
+    // Same shape as `get_thread`, distinct call site → distinct
+    // coverage marker.
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "get_inbox_with_threads",
+          arguments: { expandThreads: true, query: "in:inbox", maxResults: 10 },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("spec.pdf");
+      },
+      {
+        threads: fixtureThreads,
+        messageAttachments: [
+          {
+            partId: "1.1",
+            filename: "spec.pdf",
+            mimeType: "application/pdf",
+            attachmentId: "att_spec",
+            size: 4096,
+          },
+        ],
+      },
     );
   });
 });
@@ -1652,6 +1883,33 @@ describe("PR #7 registrars — reply_all", () => {
       expect(fromLine).toContain("me@example.com");
     });
   });
+
+  it("reply_all surfaces an isError when no recipients survive the self-filter", async () => {
+    // Pin the throw at `messaging.ts:171` ("Could not determine
+    // recipient for reply"). Reached when `buildReplyAllRecipients`
+    // returns an empty `to` array — happens when the original
+    // message's only From/To are the user's own address (here
+    // `me@example.com`, returned by the mock's getProfile). Without
+    // this guard, reply_all would silently send a reply with no
+    // recipient and Gmail's API would error opaquely.
+    await withFix(
+      ["gmail.send", "gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "reply_all",
+          arguments: {
+            messageId: "msg_self_only",
+            body: "Reply to self?",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Could not determine recipient");
+        // No send call was issued — short-circuited.
+        expect(fix.calls.messageSend).toHaveLength(0);
+      },
+      { messageFromOverride: "me@example.com" },
+    );
+  });
 });
 
 describe("PR #4 registrars — filter templates (4 paths)", () => {
@@ -1874,6 +2132,72 @@ describe("PR #6 registrars — download error paths", () => {
       const written = readdirSync(downloadDir);
       expect(written).toContain("attachment-att_default_name");
     });
+  });
+
+  it("download_attachment surfaces a clear error when Gmail returns empty data", async () => {
+    // Pin the "No attachment data received" guard at
+    // `src/tools/downloads.ts:125-127`. Gmail returns an empty
+    // `data` field rarely (corrupt server-side state, expired
+    // temporary URL) — the guard surfaces it as a clean
+    // typed error instead of a confusing Buffer-from-empty
+    // downstream failure.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "download_attachment",
+          arguments: {
+            messageId: "msg_x",
+            attachmentId: "att_empty",
+            savePath: downloadDir,
+            filename: "x.bin",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("No attachment data received");
+        // No file was written.
+        expect(readdirSync(downloadDir)).toHaveLength(0);
+      },
+      { attachmentDataEmpty: true },
+    );
+  });
+
+  it("download_attachment uses the filename found inside the message payload", async () => {
+    // Pin the "filename found in payload" path at
+    // `src/tools/downloads.ts:142-144`. When the tool is called
+    // WITHOUT a `filename` arg, it fetches the message and walks
+    // `payload.parts` looking for the matching `attachmentId`.
+    // The existing fallback test exercises the no-match case
+    // (synthetic `attachment-${id}` name); this test pins the
+    // success case (real filename from the payload).
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "download_attachment",
+          arguments: {
+            messageId: "msg_with_pdf",
+            attachmentId: "att_pdf_in_payload",
+            savePath: downloadDir,
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        expect(result.content[0]?.text).toContain("invoice-2026.pdf");
+        const written = readdirSync(downloadDir);
+        expect(written).toContain("invoice-2026.pdf");
+      },
+      {
+        messageAttachments: [
+          {
+            partId: "1.1",
+            filename: "invoice-2026.pdf",
+            mimeType: "application/pdf",
+            attachmentId: "att_pdf_in_payload",
+            size: 4096,
+          },
+        ],
+      },
+    );
   });
 
   it("download_attachment surfaces the Gmail HTTP status when attachments.get throws", async () => {

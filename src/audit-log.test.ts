@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeSync,
   fstatSync,
@@ -172,5 +172,49 @@ describe("audit-log logAudit", () => {
     expect(parsed[0]?.result).toBe("ok");
     expect(parsed[1]?.result).toBe("error");
     expect(parsed[2]?.result).toBe("rate_limited");
+  });
+
+  it("logs `[ELIDED]` for an elided key whose value is neither string nor array", () => {
+    // Pin the else branch in `redactSensitive` (`audit-log.ts:96-98`):
+    // the size/length suffix only applies to strings (`[ELIDED:N
+    // chars]`) and arrays (`[ELIDED:N items]`); any other type
+    // (number, boolean, plain object) collapses to the bare
+    // `[ELIDED]` marker. Without this test, a regression that drops
+    // the else branch would silently leak the raw value of a
+    // numeric / object PII field into the audit log.
+    const path = join(tmpDir, "audit.jsonl");
+    process.env.GMAIL_MCP_AUDIT_LOG = path;
+    // `subject` is in PII_ELIDED_KEYS — passing a number / object /
+    // boolean each lands on the else branch.
+    logAudit("send_email", { subject: 42 }, "ok");
+    logAudit("send_email", { subject: { invoice: true } }, "ok");
+    logAudit("send_email", { subject: false }, "ok");
+    const lines = readFileSync(path, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      expect((entry.args as Record<string, unknown>).subject).toBe("[ELIDED]");
+    }
+  });
+
+  it("warns instead of throwing when appendFileSync fails (parent missing)", () => {
+    // Pin the catch branch at `audit-log.ts:123-125`. The audit log
+    // is fire-and-forget — a write failure (disk full, EACCES,
+    // missing parent directory) must NEVER crash the tool handler.
+    // We point GMAIL_MCP_AUDIT_LOG at a path whose parent directory
+    // does not exist, which makes appendFileSync throw ENOENT, AND
+    // assert that console.error was called with the expected
+    // `[audit] failed to write` warning so the side effect is pinned
+    // (not just crash-safety).
+    process.env.GMAIL_MCP_AUDIT_LOG = join(tmpDir, "no-such-dir", "audit.jsonl");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => logAudit("send_email", { to: ["a@b.com"] }, "ok")).not.toThrow();
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      const firstCall = errSpy.mock.calls[0];
+      expect(firstCall?.[0]).toMatch(/^\[audit\] failed to write to /);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
