@@ -84,6 +84,22 @@ export function parseScopesArg(argv: readonly string[]): {
   }
   const value = scopesArg.slice("--scopes=".length);
   const scopes = parseScopes(value);
+  // Empty after parse means the user supplied `--scopes=` (no
+  // value), `--scopes=,,,` (only separators), or whitespace-only.
+  // `validateScopes([])` returns `valid: true` vacuously (no
+  // invalid entries in a zero-length set), but proceeding with
+  // zero scopes would issue an OAuth grant the user can't do
+  // anything with. Fail fast with a synthetic-invalid entry that
+  // surfaces what the user actually typed in the CLI's
+  // "Invalid scope(s): …" diagnostic.
+  if (scopes.length === 0) {
+    return {
+      scopes: [],
+      valid: false,
+      invalid: [`(empty: --scopes=${JSON.stringify(value)})`],
+      flagPresent: true,
+    };
+  }
   const validation = validateScopes(scopes);
   return {
     scopes,

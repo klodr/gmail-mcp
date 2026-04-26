@@ -123,6 +123,28 @@ describe("parseScopesArg", () => {
     expect(result.valid).toBe(false);
     expect(result.invalid).toContain("gmail.notarealscope");
   });
+
+  it.each([
+    ["empty value", "--scopes="],
+    ["only separators", "--scopes=,,,"],
+    ["only whitespace", "--scopes=   "],
+    ["mixed separators (no scope)", "--scopes=, ,"],
+  ] as const)("fails fast when --scopes parses to an empty list (%s)", (_label, scopesArg) => {
+    // CR Major: `parseScopes("")` returns `[]`, and
+    // `validateScopes([])` returns `valid: true` vacuously (0 of
+    // 0 entries are invalid). Without the empty-list guard, the
+    // CLI would proceed to OAuth with no scopes — the user gets
+    // a useless grant that can't access any Gmail tool.
+    const result = parseScopesArg(["node", "index.js", "auth", scopesArg]);
+    expect(result.flagPresent).toBe(true);
+    expect(result.valid).toBe(false);
+    expect(result.scopes).toEqual([]);
+    // The synthetic-invalid entry surfaces what the user actually
+    // typed so the CLI's "Invalid scope(s): …" diagnostic is
+    // actionable.
+    expect(result.invalid.length).toBe(1);
+    expect(result.invalid[0]).toMatch(/^\(empty:/);
+  });
 });
 
 describe("parseTimeoutMs", () => {
