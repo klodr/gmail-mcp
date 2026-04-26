@@ -26,6 +26,7 @@
 import fs from "fs";
 import path from "path";
 import http from "http";
+import crypto from "crypto";
 import open from "open";
 import { OAuth2Client } from "google-auth-library";
 import { DEFAULT_SCOPES, scopeNamesToUrls } from "./scopes.js";
@@ -225,6 +226,14 @@ export interface AuthenticateOpts {
    */
   openBrowser?: (url: string) => unknown;
   log?: (msg: string, ...rest: unknown[]) => void;
+  /**
+   * Per-flow OAuth `state` generator (defaults to
+   * `crypto.randomBytes(32).toString("base64url")`). Lets tests pin
+   * a deterministic value so the fetch in the callback can supply
+   * the matching `?state=…` parameter without first having to read
+   * the URL the server printed to stderr.
+   */
+  generateState?: () => string;
 }
 
 export async function authenticate(opts: AuthenticateOpts): Promise<void> {
@@ -273,6 +282,16 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
   const httpServer = http.createServer();
   const scopeUrls = scopeNamesToUrls(opts.scopes);
 
+  // Per-flow OAuth `state` (RFC 6749 §10.12 — login-CSRF defence).
+  // 256-bit random value, base64url-encoded. Without this, an
+  // attacker who tricks the user into clicking
+  // `http://localhost:<port>/oauth2callback?code=ATTACKER_CODE`
+  // during the auth window can swap the user's flow for theirs
+  // (the user ends up authenticated against the attacker's Google
+  // account). Tests inject a deterministic generator so the
+  // callback fetch can supply the matching `?state=…`.
+  const expectedState = opts.generateState?.() ?? crypto.randomBytes(32).toString("base64url");
+
   return new Promise<void>((resolve, reject) => {
     httpServer.on("error", (err: NodeJS.ErrnoException) => {
       const hint =
@@ -300,6 +319,7 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
       const authUrl = opts.oauth2Client.generateAuthUrl({
         access_type: "offline",
         scope: scopeUrls,
+        state: expectedState,
       });
 
       log("Requesting scopes:", opts.scopes.join(", "));
@@ -321,6 +341,7 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         if (url.pathname !== callbackPath) return;
 
         const code = url.searchParams.get("code");
+        const stateParam = url.searchParams.get("state");
 
         // Settle the auth promise only after the http server is
         // fully closed: stop accepting new connections AND tear
@@ -341,6 +362,31 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
           // cannot keep executing the handler against an
           // already-settled promise.
           finalize(() => reject(new Error("No code provided")));
+          return;
+        }
+
+        // Validate the OAuth `state` round-trip BEFORE exchanging
+        // the code. A missing or mismatched state means the
+        // callback was not initiated by this flow — refuse the
+        // grant rather than potentially binding the user to an
+        // attacker-controlled Google account.
+        if (
+          stateParam === null ||
+          stateParam.length !== expectedState.length ||
+          !crypto.timingSafeEqual(
+            Buffer.from(stateParam, "utf-8"),
+            Buffer.from(expectedState, "utf-8"),
+          )
+        ) {
+          res.writeHead(400);
+          res.end("Invalid state");
+          finalize(() =>
+            reject(
+              new Error(
+                "OAuth state mismatch: refusing to exchange the authorization code. The callback may have been initiated by a different OAuth flow.",
+              ),
+            ),
+          );
           return;
         }
 

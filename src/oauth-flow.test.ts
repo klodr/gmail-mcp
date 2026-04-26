@@ -402,6 +402,82 @@ describe("authenticate", () => {
     expect(caughtErr?.message).toBe("No code provided");
   });
 
+  it("rejects when the OAuth state parameter is missing (CSRF defence)", async () => {
+    const port = await pickFreePort();
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    const client = makeClient(cb);
+    // Spy: if state validation fails, getToken MUST NOT be called.
+    let getTokenCalled = false;
+    (
+      client as unknown as {
+        getToken: (code: string) => Promise<{ tokens: Record<string, unknown> }>;
+      }
+    ).getToken = async () => {
+      getTokenCalled = true;
+      return Promise.resolve({ tokens: {} });
+    };
+    let caughtErr: Error | undefined;
+    const settled = authenticate({
+      oauth2Client: client,
+      oauthCallbackUrl: cb,
+      scopes: ["gmail.readonly"],
+      credentialsPath,
+      openBrowser: () => undefined,
+      log,
+      generateState: () => "expected-state-token",
+    }).catch((err: unknown) => {
+      caughtErr = err instanceof Error ? err : new Error(String(err));
+    });
+    // Send a `code` but no `state` — the CSRF guard must refuse
+    // the exchange. Pin the 400 + the typed rejection AND that
+    // `getToken` was never reached.
+    const res = await fetch(`${cb}?code=anything`);
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe("Invalid state");
+    await settled;
+    expect(caughtErr).toBeInstanceOf(Error);
+    expect(caughtErr?.message).toContain("OAuth state mismatch");
+    expect(getTokenCalled).toBe(false);
+  });
+
+  it("rejects when the OAuth state parameter does not match the expected value", async () => {
+    const port = await pickFreePort();
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    const client = makeClient(cb);
+    let getTokenCalled = false;
+    (
+      client as unknown as {
+        getToken: (code: string) => Promise<{ tokens: Record<string, unknown> }>;
+      }
+    ).getToken = async () => {
+      getTokenCalled = true;
+      return Promise.resolve({ tokens: {} });
+    };
+    let caughtErr: Error | undefined;
+    const settled = authenticate({
+      oauth2Client: client,
+      oauthCallbackUrl: cb,
+      scopes: ["gmail.readonly"],
+      credentialsPath,
+      openBrowser: () => undefined,
+      log,
+      generateState: () => "expected-state-token",
+    }).catch((err: unknown) => {
+      caughtErr = err instanceof Error ? err : new Error(String(err));
+    });
+    // Wrong state — same length and a non-trivial mismatch so the
+    // length-fast-path doesn't short-circuit the timing-safe
+    // comparison. Pin the same 400 + reject + getToken-not-called
+    // contract as the missing-state case above.
+    const res = await fetch(`${cb}?code=anything&state=attacker-state-value`);
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe("Invalid state");
+    await settled;
+    expect(caughtErr).toBeInstanceOf(Error);
+    expect(caughtErr?.message).toContain("OAuth state mismatch");
+    expect(getTokenCalled).toBe(false);
+  });
+
   it("writes credentials at 0o600 when the OAuth code exchange succeeds", async () => {
     const port = await pickFreePort();
     const cb = `http://127.0.0.1:${port}/oauth2callback`;
@@ -428,9 +504,13 @@ describe("authenticate", () => {
       credentialsPath,
       openBrowser: () => undefined,
       log,
+      // Pin a deterministic state so the success-fetch can supply
+      // the matching `?state=…`. Production uses
+      // `crypto.randomBytes(32).toString("base64url")`.
+      generateState: () => "test-state-deterministic",
     });
-    // Trigger the success branch.
-    const res = await fetch(`${cb}?code=auth-code-xyz`);
+    // Trigger the success branch — must include the matching state.
+    const res = await fetch(`${cb}?code=auth-code-xyz&state=test-state-deterministic`);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("Authentication successful");
