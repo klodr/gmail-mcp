@@ -14,7 +14,7 @@ export default defineConfig({
       // than being silently omitted from the report. v8 coverage
       // otherwise hides files that no test imports, which makes it
       // easy to think we have better coverage than we do.
-      include: ["src/**/*.ts"],
+      include: ["src/**/*.ts", "scripts/**/*.mjs"],
       // `src/index.ts` is the stdio CLI entry point — 7 lines that
       // call `runServer({ argv, env })` and forward the rejection
       // to `process.exit(1)`. Testing it requires booting a real
@@ -23,7 +23,22 @@ export default defineConfig({
       // shim wraps lives in `runtime.ts` and is covered there.
       // Mirrors the `klodr/faxdrop-mcp` and `klodr/mercury-invoicing-mcp`
       // pattern.
-      exclude: ["src/**/*.test.ts", "src/**/*.d.ts", "src/index.ts"],
+      exclude: [
+        "src/**/*.test.ts",
+        "src/**/*.d.ts",
+        "src/index.ts",
+        // Vitest's `include` for tests is separate from coverage
+        // `include`; this `exclude` ensures the tempdir-driven
+        // sync-version.test.mjs (executable via `node` directly) is
+        // not measured as if it were source.
+        "scripts/**/*.test.mjs",
+        // `prod-readonly-test.mjs` is a top-level smoke test that
+        // spawns `dist/index.js` and walks a real Gmail token —
+        // mocking it in vitest would defeat its purpose. It runs
+        // pre-release against a sandbox token, not in the unit
+        // test suite.
+        "scripts/prod-readonly-test.mjs",
+      ],
     },
   },
 });
