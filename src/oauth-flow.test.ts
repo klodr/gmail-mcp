@@ -539,6 +539,116 @@ describe("authenticate", () => {
     expect(stored.scopes).toEqual(["gmail.readonly"]);
     expect(stored.tokens).toMatchObject({ access_token: "at", refresh_token: "rt" });
   });
+
+  it("rejects a multi-byte state without throwing TypeError on Buffer mismatch", async () => {
+    // Defence regression: the previous shape compared
+    // `String.length` (UTF-16 code units) and only later built
+    // Buffers for `crypto.timingSafeEqual` (which requires
+    // identical BYTE lengths). An attacker who supplies a state
+    // with the same code-unit count but multi-byte UTF-8 chars
+    // would have triggered TypeError → unhandled rejection on the
+    // fire-and-forget IIFE → request hangs + listener stays up.
+    // The fix builds both Buffers up front and compares
+    // `.length` (byte length). Pin the no-throw + clean reject
+    // contract on a "café" vs "cafe" pair (4 UTF-16 units, 5 vs 4
+    // bytes).
+    const port = await pickFreePort();
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    const client = makeClient(cb);
+    let getTokenCalled = false;
+    (
+      client as unknown as {
+        getToken: (code: string) => Promise<{ tokens: Record<string, unknown> }>;
+      }
+    ).getToken = async () => {
+      getTokenCalled = true;
+      return Promise.resolve({ tokens: {} });
+    };
+    let caughtErr: Error | undefined;
+    const settled = authenticate({
+      oauth2Client: client,
+      oauthCallbackUrl: cb,
+      scopes: ["gmail.readonly"],
+      credentialsPath,
+      openBrowser: () => undefined,
+      log,
+      generateState: () => "cafe", // 4 ASCII chars, 4 bytes
+    }).catch((err: unknown) => {
+      caughtErr = err instanceof Error ? err : new Error(String(err));
+    });
+    // "café" — 4 UTF-16 code units, but 5 UTF-8 bytes (é = 2 bytes).
+    const res = await fetch(`${cb}?code=anything&state=caf%C3%A9`);
+    expect(res.status).toBe(400);
+    expect(await res.text()).toBe("Invalid state");
+    await settled;
+    expect(caughtErr).toBeInstanceOf(Error);
+    expect(caughtErr?.message).toContain("OAuth state mismatch");
+    expect(getTokenCalled).toBe(false);
+  });
+
+  it("logs but does not reject when launchBrowser fails (browser missing)", async () => {
+    // The auth flow prints the authUrl to stderr regardless of
+    // whether `open` can launch a browser, and a missing default
+    // browser must not abort auth — the user can still paste the
+    // URL manually. Pin the .catch handler on the launchBrowser
+    // promise: a thrown launcher logs `Failed to open browser
+    // automatically: ...` and the auth flow continues normally
+    // (here we settle via missing-code to keep the test short).
+    const port = await pickFreePort();
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    let caughtErr: Error | undefined;
+    const settled = authenticate({
+      oauth2Client: makeClient(cb),
+      oauthCallbackUrl: cb,
+      scopes: ["gmail.readonly"],
+      credentialsPath,
+      openBrowser: () => {
+        throw new Error("xdg-open not found");
+      },
+      log,
+    }).catch((err: unknown) => {
+      caughtErr = err instanceof Error ? err : new Error(String(err));
+    });
+    // Wait one tick so the listen callback fires and the
+    // launchBrowser .catch handler logs.
+    await new Promise((r) => setTimeout(r, 30));
+    // Settle the auth promise so the test can clean up the
+    // listener — no-code path is the cheapest exit.
+    await fetch(`${cb}`);
+    await settled;
+    expect(caughtErr?.message).toBe("No code provided");
+    expect(logCapture.join("\n")).toContain("Failed to open browser automatically");
+    expect(logCapture.join("\n")).toContain("xdg-open not found");
+  });
+
+  it("rejects with HTTP 500 when the token-exchange call throws", async () => {
+    // After state validation passes, `opts.oauth2Client.getToken(code)`
+    // is awaited inside the try/catch. A network/credentials/quota
+    // error surfaces as a 500 + a typed reject through the catch
+    // arm — pinned here on a synthetic error.
+    const port = await pickFreePort();
+    const cb = `http://127.0.0.1:${port}/oauth2callback`;
+    const client = makeClient(cb);
+    (client as unknown as { getToken: (code: string) => Promise<unknown> }).getToken = () =>
+      Promise.reject(new Error("invalid_grant"));
+    let caughtErr: Error | undefined;
+    const settled = authenticate({
+      oauth2Client: client,
+      oauthCallbackUrl: cb,
+      scopes: ["gmail.readonly"],
+      credentialsPath,
+      openBrowser: () => undefined,
+      log,
+      generateState: () => "deterministic",
+    }).catch((err: unknown) => {
+      caughtErr = err instanceof Error ? err : new Error(String(err));
+    });
+    const res = await fetch(`${cb}?code=anything&state=deterministic`);
+    expect(res.status).toBe(500);
+    expect(await res.text()).toBe("Authentication failed");
+    await settled;
+    expect(caughtErr?.message).toBe("invalid_grant");
+  });
 });
 
 /** Helper: bind to port 0, capture the OS-assigned port, release. */

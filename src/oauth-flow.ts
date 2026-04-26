@@ -324,10 +324,20 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
 
       log("Requesting scopes:", opts.scopes.join(", "));
       log("Please visit this URL to authenticate:", authUrl);
-      void Promise.resolve(launchBrowser(authUrl)).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        log(`Failed to open browser automatically: ${msg}`);
-      });
+      // `Promise.resolve().then(...)` (instead of
+      // `Promise.resolve(launchBrowser(authUrl))`) so a SYNC throw
+      // from the launcher (e.g. `xdg-open` not on PATH on a
+      // headless box, or `open` rejecting a malformed URL before
+      // returning the Promise) is also caught — the bare
+      // `Promise.resolve(throwing-call)` shape lets sync throws
+      // escape the `.catch` chain, which would crash the auth flow
+      // for what should be a non-fatal "no default browser" event.
+      void Promise.resolve()
+        .then(() => launchBrowser(authUrl))
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          log(`Failed to open browser automatically: ${msg}`);
+        });
     });
 
     const hostForUrl = hostname.includes(":") ? `[${hostname}]` : hostname;
@@ -370,13 +380,21 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         // callback was not initiated by this flow — refuse the
         // grant rather than potentially binding the user to an
         // attacker-controlled Google account.
+        //
+        // Compare BYTE lengths, not String.length (UTF-16 code-unit
+        // count). An attacker who supplies a multi-byte UTF-8 state
+        // with a String.length matching `expectedState` would
+        // otherwise reach `timingSafeEqual` with mismatched-byte
+        // Buffers, which throws TypeError → unhandled rejection on
+        // the fire-and-forget IIFE → request hangs + listener stays
+        // up. Fix: build both Buffers up front and compare their
+        // `.length` (which is byte length, not UTF-16 units).
+        const expectedBuf = Buffer.from(expectedState, "utf-8");
+        const stateBuf = stateParam === null ? null : Buffer.from(stateParam, "utf-8");
         if (
-          stateParam === null ||
-          stateParam.length !== expectedState.length ||
-          !crypto.timingSafeEqual(
-            Buffer.from(stateParam, "utf-8"),
-            Buffer.from(expectedState, "utf-8"),
-          )
+          stateBuf === null ||
+          stateBuf.length !== expectedBuf.length ||
+          !crypto.timingSafeEqual(stateBuf, expectedBuf)
         ) {
           res.writeHead(400);
           res.end("Invalid state");
