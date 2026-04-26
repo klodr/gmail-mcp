@@ -17,14 +17,24 @@
 import type { gmail_v1 } from "googleapis";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defineTool, pullToolMeta as pull } from "./_shared.js";
-import { SendEmailSchema, PairRecipientSchema, ReplyAllSchema } from "../tools.js";
+import {
+  SendEmailSchema,
+  PairRecipientSchema,
+  ReplyAllSchema,
+  ReplyToEmailSchema,
+  ForwardEmailSchema,
+} from "../tools.js";
 import { sendOrDraftEmail, type EmailSendArgs } from "../email-send.js";
 import { addPairedAddress, readPairedList, removePairedAddress } from "../recipient-pairing.js";
 import {
+  addFwdPrefix,
   addRePrefix,
+  buildForwardQuotedBody,
   buildReferencesHeader,
   buildReplyAllRecipients,
+  parseEmailAddresses,
 } from "../reply-all-helpers.js";
+import { extractEmailContent } from "../mime-walkers.js";
 
 export function registerMessagingTools(
   server: McpServer,
@@ -202,6 +212,148 @@ export function registerMessagingTools(
     },
     replyAll.annotations,
     replyAll.scopes,
+    authorizedScopes,
+  );
+
+  // reply_to_email — sender-only reply (no Cc broadcast). Mirrors
+  // reply_all but skips the To+Cc rebuild — just picks the first
+  // address out of the source `From:` header. The threading-headers
+  // wiring (In-Reply-To / References / Subject Re: prefix) is the
+  // same.
+  const replyToEmail = pull("reply_to_email");
+  defineTool(
+    server,
+    "reply_to_email",
+    replyToEmail.description,
+    ReplyToEmailSchema.shape,
+    async (args) => {
+      const originalEmail = await gmail.users.messages.get({
+        userId: "me",
+        id: args.messageId,
+        format: "full",
+      });
+      const headers = originalEmail.data.payload?.headers || [];
+      const threadId = originalEmail.data.threadId || "";
+
+      const get = (name: string) =>
+        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+      const originalFrom = get("from");
+      const originalSubject = get("subject");
+      const originalMessageId = get("message-id");
+      const originalReferences = get("references");
+
+      // First mailbox out of the source `From:` — RFC 5322 allows a
+      // multi-address From (rare but legal). Pick the first; an
+      // operator who wants every original sender should reach for
+      // reply_all. Empty `From:` (synthetic message) → bail with
+      // isError so the agent does not silently send to nothing.
+      const fromAddresses = parseEmailAddresses(originalFrom);
+      if (fromAddresses.length === 0) {
+        throw new Error(
+          "Could not determine recipient for reply (source message has no From: header)",
+        );
+      }
+      const replyTo = [fromAddresses[0]!];
+
+      const replySubject = addRePrefix(originalSubject);
+      const references = buildReferencesHeader(originalReferences, originalMessageId);
+
+      const emailArgs: EmailSendArgs = {
+        to: replyTo,
+        subject: replySubject,
+        body: args.body,
+        htmlBody: args.htmlBody,
+        mimeType: args.mimeType,
+        threadId,
+        inReplyTo: originalMessageId,
+        references,
+        attachments: args.attachments,
+      };
+
+      await sendOrDraftEmail(gmail, "send", emailArgs);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Reply sent successfully!\nTo: ${replyTo.join(", ")}\nSubject: ${replySubject}\nThread ID: ${threadId}`,
+          },
+        ],
+      };
+    },
+    replyToEmail.annotations,
+    replyToEmail.scopes,
+    authorizedScopes,
+  );
+
+  // forward_email — relay an existing message to a new recipient
+  // list. Builds a Gmail-style quoted body (`---------- Forwarded
+  // message ---------` separator + From/Date/Subject/To headers +
+  // original text) and prepends the optional `body` preface. New
+  // thread (no threadId carry-over). Attachments from the source
+  // are NOT re-attached — the caller chains download_attachment +
+  // passes paths via `attachments` if carry-over is wanted.
+  const forwardEmail = pull("forward_email");
+  defineTool(
+    server,
+    "forward_email",
+    forwardEmail.description,
+    ForwardEmailSchema.shape,
+    async (args) => {
+      const originalEmail = await gmail.users.messages.get({
+        userId: "me",
+        id: args.messageId,
+        format: "full",
+      });
+      const headers = originalEmail.data.payload?.headers || [];
+      const get = (name: string) =>
+        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+      const originalFrom = get("from");
+      const originalDate = get("date");
+      const originalSubject = get("subject");
+      const originalTo = get("to");
+
+      const emailContent = extractEmailContent(originalEmail.data.payload || {});
+      const originalText = emailContent.text || "";
+
+      const forwardSubject = addFwdPrefix(originalSubject);
+      const forwardBody = buildForwardQuotedBody(
+        {
+          from: originalFrom,
+          date: originalDate,
+          subject: originalSubject,
+          to: originalTo,
+        },
+        originalText,
+        args.body,
+      );
+
+      const emailArgs: EmailSendArgs = {
+        to: args.to,
+        cc: args.cc,
+        bcc: args.bcc,
+        subject: forwardSubject,
+        body: forwardBody,
+        attachments: args.attachments,
+      };
+
+      await sendOrDraftEmail(gmail, "send", emailArgs);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Forward sent successfully!\nTo: ${args.to.join(", ")}${
+              args.cc && args.cc.length > 0 ? `\nCC: ${args.cc.join(", ")}` : ""
+            }${
+              args.bcc && args.bcc.length > 0 ? `\nBCC: ${args.bcc.join(", ")}` : ""
+            }\nSubject: ${forwardSubject}`,
+          },
+        ],
+      };
+    },
+    forwardEmail.annotations,
+    forwardEmail.scopes,
     authorizedScopes,
   );
 }

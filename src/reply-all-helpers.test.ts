@@ -3,6 +3,8 @@ import {
   parseEmailAddresses,
   filterOutEmail,
   addRePrefix,
+  addFwdPrefix,
+  buildForwardQuotedBody,
   buildReferencesHeader,
   buildReplyAllRecipients,
 } from "./reply-all-helpers.js";
@@ -259,5 +261,84 @@ describe("buildReplyAllRecipients", () => {
       myEmail,
     );
     expect(result.cc).toEqual(["other@example.com"]);
+  });
+});
+
+describe("addFwdPrefix", () => {
+  it("adds Fwd: prefix to subject without it", () => {
+    expect(addFwdPrefix("Hello")).toBe("Fwd: Hello");
+  });
+
+  it("does not add Fwd: prefix if already present (lowercase)", () => {
+    expect(addFwdPrefix("fwd: Hello")).toBe("fwd: Hello");
+  });
+
+  it("does not add Fwd: prefix if already present (uppercase)", () => {
+    expect(addFwdPrefix("Fwd: Hello")).toBe("Fwd: Hello");
+  });
+
+  it("treats Fw: as already-forwarded (Outlook variant)", () => {
+    expect(addFwdPrefix("Fw: Hello")).toBe("Fw: Hello");
+  });
+
+  it("treats fw: (lowercase) as already-forwarded", () => {
+    expect(addFwdPrefix("fw: Hello")).toBe("fw: Hello");
+  });
+
+  it("handles empty subject", () => {
+    expect(addFwdPrefix("")).toBe("Fwd: ");
+  });
+
+  it("does not strip a Re: prefix when prepending Fwd:", () => {
+    // A reply that the user then forwards keeps both prefixes — same
+    // behaviour as Gmail's UI. Pinning the no-strip contract guards
+    // against a regression that strips Re: thinking it should be
+    // exclusive with Fwd:.
+    expect(addFwdPrefix("Re: Hello")).toBe("Fwd: Re: Hello");
+  });
+});
+
+describe("buildForwardQuotedBody", () => {
+  const headers = {
+    from: "Alice <alice@example.com>",
+    date: "Fri, 25 Apr 2026 10:00:00 +0000",
+    subject: "Original subject",
+    to: "bob@example.com",
+  };
+
+  it("formats header block + original text without preface", () => {
+    const out = buildForwardQuotedBody(headers, "Original body content");
+    expect(out).toContain("---------- Forwarded message ---------");
+    expect(out).toContain("From: Alice <alice@example.com>");
+    expect(out).toContain("Date: Fri, 25 Apr 2026 10:00:00 +0000");
+    expect(out).toContain("Subject: Original subject");
+    expect(out).toContain("To: bob@example.com");
+    expect(out).toContain("Original body content");
+    // No leading preface — the separator is the first non-empty line.
+    expect(out.startsWith("---------- Forwarded message ---------")).toBe(true);
+  });
+
+  it("prepends preface separated by a blank line when supplied", () => {
+    const out = buildForwardQuotedBody(headers, "Body", "FYI — see below");
+    expect(out.startsWith("FYI — see below\n\n---------- Forwarded message ---------")).toBe(true);
+  });
+
+  it("treats empty preface like absent (no leading blank-line gap)", () => {
+    const out = buildForwardQuotedBody(headers, "Body", "");
+    expect(out.startsWith("---------- Forwarded message ---------")).toBe(true);
+  });
+
+  it("preserves multi-line original text body verbatim", () => {
+    const original = "Line 1\nLine 2\nLine 3";
+    const out = buildForwardQuotedBody(headers, original);
+    expect(out).toContain("Line 1\nLine 2\nLine 3");
+  });
+
+  it("renders an empty body when source had no extractable text", () => {
+    const out = buildForwardQuotedBody(headers, "");
+    // The header block + blank line + empty body — no crash, just an
+    // empty trailer. Pin so a regression that adds a `||` fallback
+    // doesn't sneak default text into the forward.
+    expect(out.endsWith("To: bob@example.com\n\n")).toBe(true);
   });
 });
