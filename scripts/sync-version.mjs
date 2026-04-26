@@ -30,6 +30,21 @@ import { dirname, join } from "node:path";
  */
 export function syncVersion(rootDir) {
   const pkg = JSON.parse(readFileSync(join(rootDir, "package.json"), "utf8"));
+  // Validate the parsed shape up-front: a package.json missing
+  // `name` or `version` (or with non-string values) would
+  // otherwise silently propagate `undefined` into server.json and
+  // src/server.ts. Fail fast instead — the script is run by
+  // `npm version`, so a bad package.json at this point is a
+  // definite operator error worth surfacing loudly.
+  if (!pkg || typeof pkg !== "object") {
+    throw new Error("sync-version: package.json did not parse to an object");
+  }
+  if (typeof pkg.version !== "string" || pkg.version.length === 0) {
+    throw new Error("sync-version: package.json#version must be a non-empty string");
+  }
+  if (typeof pkg.name !== "string" || pkg.name.length === 0) {
+    throw new Error("sync-version: package.json#name must be a non-empty string");
+  }
   const v = pkg.version;
 
   // 1. server.json

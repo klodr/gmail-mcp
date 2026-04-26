@@ -16,7 +16,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true });
+  // Guard against `mkdtempSync` failing in beforeEach: if scratch
+  // is still undefined, calling `rmSync(undefined, ...)` throws
+  // TypeError (force: true covers ENOENT, not invalid path types)
+  // and that throw masks the original setup failure that vitest
+  // would otherwise surface to the test report.
+  if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
 /**
@@ -114,5 +119,42 @@ describe("syncVersion", () => {
     writeFixture({ pkgVersion: "0.42.0" });
     const v = syncVersion(scratch);
     expect(v).toBe("0.42.0");
+  });
+
+  it.each([
+    ["missing version field", JSON.stringify({ name: "@klodr/gmail-mcp" })],
+    ["empty version string", JSON.stringify({ name: "@klodr/gmail-mcp", version: "" })],
+    ["non-string version", JSON.stringify({ name: "@klodr/gmail-mcp", version: 42 })],
+  ])("throws when package.json#version is invalid (%s)", (_label, pkgJson) => {
+    // Pin the up-front version validator. Without it, an absent or
+    // non-string `version` would silently get propagated as
+    // `undefined` into server.json and as `"undefined"` into the
+    // VERSION literal in src/server.ts — a malformed release on
+    // npm. Fail fast at boot instead.
+    writeFixture();
+    writeFileSync(join(scratch, "package.json"), pkgJson);
+    expect(() => syncVersion(scratch)).toThrow(/package\.json#version/);
+  });
+
+  it.each([
+    ["missing name field", JSON.stringify({ version: "1.0.0" })],
+    ["empty name string", JSON.stringify({ name: "", version: "1.0.0" })],
+    ["non-string name", JSON.stringify({ name: 123, version: "1.0.0" })],
+  ])("throws when package.json#name is invalid (%s)", (_label, pkgJson) => {
+    // Symmetric pin for the `name` field. The script uses pkg.name
+    // to match `server.json#packages[].identifier` — if it's
+    // undefined, no entry would match and the per-package version
+    // bump would silently no-op while the top-level still moves.
+    writeFixture();
+    writeFileSync(join(scratch, "package.json"), pkgJson);
+    expect(() => syncVersion(scratch)).toThrow(/package\.json#name/);
+  });
+
+  it("throws when package.json parses to a non-object value", () => {
+    // Edge: `JSON.parse("null")` → null, `JSON.parse("\"x\"")` → string.
+    // Both must be rejected before the property accesses below.
+    writeFixture();
+    writeFileSync(join(scratch, "package.json"), "null");
+    expect(() => syncVersion(scratch)).toThrow(/did not parse to an object/);
   });
 });

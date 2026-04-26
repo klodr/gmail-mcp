@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeSync,
   fstatSync,
@@ -202,9 +202,19 @@ describe("audit-log logAudit", () => {
     // is fire-and-forget — a write failure (disk full, EACCES,
     // missing parent directory) must NEVER crash the tool handler.
     // We point GMAIL_MCP_AUDIT_LOG at a path whose parent directory
-    // does not exist, which makes appendFileSync throw ENOENT.
+    // does not exist, which makes appendFileSync throw ENOENT, AND
+    // assert that console.error was called with the expected
+    // `[audit] failed to write` warning so the side effect is pinned
+    // (not just crash-safety).
     process.env.GMAIL_MCP_AUDIT_LOG = join(tmpDir, "no-such-dir", "audit.jsonl");
-    // Must not throw — the catch swallows + warns to console.error.
-    expect(() => logAudit("send_email", { to: ["a@b.com"] }, "ok")).not.toThrow();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => logAudit("send_email", { to: ["a@b.com"] }, "ok")).not.toThrow();
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      const firstCall = errSpy.mock.calls[0];
+      expect(firstCall?.[0]).toMatch(/^\[audit\] failed to write to /);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
