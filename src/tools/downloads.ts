@@ -23,6 +23,7 @@ import { extractHeaders } from "../gmail-headers.js";
 import { extractEmailContent, extractAttachments } from "../mime-walkers.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml } from "../email-export.js";
 import { asGmailApiError } from "../gmail-errors.js";
+import { downloadEmailOutputSchema } from "./output-schemas.js";
 
 type GmailMessagePart = gmail_v1.Schema$MessagePart;
 
@@ -105,6 +106,7 @@ export function registerDownloadTools(
     downloadEmail.annotations,
     downloadEmail.scopes,
     authorizedScopes,
+    downloadEmailOutputSchema,
   );
 
   // download_attachment

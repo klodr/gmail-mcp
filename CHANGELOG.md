@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Test coverage backfill (PR #91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%, downloads.ts 61% → 63%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
+- **MCP `outputSchema` per tool — infrastructure** — `defineTool()` now accepts an optional 9th argument `outputSchema?: ZodRawShape`, threaded through to the SDK's `registerTool` config. `tools/list` advertises the schema in its `outputSchema` field so an agent can introspect the structured-content contract without parsing the textual `RETURNS:` block. The SDK validates each `structuredContent` payload against the schema before emitting, so a regression that drops a field or returns the wrong type fails at the MCP boundary instead of silently producing a malformed agent input. First-wave wiring: `download_email` (1 of 26 tools); `src/tools/output-schemas.ts` houses the schemas with a documented coverage policy. Remaining 25 tools roll out per-tool in follow-up PRs (each needs its actual emit shape pinned + a schema co-designed with the handler return type).
 
 ## [0.30.0] - 2026-04-26 — Server → McpServer migration + tool extraction
 

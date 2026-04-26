@@ -307,4 +307,149 @@ describe("defineTool", () => {
     );
     expect(registered).toBe(true);
   });
+
+  it("exposes the optional outputSchema via tools/list when supplied", async () => {
+    // Pin the new MCP `outputSchema` contract: when defineTool is
+    // called with the optional 9th argument, the schema must be
+    // exposed verbatim on `tools/list` (so an agent can introspect
+    // the structured-content shape without parsing the textual
+    // RETURNS: block in `description`). Verifies the wiring on
+    // `_shared.ts:127-138` — the `outputSchema` arg threads
+    // through to the SDK's `registerTool` config.
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    defineTool(
+      server,
+      "test_with_output",
+      "Tool that emits a typed structuredContent payload.",
+      { foo: z.string() },
+      async () =>
+        Promise.resolve({
+          content: [{ type: "text", text: '{"id":"x","count":1}' }],
+          structuredContent: { id: "x", count: 1 },
+        }),
+      { readOnlyHint: true },
+      ["gmail.readonly"],
+      ["gmail.readonly"],
+      { id: z.string(), count: z.number().int() },
+    );
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const list = await client.listTools();
+      const t = list.tools.find((tool) => tool.name === "test_with_output");
+      expect(t).toBeDefined();
+      // `outputSchema` is a JSON Schema with `type: "object"` + the
+      // shape's properties. Pin both that it exists and that the
+      // properties match the Zod shape we supplied.
+      expect(t?.outputSchema).toBeDefined();
+      expect(t?.outputSchema?.type).toBe("object");
+      const props = (t?.outputSchema as { properties?: Record<string, unknown> }).properties;
+      expect(props?.id).toBeDefined();
+      expect(props?.count).toBeDefined();
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
+  it("omits outputSchema from tools/list when none is supplied (back-compat)", async () => {
+    // Tools registered WITHOUT the new optional 9th arg keep the
+    // pre-PR behaviour: `tools/list` does not advertise an
+    // `outputSchema` field. Pin this so the migration is safe to
+    // roll out tool-by-tool without breaking existing clients
+    // that ignore `outputSchema`.
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    defineTool(
+      server,
+      "test_without_output",
+      "Tool with no outputSchema (back-compat).",
+      { foo: z.string() },
+      noopHandler,
+      { readOnlyHint: true },
+      ["gmail.readonly"],
+      ["gmail.readonly"],
+    );
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const list = await client.listTools();
+      const t = list.tools.find((tool) => tool.name === "test_without_output");
+      expect(t).toBeDefined();
+      expect(t?.outputSchema).toBeUndefined();
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
+  it("rejects a tool call when structuredContent violates the declared outputSchema", async () => {
+    // Pin the RUNTIME validation path (not just discovery via
+    // tools/list). The SDK validates each `structuredContent`
+    // payload against the schema BEFORE emitting — a regression
+    // that drops the validation wiring would still leave
+    // tools/list looking correct but quietly let malformed
+    // payloads slip through to the agent. Define a tool with a
+    // strict numeric schema, have its handler return a string
+    // where a number is expected, and assert the SDK throws an
+    // `Output validation error: ...` typed McpError.
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    defineTool(
+      server,
+      "test_runtime_validation",
+      "Tool whose handler emits a structuredContent that violates its schema.",
+      { foo: z.string() },
+      async () =>
+        Promise.resolve({
+          content: [{ type: "text", text: '{"id":"x","count":"NOT-A-NUMBER"}' }],
+          // Deliberately malformed: schema below requires count: number,
+          // we emit a string. The SDK's outputSchema validator must
+          // catch this BEFORE the call returns.
+          structuredContent: { id: "x", count: "NOT-A-NUMBER" },
+        }),
+      { readOnlyHint: true },
+      ["gmail.readonly"],
+      ["gmail.readonly"],
+      { id: z.string(), count: z.number().int() },
+    );
+
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "validation-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      // The SDK throws `McpError(InvalidParams, "Output validation
+      // error: ...")` inside the request handler. wrapToolHandler's
+      // sanitize-fence catch arm intercepts it and surfaces it
+      // through the MCP-standard `{ isError: true, content: [...] }`
+      // envelope rather than as a JSON-RPC-level rejection — pin
+      // both that the call lands as isError AND that the diagnostic
+      // text names "Output validation error" so an agent can branch
+      // on the contract violation specifically.
+      const result = (await client.callTool({
+        name: "test_runtime_validation",
+        arguments: { foo: "bar" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBe(true);
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain("Output validation error");
+      expect(text).toContain("test_runtime_validation");
+      // Pin the offending field name in the diagnostic.
+      expect(text).toContain("count");
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
 });
