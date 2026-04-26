@@ -151,6 +151,15 @@ interface MockGmailOpts {
    */
   messageGetHttpError?: number;
   attachmentGetHttpError?: number;
+  /**
+   * When set, `gmail.users.messages.modify` and
+   * `gmail.users.messages.delete` throw a generic Error for any
+   * `id` listed here. Pins the per-item failure-collection branch in
+   * `batch_modify_emails` / `batch_delete_emails`
+   * (`processBatches` records `failures[]` and the registrar prints
+   * the "Failed to … N messages" footer).
+   */
+  failOnIds?: string[];
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -198,10 +207,18 @@ function mockGmail(opts: MockGmailOpts = {}): {
         },
         delete: async (params: unknown) => {
           calls.messageDelete.push(params);
+          const id = (params as { id?: string }).id;
+          if (id !== undefined && opts.failOnIds?.includes(id)) {
+            throw new Error(`Simulated delete failure for ${id}`);
+          }
           return { data: {} };
         },
         modify: async (params: unknown) => {
           calls.messageModify.push(params);
+          const id = (params as { id?: string }).id;
+          if (id !== undefined && opts.failOnIds?.includes(id)) {
+            throw new Error(`Simulated modify failure for ${id}`);
+          }
           return { data: {} };
         },
         send: async (params: unknown) => {
@@ -660,6 +677,30 @@ describe("PR #4 registrars — label management", () => {
     }
   });
 
+  it("update_label forwards messageListVisibility + labelListVisibility when supplied", async () => {
+    // Pin the two if-branches in `src/tools/labels.ts:86-91` that
+    // assemble the partial-update body. Without this, a regression
+    // that drops either field from the merge silently swallows
+    // visibility changes on the wire.
+    await withFix(["gmail.modify", "gmail.labels"], async (fix) => {
+      await fix.client.callTool({
+        name: "update_label",
+        arguments: {
+          id: "Label_2",
+          messageListVisibility: "hide",
+          labelListVisibility: "labelHide",
+        },
+      });
+      expect(fix.calls.labelUpdate).toHaveLength(1);
+      const body = (fix.calls.labelUpdate[0] as { requestBody: Record<string, unknown> })
+        .requestBody;
+      expect(body.messageListVisibility).toBe("hide");
+      expect(body.labelListVisibility).toBe("labelHide");
+      // No name supplied → it stays unset on the wire.
+      expect(body.name).toBeUndefined();
+    });
+  });
+
   it("get_or_create_label returns 'found existing' when the label is already present", async () => {
     const fix = await buildAndConnect(["gmail.modify", "gmail.labels"], {
       existingLabels: [{ id: "Label_existing", name: "Acme/Invoices", type: "user" }],
@@ -736,6 +777,36 @@ describe("PR #4 registrars — filter management", () => {
       expect(fix.calls.filterCreate).toHaveLength(1);
     } finally {
       await fix.close();
+    }
+  });
+
+  it("create_filter rejects an action.forward target that is not in the paired allowlist", async () => {
+    // Pin the recipient-pairing gate at `src/tools/filters.ts:79-81`
+    // — installing a server-side forwarding rule must require the
+    // destination to be paired (mirrors send_email / reply_all /
+    // draft_email). Without this branch tested, a regression that
+    // drops the `requirePairedRecipients` call silently re-opens
+    // the prompt-injection-driven exfiltration channel on the
+    // create_filter surface.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(["gmail.settings.basic"], async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "create_filter",
+          arguments: {
+            criteria: { from: "noreply@vendor.com" },
+            action: { forward: "exfil@evil.example" },
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        // Pairing-violation messages mention the unpaired address.
+        expect(result.content[0]?.text).toContain("exfil@evil.example");
+        // No filterCreate call was issued — the throw fires before
+        // the API call.
+        expect(fix.calls.filterCreate).toHaveLength(0);
+      });
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     }
   });
 
@@ -1023,6 +1094,81 @@ describe("PR #5 registrars — modify_email + batch_*", () => {
       expect(text).toContain("Successfully deleted: 2 messages");
       expect(fix.calls.messageDelete).toHaveLength(2);
     });
+  });
+
+  it("batch_modify_emails reports per-item failures separately from successes", async () => {
+    // Pin the failure-collection branch in `batch_modify_emails`
+    // (`src/tools/messages.ts:240-243`): when `processBatches`
+    // records `failures[]`, the registrar prints the success count
+    // PLUS the "Failed to process: N messages" footer with the
+    // truncated failed IDs. Without this branch tested, a regression
+    // that drops the failure footer (or that mis-counts the
+    // partition) still passes the success-only assertions above.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "batch_modify_emails",
+          arguments: {
+            messageIds: ["good_a", "fail_b", "good_c"],
+            addLabelIds: ["L_X"],
+            batchSize: 5,
+          },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Successfully processed: 2 messages");
+        expect(text).toContain("Failed to process: 1 messages");
+        expect(text).toContain("Failed message IDs:");
+        // The failed-ID renderer truncates each id to 16 chars and
+        // appends `...` — pin the truncation contract.
+        expect(text).toContain("fail_b...");
+        expect(text).toContain("(Simulated modify failure for fail_b)");
+        // `processBatches` retries the whole batch item-by-item on a
+        // failure (so 3 batch calls + 3 retry calls = 6 modify calls
+        // for a 3-item input with one bad ID). Pin the lower bound
+        // (>=3) to allow `processBatches` to optimise away the
+        // retry one day, and pin that `fail_b` was actually
+        // attempted (so a regression that drops the bad ID before
+        // the API call is caught).
+        expect(fix.calls.messageModify.length).toBeGreaterThanOrEqual(3);
+        const modifiedIds = fix.calls.messageModify.map((c) => (c as { id?: string }).id);
+        expect(modifiedIds).toContain("good_a");
+        expect(modifiedIds).toContain("good_c");
+        expect(modifiedIds).toContain("fail_b");
+      },
+      { failOnIds: ["fail_b"] },
+    );
+  });
+
+  it("batch_delete_emails reports per-item failures separately from successes", async () => {
+    // Same shape as the batch_modify failure test above, against
+    // `src/tools/messages.ts:275-278`. Distinct branch: a regression
+    // that copies the modify-arm's footer logic but mishandles the
+    // delete-arm wording (e.g., "Failed to process" instead of
+    // "Failed to delete") would fail this test, not the modify one.
+    await withFix(
+      ["mail.google.com"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "batch_delete_emails",
+          arguments: { messageIds: ["m1", "m2", "fail_3"] },
+        })) as { content: Array<{ type: string; text: string }> };
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Successfully deleted: 2 messages");
+        expect(text).toContain("Failed to delete: 1 messages");
+        expect(text).toContain("fail_3...");
+        expect(text).toContain("(Simulated delete failure for fail_3)");
+        // Same retry-on-batch-failure semantics as the modify test
+        // above — pin the lower bound + verify each ID was
+        // attempted at least once.
+        expect(fix.calls.messageDelete.length).toBeGreaterThanOrEqual(3);
+        const deletedIds = fix.calls.messageDelete.map((c) => (c as { id?: string }).id);
+        expect(deletedIds).toContain("m1");
+        expect(deletedIds).toContain("m2");
+        expect(deletedIds).toContain("fail_3");
+      },
+      { failOnIds: ["fail_3"] },
+    );
   });
 });
 
@@ -1622,6 +1768,33 @@ describe("PR #4 registrars — filter templates (4 paths)", () => {
       expect(result.content[0]?.text).toContain("subjectText is required");
     });
   });
+
+  it.each([
+    ["fromSender", { labelIds: ["L"] }, "senderEmail is required"],
+    ["largeEmails", { labelIds: ["L"] }, "sizeInBytes is required"],
+    ["containingText", { labelIds: ["L"] }, "searchText is required"],
+    ["mailingList", { labelIds: ["L"] }, "listIdentifier is required"],
+  ] as const)(
+    "create_filter_from_template (%s) surfaces a missing-parameter error",
+    async (template, params, errFragment) => {
+      // Pins the per-template parameter-missing throws in
+      // `src/tools/filters.ts:188-211`. Each template has its own
+      // throw with a template-specific message — table-driven so
+      // a regression that copies the wrong error message between
+      // templates is caught.
+      await withFix(["gmail.settings.basic"], async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "create_filter_from_template",
+          arguments: { template, parameters: params },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain(errFragment);
+        // No filterCreate call was issued — the throw fires before
+        // the registrar reaches `createFilter`.
+        expect(fix.calls.filterCreate).toHaveLength(0);
+      });
+    },
+  );
 });
 
 describe("PR #6 registrars — download error paths", () => {
@@ -1684,6 +1857,36 @@ describe("PR #6 registrars — download error paths", () => {
       const written = readdirSync(downloadDir);
       expect(written).toContain("attachment-att_default_name");
     });
+  });
+
+  it("download_attachment surfaces the Gmail HTTP status when attachments.get throws", async () => {
+    // Symmetric to the `download_email surfaces the Gmail HTTP
+    // status` test above, against `src/tools/downloads.ts:192-197`.
+    // The catch branch formats the prefix as
+    // `Failed to download attachment (HTTP <status>)` when
+    // `asGmailApiError` extracts a numeric `.code`. Without this
+    // test, a regression that drops the HTTP-code lookup and falls
+    // back to the no-code branch silently degrades the error
+    // surface.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "download_attachment",
+          arguments: {
+            messageId: "msg_x",
+            attachmentId: "att_503",
+            savePath: downloadDir,
+            filename: "x.bin",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Failed to download attachment (HTTP 503)");
+        expect(result.content[0]?.text).toContain("Simulated Gmail API failure");
+        expect(fix.calls.attachmentGet).toHaveLength(1);
+      },
+      { attachmentGetHttpError: 503 },
+    );
   });
 });
 
