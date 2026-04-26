@@ -196,6 +196,7 @@ The exact set depends on the OAuth scopes granted at `auth` time. Full catalog:
 - **Threads** — `get_thread`, `list_inbox_threads`, `get_inbox_with_threads`, `modify_thread`
 - **Labels** — `list_email_labels`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`
 - **Filters** — `list_filters`, `get_filter`, `create_filter`, `delete_filter`, `create_filter_from_template`
+- **Recipient pairing** — `pair_recipient` (manage the `~/.gmail-mcp/paired.json` allowlist when `GMAIL_MCP_RECIPIENT_PAIRING=true`)
 
 Every write tool is annotated with `destructiveHint` / `readOnlyHint` / `idempotentHint` per the MCP spec so policy-aware clients can gate on HITL confirmation.
 

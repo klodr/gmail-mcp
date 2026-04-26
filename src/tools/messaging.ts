@@ -238,22 +238,38 @@ export function registerMessagingTools(
       const get = (name: string) =>
         headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
       const originalFrom = get("from");
+      const originalSender = get("sender");
       const originalSubject = get("subject");
       const originalMessageId = get("message-id");
       const originalReferences = get("references");
 
-      // First mailbox out of the source `From:` — RFC 5322 allows a
-      // multi-address From (rare but legal). Pick the first; an
-      // operator who wants every original sender should reach for
-      // reply_all. Empty `From:` (synthetic message) → bail with
-      // isError so the agent does not silently send to nothing.
+      // CR finding (PR #99): silently picking the first `From:`
+      // mailbox on a multi-author message can route a private
+      // reply to the wrong participant. Resolution path:
+      //   1. Prefer `Sender:` if present (RFC 5322 §3.6.2 — Sender
+      //      identifies the agent that physically transmitted a
+      //      message authored by multiple From: parties; replying
+      //      to Sender is the conservative choice).
+      //   2. Otherwise require exactly one `From:` mailbox; if
+      //      there are zero or multiple, bail with isError so the
+      //      agent disambiguates explicitly (via send_email +
+      //      manual In-Reply-To, or by asking the human).
+      const senderAddresses = parseEmailAddresses(originalSender);
       const fromAddresses = parseEmailAddresses(originalFrom);
-      if (fromAddresses.length === 0) {
-        throw new Error(
-          "Could not determine recipient for reply (source message has no From: header)",
-        );
+      let replyToAddress: string | undefined;
+      if (senderAddresses.length === 1) {
+        replyToAddress = senderAddresses[0];
+      } else if (fromAddresses.length === 1) {
+        replyToAddress = fromAddresses[0];
       }
-      const replyTo = [fromAddresses[0]!];
+      if (!replyToAddress) {
+        const reason =
+          fromAddresses.length === 0
+            ? "source message has no From: header"
+            : "source message has multiple From: mailboxes and no Sender: disambiguator";
+        throw new Error(`Could not determine a unique recipient for reply (${reason})`);
+      }
+      const replyTo = [replyToAddress];
 
       const replySubject = addRePrefix(originalSubject);
       const references = buildReferencesHeader(originalReferences, originalMessageId);
