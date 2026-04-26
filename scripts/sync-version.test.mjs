@@ -44,6 +44,9 @@ function writeFixture({
     JSON.stringify({ version: "0.0.0", packages: serverPackages }, null, 2),
   );
   writeFileSync(join(scratch, "src", "server.ts"), tsContent);
+  // Honour the docblock contract — return the version we wrote so
+  // tests can assert propagation downstream without re-deriving it.
+  return pkgVersion;
 }
 
 describe("syncVersion", () => {
