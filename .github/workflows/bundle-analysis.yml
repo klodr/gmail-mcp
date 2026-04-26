@@ -1,0 +1,68 @@
+name: Bundle Analysis
+
+# Codecov Bundle Analysis. Tracks the size of `dist/index.js` (the
+# tsup/esbuild ESM output we publish to npm) over time so a PR that
+# accidentally adds a heavy dependency or stops tree-shaking surfaces
+# in the Codecov "Bundles" tab. Read-only on this repo's permissions
+# beyond contents:read; the upload uses the SAME `CODECOV_TOKEN`
+# secret the coverage upload in `ci.yml` already consumes — Codecov's
+# repo upload token is feature-agnostic (covers coverage, bundle
+# analysis, and test analytics from a single secret), so no new
+# secret to provision.
+
+on:
+  push:
+    branches: [main]
+    # Also snapshot on every release tag (`v*`) so the Codecov
+    # "Bundles" tab carries a labelled entry per release alongside
+    # the per-commit history from main / PRs.
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle-analysis:
+    name: Bundle Analysis
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload bundle stats to Codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        # Skip silently if the secret is not provisioned yet rather
+        # than failing CI on unrelated PRs (e.g. a Dependabot PR
+        # before the secret is shared with bot context). Reading
+        # `secrets.*` directly inside `if:` would expose the secret's
+        # existence to the workflow log; piping through `env` and
+        # checking inside the script keeps the secret state opaque.
+        run: |
+          if [ -z "$CODECOV_TOKEN" ]; then
+            echo "CODECOV_TOKEN not configured — skipping Codecov upload."
+            exit 0
+          fi
+          npx @codecov/bundle-analyzer dist \
+            --upload-token "$CODECOV_TOKEN" \
+            --bundle-name gmail-mcp

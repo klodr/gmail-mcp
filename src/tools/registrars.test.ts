@@ -1187,6 +1187,15 @@ describe("PR #7 registrars — send_email / draft_email (messaging.ts)", () => {
     });
   });
 
+  // The `attachments.length > 0` branch in sendOrDraftEmail
+  // (src/email-send.ts:131-178) routes through Nodemailer's
+  // streaming MIME builder. Wiring a deterministic test against
+  // the attachment-jail (assertAttachmentPathAllowed in src/utl.ts)
+  // requires fixture-config plumbing (GMAIL_MCP_ATTACHMENT_DIR +
+  // mocking nodemailer's stream cb) that is out of scope for the
+  // coverage backfill PR. Tracked as a follow-up under
+  // docs/ROADMAP.md attachment-fixture item.
+
   it("send_email forwards threadId when supplied (preserves threading on the wire)", async () => {
     await withFix(["gmail.send"], async (fix) => {
       await fix.client.callTool({
