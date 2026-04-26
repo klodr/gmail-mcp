@@ -29,7 +29,7 @@ The rest of this page covers the wider landscape.
 
 ## Standalone repositories
 
-Sorted by stars, snapshot `2026-04-23`.
+Sorted by stars, snapshot `2026-04-27`.
 
 ### Serious contenders
 
