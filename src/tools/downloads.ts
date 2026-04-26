@@ -79,7 +79,7 @@ export function registerDownloadTools(
         const stats = fs.statSync(writtenPath);
 
         const result = {
-          status: "saved",
+          status: "saved" as const,
           path: writtenPath,
           size: stats.size,
           messageId,
@@ -88,8 +88,17 @@ export function registerDownloadTools(
           date,
           attachments,
         };
+        // Explicit structuredContent in addition to the JSON text
+        // — `attachStructuredContent` middleware would auto-attach
+        // here (the text starts with `{` and parses), but typing
+        // the result object as `as const` and lifting it
+        // explicitly guarantees the SDK validator sees the
+        // expected `downloadEmailOutputSchema` shape on every
+        // emit, decoupling correctness from the auto-attach
+        // best-effort heuristic.
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          structuredContent: result,
         };
       } catch (error: unknown) {
         const { code, message } = asGmailApiError(error);

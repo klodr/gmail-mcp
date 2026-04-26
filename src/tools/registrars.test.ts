@@ -1311,7 +1311,11 @@ describe("PR #6 registrars — download_email + download_attachment", () => {
       const result = (await fix.client.callTool({
         name: "download_email",
         arguments: { messageId: "msg_dl_json", savePath: downloadDir, format: "json" },
-      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      })) as {
+        content: Array<{ type: string; text: string }>;
+        isError?: boolean;
+        structuredContent?: Record<string, unknown>;
+      };
       expect(result.isError).toBeFalsy();
       const text = result.content[0]?.text ?? "";
       expect(text).toContain('"status": "saved"');
@@ -1319,6 +1323,18 @@ describe("PR #6 registrars — download_email + download_attachment", () => {
       // Verify the file actually exists in the jail.
       const written = readdirSync(downloadDir);
       expect(written).toContain("msg_dl_json.json");
+      // Pin the explicit structuredContent emission (PR #97 +
+      // follow-up). The handler now lifts the typed `result`
+      // object onto the structured channel directly instead of
+      // relying on `attachStructuredContent`'s auto-attach
+      // best-effort heuristic; the SDK validator then runs
+      // against `downloadEmailOutputSchema` on every emit.
+      expect(result.structuredContent).toBeDefined();
+      expect(result.structuredContent?.status).toBe("saved");
+      expect(result.structuredContent?.messageId).toBe("msg_dl_json");
+      expect(typeof result.structuredContent?.path).toBe("string");
+      expect(typeof result.structuredContent?.size).toBe("number");
+      expect(Array.isArray(result.structuredContent?.attachments)).toBe(true);
     });
   });
 
