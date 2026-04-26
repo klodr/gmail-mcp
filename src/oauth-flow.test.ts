@@ -166,6 +166,45 @@ describe("loadCredentials", () => {
     expect(logCapture.join("\n")).toContain("Invalid OAuth keys file format");
   });
 
+  it.each([
+    ["empty installed object", { installed: {} }],
+    ["installed missing client_secret", { installed: { client_id: "x" } }],
+    ["installed missing client_id", { installed: { client_secret: "y" } }],
+    ["installed empty-string client_id", { installed: { client_id: "", client_secret: "y" } }],
+    ["installed empty-string client_secret", { installed: { client_id: "x", client_secret: "" } }],
+    ["web missing client_secret", { web: { client_id: "x" } }],
+  ] as const)("rejects partial OAuth key shapes up-front: %s", (_label, payload) => {
+    // CR Major: `{ installed: {} }` and friends previously passed
+    // the truthy `installed || web` check and produced an
+    // OAuth2Client with `undefined` credentials, deferring the
+    // failure to the first `getToken(...)` call. Pin that the
+    // up-front validator now rejects every partial shape with
+    // the existing invalid-keys path so the operator sees the
+    // configuration root cause at boot.
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, JSON.stringify(payload));
+    let exitCode: number | undefined;
+    const exitFn = (code: number): never => {
+      exitCode = code;
+      throw new InvalidOAuthKeysError(oauthPath);
+    };
+    expect(() =>
+      loadCredentials({
+        oauthPath,
+        credentialsPath,
+        configDir,
+        skipConfigDirCreate: true,
+        exitOnInvalidKeys: exitFn,
+        log,
+      }),
+    ).toThrow(InvalidOAuthKeysError);
+    expect(exitCode).toBe(1);
+    // The new message names the missing fields so a sysadmin
+    // copy-pasting the wrong export (e.g. only the public id)
+    // sees what to fix.
+    expect(logCapture.join("\n")).toContain("non-empty client_id and client_secret values");
+  });
+
   it("uses the new credentials.json shape (`{ tokens, scopes }`) and surfaces the stored scopes", () => {
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
     writeFileSync(oauthPath, JSON.stringify({ installed: { client_id: "x", client_secret: "y" } }));

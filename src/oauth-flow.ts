@@ -156,9 +156,24 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
     };
     const keys = keysContent.installed || keysContent.web;
 
-    if (!keys) {
+    // Partial-keys defence (CR Major): `{ installed: {} }` or
+    // `{ web: { client_id: "x" } }` (no client_secret) currently
+    // passes the truthy `installed || web` check and produces an
+    // `OAuth2Client` with `undefined` credentials. That defers the
+    // failure to the first `getToken(...)` call (where the error
+    // surfaces as a Google `invalid_client` token-exchange
+    // rejection, far from the boot configuration root cause).
+    // Fail at boot with the existing invalid-keys path instead so
+    // the operator sees the real diagnostic.
+    if (
+      !keys ||
+      typeof keys.client_id !== "string" ||
+      keys.client_id.length === 0 ||
+      typeof keys.client_secret !== "string" ||
+      keys.client_secret.length === 0
+    ) {
       log(
-        `Error: Invalid OAuth keys file format. File should contain either "installed" or "web" credentials.`,
+        `Error: Invalid OAuth keys file format. File should contain either "installed" or "web" credentials with non-empty client_id and client_secret values.`,
       );
       // Default behaviour matches the legacy dispatcher: hard exit
       // so the operator notices a malformed file at boot. Tests
