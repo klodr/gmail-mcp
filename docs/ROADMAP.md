@@ -4,10 +4,8 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 
 ## Near-term (next release cycle)
 
-- **`scripts/prod-readonly-test.mjs`** — pre-release smoke-test using a `gmail.readonly` token against `list_email_labels`, `search_emails q:in:inbox`, and a handful of message reads. Mercury has it, gmail does not yet. With the `createServer({ gmail, authorizedScopes })` factory now in place (shipped in `0.30.0`), the mercury script ports across as a 1-hour task — instantiate `createServer` against a real `OAuth2Client`, connect via `InMemoryTransport`, walk the readonly tool surface.
-- **`SECURITY.md` — "Best practices for LLM-host operators" section** — token scoping recommendations, host-side filesystem containment guidance for the download/attachment jails, audit-log consumption patterns. The other `SECURITY.md` sections (SBOM disclosure, response-time targets, verify-release recipes, lazy-boot trust radius) all landed in `0.20.0` / `0.21.0`; only this section remains.
 - **MCP `outputSchema` per tool** — extend `defineTool()` with an optional `outputSchema?: ZodRawShape` parameter (`0.30.0` shipped the `inputSchema` half of the contract). Write a Zod schema for each of the 26 tools, derived from the `structuredContent` shape each handler returns today. Lets us drop the textual `RETURNS:` block from tool descriptions and rely on a machine-readable contract instead. Naturally pairs with the next minor release (`0.31.0` or similar).
-- **v1.0.0 on npm** — cut once the three items above land. Every release is already signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance — the `0.x` line on npm has the same supply-chain posture, the `1.0.0` cut is purely a maturity / API-stability signal.
+- **v1.0.0 on npm** — cut once the `outputSchema` item above lands. Every release is already signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance — the `0.x` line on npm has the same supply-chain posture, the `1.0.0` cut is purely a maturity / API-stability signal.
 
 ## Shipped (post-v0.30.0, 2026-04-26)
 
@@ -31,8 +29,8 @@ Brought `klodr/gmail-mcp` up to the hardening baseline already shipped in the si
 - ✅ **60-second timeout on every Gmail API call** — `google.options({ timeout: 60_000 })` applied before the `gmail` client is constructed; every `gmail.users.*` inherits via gaxios. Tunable via `GMAIL_MCP_TIMEOUT_MS`.
 - ✅ **`structuredContent` in `ToolResult`** — `attachStructuredContent` in `src/middleware.ts` now lifts JSON payloads onto the structured channel for every tool response.
 - ✅ **Audit log elision** — counterparty PII (subject, to/cc/bcc, snippet) elided by default; free-form bodies (`body`, `htmlBody`) elided by length with `[ELIDED:N chars]`; opt-out via `GMAIL_MCP_AUDIT_LOG_VERBOSE=true` (`src/audit-log.ts`, shipped in #58).
-- ⬜ **`scripts/prod-readonly-test.mjs`** — pre-release smoke-test using a `gmail.readonly` token against `list_email_labels`, `search_emails q:in:inbox`, and a handful of message reads. Mercury has it, gmail does not yet. Still open.
-- ⬜ **`SECURITY.md` expansion** — SBOM disclosure block, response-time targets, verify-release recipes all landed. Remaining: "Security best practices when using this MCP" section covering token scoping, host-side filesystem containment, and audit-log consumption for LLM-host operators. Still open.
+- ✅ **`scripts/prod-readonly-test.mjs`** — pre-release smoke-test using a `gmail.readonly` token against `list_email_labels`, `search_emails q:in:inbox`, `read_email` (full/summary/headers_only), `list_inbox_threads`, `get_thread`, and `get_inbox_with_threads`. Spawns `node dist/index.js` over stdio + walks the read-only surface; exits non-zero on any tool error or missing data path. Shipped post-v0.30.0.
+- ✅ **`SECURITY.md` expansion** — SBOM disclosure block, response-time targets, verify-release recipes, and the "Security best practices when using this MCP" section (token scoping, credential hygiene, human-in-the-loop on writes, audit-log enablement, rate-limit monitoring, jail containment, token revocation, package update cadence — 8 bullets) all landed.
 
 ## Shipped (post-v0.10.0 hardening, 2026-04-24)
 
