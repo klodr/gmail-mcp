@@ -49,6 +49,70 @@ describe("createServer", () => {
   });
 });
 
+describe("createServer — prompts surface", () => {
+  it("emits the prompts/list capability and returns the slash-command catalogue", async () => {
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "prompts-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const list = await client.listPrompts();
+      // src/prompts.ts ships at least one slash command (gmail-quick-summary
+      // or similar) — pin that the surface is non-empty and that each
+      // entry has the expected shape.
+      expect(list.prompts.length).toBeGreaterThan(0);
+      for (const p of list.prompts) {
+        expect(typeof p.name).toBe("string");
+        expect(p.name.length).toBeGreaterThan(0);
+      }
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
+  it("getPrompt returns the rendered template for a known prompt name", async () => {
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "getprompt-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const list = await client.listPrompts();
+      const firstName = list.prompts[0]!.name;
+      const result = await client.getPrompt({ name: firstName });
+      // The template body lands in result.messages[].content.text — pin
+      // shape rather than exact text so prompt copy tweaks do not break
+      // the test.
+      expect(Array.isArray(result.messages)).toBe(true);
+      expect(result.messages.length).toBeGreaterThan(0);
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
+  it("getPrompt rejects an unknown prompt name with a JSON-RPC error", async () => {
+    const server = createServer({
+      gmail: mockGmail(),
+      authorizedScopes: ["gmail.readonly"],
+    });
+    const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "unknown-prompt-test", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      await expect(
+        client.getPrompt({ name: "definitely-not-a-real-prompt-name" }),
+      ).rejects.toThrow();
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+});
+
 describe("defineTool", () => {
   function noopHandler(): Promise<{ content: { type: string; text: string }[] }> {
     return Promise.resolve({ content: [{ type: "text", text: "ok" }] });
