@@ -287,16 +287,28 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         }),
       );
     });
-    httpServer.listen(port, hostname);
+    // Defer the auth-URL build + browser launch into the listen
+    // callback so they run only after the server is actually bound.
+    // CR Major: kicking the browser before listen() is bound is a
+    // race — the user could click through to the callback URL on a
+    // port that hasn't started listening yet, and the redirect
+    // would 404 silently. The catch on `launchBrowser` swallows the
+    // browser process's exit code (a missing default browser is
+    // not a fatal auth-flow failure — the URL is also printed to
+    // stderr above so the user can paste it manually).
+    httpServer.listen(port, hostname, () => {
+      const authUrl = opts.oauth2Client.generateAuthUrl({
+        access_type: "offline",
+        scope: scopeUrls,
+      });
 
-    const authUrl = opts.oauth2Client.generateAuthUrl({
-      access_type: "offline",
-      scope: scopeUrls,
+      log("Requesting scopes:", opts.scopes.join(", "));
+      log("Please visit this URL to authenticate:", authUrl);
+      void Promise.resolve(launchBrowser(authUrl)).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`Failed to open browser automatically: ${msg}`);
+      });
     });
-
-    log("Requesting scopes:", opts.scopes.join(", "));
-    log("Please visit this URL to authenticate:", authUrl);
-    void launchBrowser(authUrl);
 
     const hostForUrl = hostname.includes(":") ? `[${hostname}]` : hostname;
     const baseUrl = `http://${hostForUrl}:${port}`;
@@ -310,10 +322,25 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
 
         const code = url.searchParams.get("code");
 
+        // Settle the auth promise only after the http server is
+        // fully closed: stop accepting new connections AND tear
+        // down keepalive sockets so the port is released
+        // immediately. Without `closeAllConnections`, a fetch
+        // client holding the connection open keeps `close()`'s
+        // callback hanging and the promise never settles.
+        const finalize = (settle: () => void): void => {
+          httpServer.close(() => settle());
+          httpServer.closeAllConnections?.();
+        };
+
         if (!code) {
           res.writeHead(400);
           res.end("No code provided");
-          reject(new Error("No code provided"));
+          // CR Major: close the listener before rejecting so the
+          // port is released and a subsequent drive-by request
+          // cannot keep executing the handler against an
+          // already-settled promise.
+          finalize(() => reject(new Error("No code provided")));
           return;
         }
 
@@ -333,12 +360,19 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
           res.writeHead(200);
           res.end("Authentication successful! You can close this window.");
           log("Credentials saved with scopes:", opts.scopes.join(", "));
-          httpServer.close();
-          resolve();
+          // Resolve only AFTER the server has actually closed so
+          // the caller's `await authenticate(...)` does not race
+          // with a still-bound listener (symmetric with the error
+          // paths below).
+          finalize(resolve);
         } catch (error) {
           res.writeHead(500);
           res.end("Authentication failed");
-          reject(error instanceof Error ? error : new Error(String(error)));
+          // CR Major: same as the missing-code branch — close the
+          // listener before rejecting so the port is released and
+          // a subsequent request cannot keep firing against the
+          // settled promise.
+          finalize(() => reject(error instanceof Error ? error : new Error(String(error))));
         }
       })();
     });
