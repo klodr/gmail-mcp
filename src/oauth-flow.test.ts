@@ -10,7 +10,17 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import http from "node:http";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, statSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  statSync,
+  readFileSync,
+  openSync,
+  fstatSync,
+  closeSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OAuth2Client } from "google-auth-library";
@@ -426,12 +436,23 @@ describe("authenticate", () => {
     expect(body).toContain("Authentication successful");
     await flow;
 
-    const stats = statSync(credentialsPath);
-    expect(stats.mode & 0o777).toBe(0o600);
-    const stored = JSON.parse(readFileSync(credentialsPath, "utf-8")) as {
-      tokens: Record<string, unknown>;
-      scopes: string[];
-    };
+    // Open + fstat to pin both the mode AND the bytes against the
+    // SAME open file descriptor. The naive `statSync` then
+    // `readFileSync` shape trips CodeQL's `js/file-system-race`
+    // (TOCTOU between the metadata check and the read); using one
+    // descriptor for both ops eliminates the race window.
+    const fd = openSync(credentialsPath, "r");
+    let stored: { tokens: Record<string, unknown>; scopes: string[] };
+    try {
+      const stats = fstatSync(fd);
+      expect(stats.mode & 0o777).toBe(0o600);
+      stored = JSON.parse(readFileSync(fd, "utf-8")) as {
+        tokens: Record<string, unknown>;
+        scopes: string[];
+      };
+    } finally {
+      closeSync(fd);
+    }
     // Pin both halves of the v1.2.0+ credentials.json shape so a
     // refactor that drops the scopes key (or that flips back to the
     // legacy flat shape) is caught.
