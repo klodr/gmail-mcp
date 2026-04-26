@@ -243,25 +243,27 @@ describe("findLabelByName", () => {
 });
 
 describe("getOrCreateLabel", () => {
-  it("returns the existing label when found on the first pass", async () => {
+  it("returns the existing label with found=true when found on the first pass", async () => {
     const { gmail, labels } = mockGmail();
     labels.list.mockResolvedValue({
       data: { labels: [{ id: "L1", name: "Foo", type: "user" }] },
     });
     const out = await getOrCreateLabel(gmail, "Foo");
-    expect(out?.id).toBe("L1");
+    expect(out.label.id).toBe("L1");
+    expect(out.found).toBe(true);
     expect(labels.create).not.toHaveBeenCalled();
   });
 
-  it("creates the label when not found", async () => {
+  it("creates the label with found=false when not found", async () => {
     const { gmail, labels } = mockGmail();
     labels.list.mockResolvedValue({ data: { labels: [] } });
     labels.create.mockResolvedValue({ data: { id: "New", name: "Foo" } });
     const out = await getOrCreateLabel(gmail, "Foo");
-    expect(out?.id).toBe("New");
+    expect(out.label.id).toBe("New");
+    expect(out.found).toBe(false);
   });
 
-  it("recovers from a TOCTOU duplicate by re-fetching", async () => {
+  it("recovers from a TOCTOU duplicate by re-fetching with found=true", async () => {
     const { gmail, labels } = mockGmail();
     // First list → not found. createLabel races → 409. Second list → found.
     labels.list.mockResolvedValueOnce({ data: { labels: [] } }).mockResolvedValueOnce({
@@ -269,7 +271,8 @@ describe("getOrCreateLabel", () => {
     });
     labels.create.mockRejectedValue(apiErr(409, "already exists"));
     const out = await getOrCreateLabel(gmail, "Foo");
-    expect(out?.id).toBe("Raced");
+    expect(out.label.id).toBe("Raced");
+    expect(out.found).toBe(true);
   });
 
   it("re-throws when the TOCTOU rescan still cannot find the label", async () => {

@@ -100,8 +100,10 @@ describe("Source verification", () => {
   });
 
   it("read_email returns Message-ID", () => {
-    const source = fs.readFileSync(path.join(srcDir, "index.ts"), "utf-8");
-    expect(source).toContain("message-id");
+    // read_email was extracted from src/index.ts into
+    // src/tools/messages.ts (PR #5); the legacy dispatcher was
+    // deleted by PR #7. The grep target follows the move.
+    const source = fs.readFileSync(path.join(srcDir, "tools", "messages.ts"), "utf-8");
     expect(source).toContain("rfcMessageId");
     expect(source).toContain("Message-ID: ${rfcMessageId}");
   });
