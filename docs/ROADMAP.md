@@ -9,6 +9,10 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 - **MCP `outputSchema` per tool** — extend `defineTool()` with an optional `outputSchema?: ZodRawShape` parameter (`0.30.0` shipped the `inputSchema` half of the contract). Write a Zod schema for each of the 26 tools, derived from the `structuredContent` shape each handler returns today. Lets us drop the textual `RETURNS:` block from tool descriptions and rely on a machine-readable contract instead. Naturally pairs with the next minor release (`0.31.0` or similar).
 - **v1.0.0 on npm** — cut once the three items above land. Every release is already signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance — the `0.x` line on npm has the same supply-chain posture, the `1.0.0` cut is purely a maturity / API-stability signal.
 
+## Shipped (post-v0.30.0, 2026-04-26)
+
+- ✅ **Test coverage backfill (#91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Brought the global statement coverage from ~81% (v0.30.0 cut) to **>93%** with 560 tests total. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
+
 ## Shipped in v0.30.0 (2026-04-26)
 
 - ✅ **Migrate `Server` (legacy) → `McpServer` (ergonomic SDK API)** — the 1300-line `CallToolRequestSchema` switch dispatcher is gone. Every tool now lives in its own module under `src/tools/*.ts`, registered through a `defineTool()` wrapper that applies the OAuth scope filter at registration time so `tools/list` is auto-emitted by the SDK. `src/index.ts` shrunk from 2124 LOC to ~370 LOC.
