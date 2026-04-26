@@ -146,7 +146,7 @@ async function main() {
   });
 
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-  const server = createServer({ gmail, authorizedScopes: [...authorizedScopes] });
+  const server = createServer({ gmail, authorizedScopes });
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
