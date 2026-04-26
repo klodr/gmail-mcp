@@ -10,6 +10,7 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 ## Shipped (post-v0.30.0, 2026-04-26)
 
 - ✅ **Test coverage backfill (#91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Brought the global statement coverage from ~81% (v0.30.0 cut) to **>93%** with 560 tests total. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
+- ✅ **Drafts CRUD complete** — `list_drafts`, `get_draft`, `update_draft`, `delete_draft`, `send_draft` cover the full `users.drafts.*` surface alongside the existing `draft_email` (create). New `src/tools/drafts.ts` registrar; `update_draft` shares the RFC 822 assembly with `sendOrDraftEmail` via the new `buildEncodedRawMessage` helper in `src/email-send.ts` so the draft pipeline emits the exact same MIME bytes the create / send pipeline does. `update_draft` also runs through the `requirePairedRecipients` allowlist when `GMAIL_MCP_RECIPIENT_PAIRING=true`, so an attacker cannot escape the create gate by laundering through update + `send_draft`. Scope mapping: list/get accept `gmail.readonly` / `gmail.modify` / `gmail.compose`; update / delete require `gmail.modify`; send requires `gmail.send` (or any superset). 11 new E2E tests in `src/tools/registrars.test.ts` cover each verb plus error / scope-filter paths.
 
 ## Shipped in v0.30.0 (2026-04-26)
 
@@ -53,7 +54,6 @@ Brought `klodr/gmail-mcp` up to the hardening baseline already shipped in the si
 
 The MCP currently covers ~25 tools across messages, threads, labels, and filters. Planned additions as demand emerges; much of this catches up with the broader surface exposed by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp) (see [COMPETITORS.md](./COMPETITORS.md)).
 
-- **Drafts CRUD** — `drafts.list`, `drafts.get`, `drafts.update`, `drafts.delete`, `drafts.send` (only `drafts.create` is wired today via `draft_email`).
 - **Send-as aliases** — `settings.sendAs.*` (create / update / delete / verify) for managing Gmail aliases programmatically.
 - **Vacation responder** — `settings.vacation` get/update for enabling/disabling the auto-responder.
 - **Forwarding addresses** — `settings.forwardingAddresses.*`.

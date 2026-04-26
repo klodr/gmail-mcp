@@ -178,7 +178,7 @@ npx @klodr/gmail-mcp auth --scopes=gmail.modify,mail.google.com,gmail.settings.b
 
 | Knob | Env var | Default | Notes |
 |---|---|---|---|
-| Attachment jail | `GMAIL_MCP_ATTACHMENT_DIR=/abs/path` | `~/GmailAttachments/` (auto-created mode `0o700`) | Every attachment path (`send_email`, `draft_email`, `reply_all`) must live inside this directory after `realpath` canonicalization. Symlinks pointing outside are rejected. Blocks prompt-injected exfiltration of `~/.ssh/id_rsa`, `~/.gmail-mcp/credentials.json`, `~/.claude.json`, etc. |
+| Attachment jail | `GMAIL_MCP_ATTACHMENT_DIR=/abs/path` | `~/GmailAttachments/` (auto-created mode `0o700`) | Every attachment path (`send_email`, `draft_email`, `update_draft`, `reply_all`) must live inside this directory after `realpath` canonicalization. Symlinks pointing outside are rejected. Blocks prompt-injected exfiltration of `~/.ssh/id_rsa`, `~/.gmail-mcp/credentials.json`, `~/.claude.json`, etc. |
 | Download jail | `GMAIL_MCP_DOWNLOAD_DIR=/abs/path` | `~/GmailDownloads/` (auto-created mode `0o700`) | `download_email` and `download_attachment` write exclusively here. The leaf is opened with `O_NOFOLLOW`; post-`mkdir` the resolved path is re-verified against the jail root (TOCTOU defense). |
 | OAuth keys path | `GMAIL_OAUTH_PATH=/abs/path/gcp-oauth.keys.json` | `~/.gmail-mcp/gcp-oauth.keys.json` | Google Desktop/Web OAuth client credentials. |
 | Credentials path | `GMAIL_CREDENTIALS_PATH=/abs/path/credentials.json` | `~/.gmail-mcp/credentials.json` | Access/refresh tokens. File mode `0o600`. |
@@ -186,13 +186,14 @@ npx @klodr/gmail-mcp auth --scopes=gmail.modify,mail.google.com,gmail.settings.b
 | Rate limit overrides | `GMAIL_MCP_RATE_LIMIT_<bucket>=D/day,M/month` | see below | Override the per-bucket daily/monthly caps. Buckets: `send` (400/6000), `delete` (200/2000), `modify` (500/5000), `drafts` (300/3000), `labels` (50/500), `filters` (20/200). The bucket name is lowercase and matches the tool family. Example: `GMAIL_MCP_RATE_LIMIT_send=100/day,1500/month`. |
 | Rate limit disable | `GMAIL_MCP_RATE_LIMIT_DISABLE=true` | unset (limiter active) | Kill-switch for the entire limiter. Use only for test suites or controlled batch operations. |
 | Audit log | `GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl` | unset (no audit trail) | Opt-in append-only JSONL log of every tool call (name, redacted args, outcome). File mode `0o600`. Must be an absolute path; relative paths are rejected at startup. Redaction keeps structural keys and drops values under an allowlist. |
-| Dry-run | `GMAIL_MCP_DRY_RUN=true` | unset (real calls) | When `"true"` (strict match), every write tool (`send_email`, `reply_all`, `draft_email`, `delete_email`, `modify_email`, `batch_modify_emails`, `batch_delete_emails`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`, `create_filter`, `delete_filter`, `create_filter_from_template`, `modify_thread`) short-circuits before reaching Gmail and returns the redacted payload it would have sent. Useful for CI smoke tests, agent debugging, and human-in-the-loop approval flows. Read tools ignore the flag (nothing to preview). Matches `MERCURY_MCP_DRY_RUN` / `FAXDROP_MCP_DRY_RUN` on the sibling servers. |
+| Dry-run | `GMAIL_MCP_DRY_RUN=true` | unset (real calls) | When `"true"` (strict match), every write tool (`send_email`, `reply_all`, `draft_email`, `update_draft`, `delete_draft`, `send_draft`, `delete_email`, `modify_email`, `batch_modify_emails`, `batch_delete_emails`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`, `create_filter`, `delete_filter`, `create_filter_from_template`, `modify_thread`) short-circuits before reaching Gmail and returns the redacted payload it would have sent. Useful for CI smoke tests, agent debugging, and human-in-the-loop approval flows. Read tools ignore the flag (nothing to preview). Matches `MERCURY_MCP_DRY_RUN` / `FAXDROP_MCP_DRY_RUN` on the sibling servers. |
 
 ## 🛠️ Tools
 
 The exact set depends on the OAuth scopes granted at `auth` time. Full catalog:
 
 - **Messages** — `send_email`, `draft_email`, `read_email`, `search_emails`, `modify_email`, `delete_email`, `download_email`, `download_attachment`, `batch_modify_emails`, `batch_delete_emails`, `reply_all`
+- **Drafts** — `list_drafts`, `get_draft`, `update_draft`, `delete_draft`, `send_draft` (full `users.drafts.*` surface; `draft_email` above creates the initial draft)
 - **Threads** — `get_thread`, `list_inbox_threads`, `get_inbox_with_threads`, `modify_thread`
 - **Labels** — `list_email_labels`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`
 - **Filters** — `list_filters`, `get_filter`, `create_filter`, `delete_filter`, `create_filter_from_template`

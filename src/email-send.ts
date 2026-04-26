@@ -35,6 +35,28 @@ export interface EmailSendResult {
 }
 
 /**
+ * Assemble + base64url-encode the RFC 822 representation of a
+ * message. Picks the Nodemailer pipeline when the message carries
+ * attachments (multipart MIME assembly is non-trivial) and the
+ * lighter `createEmailMessage` path otherwise. Extracted so the
+ * `update_draft` handler can produce the exact same encoded payload
+ * `sendOrDraftEmail` would have produced — Gmail's
+ * `users.drafts.update` takes the same `{ raw, threadId? }` shape as
+ * `users.messages.send` / `users.drafts.create`.
+ */
+export async function buildEncodedRawMessage(args: EmailSendArgs): Promise<string> {
+  const message =
+    args.attachments && args.attachments.length > 0
+      ? await createEmailWithNodemailer(args)
+      : createEmailMessage(args);
+  return Buffer.from(message)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
  * Send a Gmail message or save it as a draft.
  *
  * Mutates `validatedArgs` in place when:

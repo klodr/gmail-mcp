@@ -19,6 +19,7 @@ import { registerFilterTools } from "./filters.js";
 import { registerThreadTools } from "./threads.js";
 import { registerDownloadTools } from "./downloads.js";
 import { registerMessagingTools } from "./messaging.js";
+import { registerDraftTools } from "./drafts.js";
 
 export function registerAllTools(
   server: McpServer,
@@ -31,4 +32,5 @@ export function registerAllTools(
   registerThreadTools(server, gmail, authorizedScopes);
   registerDownloadTools(server, gmail, authorizedScopes);
   registerMessagingTools(server, gmail, authorizedScopes);
+  registerDraftTools(server, gmail, authorizedScopes);
 }
