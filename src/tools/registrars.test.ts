@@ -1564,21 +1564,38 @@ describe("PR #7 registrars — pair_recipient", () => {
       expect(removeRes.content[0]?.text).toContain(
         'Removed "ephemeral@example.com" from the paired allowlist.',
       );
+      // CR finding: the success-text alone would still pass if the
+      // handler logged the removal but never updated the backing
+      // store. Pin the actual state change two ways: the tool's own
+      // `list` action returns "(none)" + a count of 0, AND the
+      // on-disk JSON at pairedPath either contains an empty
+      // `addresses` array or has been removed entirely.
+      const listRes = (await fix.client.callTool({
+        name: "pair_recipient",
+        arguments: { action: "list" },
+      })) as { content: Array<{ type: string; text: string }> };
+      expect(listRes.content[0]?.text).not.toContain("ephemeral@example.com");
+      expect(listRes.content[0]?.text).toContain("(none)");
+      if (existsSync(pairedPath)) {
+        const parsed = JSON.parse(readFileSync(pairedPath, "utf-8")) as {
+          addresses: string[];
+        };
+        expect(parsed.addresses).not.toContain("ephemeral@example.com");
+      }
     });
   });
 
-  it("add without an email argument returns isError with a descriptive message", async () => {
+  it("remove without an email argument returns isError with a descriptive message", async () => {
     await withFix(["gmail.modify"], async (fix) => {
-      // The Zod schema rejects empty/missing email on `add` at parse
-      // time (the .refine() rejects undefined-or-blank); the
-      // dispatcher's `isError: true` branch fires when the runtime
-      // post-parse `!email` guard hits — exercised here by passing an
-      // RFC 5322 mailbox that survives schema validation but the
-      // tool body's runtime check still flags. Use the schema-valid
-      // address `space@x.com` to land in the runtime branch via the
-      // pair-recipient handler's own guard. Falls through to the
-      // remove path; we assert the runtime guard fires for `remove`
-      // with no email instead.
+      // pair_recipient's runtime `!email` guard fires AFTER Zod parse
+      // and is shared between the `add` and `remove` arms. Calling
+      // with `action: "remove"` and NO `email` field hits the same
+      // shared guard — the Zod schema accepts the missing email on
+      // `remove` (since some allowlist UIs surface a remove-by-id
+      // shape), then the handler's runtime check rejects it with
+      // the "requires an `email` argument" message. Pinning that
+      // wording locks the contract on the user-visible error
+      // surface.
       const result = (await fix.client.callTool({
         name: "pair_recipient",
         arguments: { action: "remove" },
