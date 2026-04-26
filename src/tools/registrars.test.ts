@@ -2491,13 +2491,24 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
     });
   });
 
-  it("send_draft routes drafts.send with the id in the requestBody, returns the sent messageId", async () => {
+  it("send_draft fetches the draft, gates recipients, then routes drafts.send with the id", async () => {
     await withFix(["gmail.send"], async (fix) => {
       const result = (await fix.client.callTool({
         name: "send_draft",
         arguments: { id: "d_outgoing" },
       })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
       expect(result.isError).toBeFalsy();
+      // CR finding (PR #100): send_draft must pre-fetch the draft
+      // headers before dispatch so the recipient-pairing gate can
+      // run against the actual To/Cc/Bcc on the server-resident
+      // draft (not against args, which only carry the id). Pin the
+      // extra round-trip on `drafts.get` with format=metadata.
+      expect(fix.calls.draftGet).toHaveLength(1);
+      expect(fix.calls.draftGet[0]).toMatchObject({
+        userId: "me",
+        id: "d_outgoing",
+        format: "metadata",
+      });
       expect(fix.calls.draftSend).toHaveLength(1);
       expect(fix.calls.draftSend[0]).toMatchObject({
         userId: "me",
@@ -2506,6 +2517,32 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
       expect(result.content[0]?.text).toContain("Draft d_outgoing sent successfully");
       expect(result.content[0]?.text).toContain("sent_from_d_outgoing");
     });
+  });
+
+  it("send_draft is blocked by the recipient-pairing gate when an unpaired To/Cc/Bcc is on the draft", async () => {
+    // CR finding (PR #100): the headline send-draft pairing
+    // bypass. Stage the env so pairing is enforced; the mock's
+    // drafts.get returns a draft addressed to `bob@example.com`,
+    // which is NOT in the paired allowlist. The gate must fire on
+    // the union of To/Cc/Bcc parsed from the draft's headers and
+    // throw before the drafts.send call lands.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(["gmail.send"], async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "send_draft",
+          arguments: { id: "d_unpaired" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("bob@example.com");
+        // Drafts.get fired (we needed the headers to gate); but
+        // drafts.send did NOT — short-circuited by the throw.
+        expect(fix.calls.draftGet).toHaveLength(1);
+        expect(fix.calls.draftSend).toHaveLength(0);
+      });
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
   });
 
   it("send_draft surfaces an HTTP error (e.g. 404 invalid draft id) with isError + status prefix", async () => {
@@ -2519,7 +2556,11 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("HTTP 404");
       },
-      { draftSendHttpError: 404 },
+      // The 404 originates from drafts.get (the new pre-flight
+      // fetch). Either error surface is correct under the contract
+      // — the registrar's catch block surfaces both via the same
+      // "HTTP <code>" prefix.
+      { draftGetHttpError: 404 },
     );
   });
 
@@ -2587,6 +2628,30 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
       expect(names).not.toContain("delete_draft");
       expect(names).not.toContain("update_draft");
       expect(names).not.toContain("send_draft");
+    } finally {
+      await fix.close();
+    }
+  });
+
+  it("update_draft is NOT advertised under a compose-only token (gmail.modify required)", async () => {
+    // CR finding (PR #100): update_draft was previously gated by
+    // [gmail.modify, gmail.compose] which advertised the tool to
+    // compose-only identities, contradicting the documented
+    // 'update / delete require modify' mapping. Pin the post-fix
+    // gate so a regression that re-adds gmail.compose to the
+    // scopes list is caught.
+    const fix = await buildAndConnect(["gmail.compose"]);
+    try {
+      const list = await fix.client.listTools();
+      const names = list.tools.map((t) => t.name);
+      // Compose token can read drafts (list/get accept compose)
+      // and create them (draft_email accepts compose), but cannot
+      // mutate or destroy existing ones.
+      expect(names).toContain("list_drafts");
+      expect(names).toContain("get_draft");
+      expect(names).toContain("draft_email");
+      expect(names).not.toContain("update_draft");
+      expect(names).not.toContain("delete_draft");
     } finally {
       await fix.close();
     }

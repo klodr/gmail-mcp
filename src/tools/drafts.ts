@@ -25,6 +25,7 @@ import { buildEncodedRawMessage, type EmailSendArgs } from "../email-send.js";
 import { requirePairedRecipients } from "../recipient-pairing.js";
 import { resolveDefaultSender } from "../sender-resolver.js";
 import { asGmailApiError } from "../gmail-errors.js";
+import { parseEmailAddresses } from "../reply-all-helpers.js";
 
 export function registerDraftTools(
   server: McpServer,
@@ -232,6 +233,36 @@ export function registerDraftTools(
     SendDraftSchema.shape,
     async (args) => {
       try {
+        // Recipient-pairing gate at send time. CR finding (PR #100):
+        // without this, an attacker who has the create or update
+        // capability can stage a draft addressed to an unpaired
+        // recipient, then call `send_draft` to bypass the allowlist
+        // entirely (the create / update gate runs against
+        // attacker-supplied args; send_draft consumes a
+        // server-resident draft that may have been addressed
+        // off-allowlist via the Gmail UI or a separate session).
+        // Resolution: fetch the draft's headers, parse To/Cc/Bcc,
+        // pass the union through requirePairedRecipients before
+        // letting Gmail dispatch. `format=metadata` returns headers
+        // without bodies — Gmail's `users.drafts.get` does not
+        // accept the `metadataHeaders` filter (unlike
+        // `users.messages.get`), so the entire header set comes
+        // back; we filter to To/Cc/Bcc client-side below.
+        const draftResponse = await gmail.users.drafts.get({
+          userId: "me",
+          id: args.id,
+          format: "metadata",
+        });
+        const headers = draftResponse.data.message?.payload?.headers ?? [];
+        const headerValue = (name: string): string =>
+          headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+        const recipients = [
+          ...parseEmailAddresses(headerValue("to")),
+          ...parseEmailAddresses(headerValue("cc")),
+          ...parseEmailAddresses(headerValue("bcc")),
+        ];
+        requirePairedRecipients(recipients);
+
         const response = await gmail.users.drafts.send({
           userId: "me",
           requestBody: { id: args.id },

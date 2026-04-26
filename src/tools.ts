@@ -782,7 +782,17 @@ export const toolDefinitions: ToolDefinition[] = [
       "SIDE EFFECTS: rewrites the draft message in place. Subject to the same recipient-pairing gate as `send_email` when enabled. Idempotent given identical inputs.",
     ].join("\n"),
     schema: UpdateDraftSchema,
-    scopes: ["gmail.modify", "gmail.compose"],
+    // CR finding (PR #100): drop `gmail.compose` from update_draft.
+    // The PR's intent matrix gates update / delete behind the modify
+    // scope. Allowing compose-only tokens to update advertises the
+    // tool to a strictly narrower-than-modify identity, which
+    // contradicts the documented mapping in `docs/ROADMAP.md` and
+    // the README catalog. Gmail's API would accept `gmail.compose`
+    // for `users.drafts.update` upstream, but our tool gating is
+    // additive on top of that — pinning to `modify` keeps the
+    // "destructive write that must hit the modify capability" floor
+    // intact.
+    scopes: ["gmail.modify"],
     annotations: { title: "Update Draft", destructiveHint: false, idempotentHint: true },
   },
   {

@@ -34,6 +34,11 @@ export interface EmailSendResult {
   content: Array<{ type: "text"; text: string }>;
 }
 
+interface GmailMessageRequest {
+  raw: string;
+  threadId?: string;
+}
+
 /**
  * Assemble + base64url-encode the RFC 822 representation of a
  * message. Picks the Nodemailer pipeline when the message carries
@@ -77,8 +82,6 @@ export async function sendOrDraftEmail(
   action: EmailAction,
   validatedArgs: EmailSendArgs,
 ): Promise<EmailSendResult> {
-  let message: string;
-
   try {
     // Recipient pairing gate — no-op unless
     // GMAIL_MCP_RECIPIENT_PAIRING=true. When enabled, every
@@ -149,108 +152,49 @@ export async function sendOrDraftEmail(
       }
     }
 
-    // Check if we have attachments
-    if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
-      // Use Nodemailer to create properly formatted RFC822 message
-      message = await createEmailWithNodemailer(validatedArgs);
+    // CR finding (PR #100): single-source the RFC 822 + base64url
+    // assembly via `buildEncodedRawMessage` so the create / send /
+    // update paths cannot drift apart over future edits. The helper
+    // routes attachments through Nodemailer and the no-attachment
+    // path through the lighter `createEmailMessage` builder, then
+    // applies the same base64url encoding either way. Previously
+    // the four `Buffer.from(message).toString("base64").replace(...)`
+    // call sites were copy-pasted across the send-with-attachments,
+    // draft-with-attachments, send-without, draft-without branches.
+    const encodedMessage = await buildEncodedRawMessage(validatedArgs);
 
-      const encodedMessage = Buffer.from(message)
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
-
-      if (action === "send") {
-        const result = await gmail.users.messages.send({
-          userId: "me",
-          requestBody: {
-            raw: encodedMessage,
-            ...(validatedArgs.threadId && { threadId: validatedArgs.threadId }),
-          },
-        });
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Email sent successfully with ID: ${result.data.id}`,
-            },
-          ],
-        };
-      } else {
-        const messageRequest = {
-          raw: encodedMessage,
-          ...(validatedArgs.threadId && { threadId: validatedArgs.threadId }),
-        };
-
-        const response = await gmail.users.drafts.create({
-          userId: "me",
-          requestBody: {
-            message: messageRequest,
-          },
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Email draft created successfully with ID: ${response.data.id}`,
-            },
-          ],
-        };
-      }
-    } else {
-      // For emails without attachments, use the existing simple method
-      message = createEmailMessage(validatedArgs);
-
-      const encodedMessage = Buffer.from(message)
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
-
-      interface GmailMessageRequest {
-        raw: string;
-        threadId?: string;
-      }
-
-      const messageRequest: GmailMessageRequest = {
-        raw: encodedMessage,
-      };
-
-      if (validatedArgs.threadId) {
-        messageRequest.threadId = validatedArgs.threadId;
-      }
-
-      if (action === "send") {
-        const response = await gmail.users.messages.send({
-          userId: "me",
-          requestBody: messageRequest,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Email sent successfully with ID: ${response.data.id}`,
-            },
-          ],
-        };
-      } else {
-        const response = await gmail.users.drafts.create({
-          userId: "me",
-          requestBody: {
-            message: messageRequest,
-          },
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Email draft created successfully with ID: ${response.data.id}`,
-            },
-          ],
-        };
-      }
+    const messageRequest: GmailMessageRequest = { raw: encodedMessage };
+    if (validatedArgs.threadId) {
+      messageRequest.threadId = validatedArgs.threadId;
     }
+
+    if (action === "send") {
+      const response = await gmail.users.messages.send({
+        userId: "me",
+        requestBody: messageRequest,
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Email sent successfully with ID: ${response.data.id}`,
+          },
+        ],
+      };
+    }
+
+    const response = await gmail.users.drafts.create({
+      userId: "me",
+      requestBody: { message: messageRequest },
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Email draft created successfully with ID: ${response.data.id}`,
+        },
+      ],
+    };
   } catch (error: unknown) {
     // Log attachment-related errors for debugging
     if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
