@@ -153,11 +153,22 @@ describe("syncVersion", () => {
     expect(() => syncVersion(scratch)).toThrow(/package\.json#name/);
   });
 
-  it("throws when package.json parses to a non-object value", () => {
-    // Edge: `JSON.parse("null")` → null, `JSON.parse("\"x\"")` → string.
-    // Both must be rejected before the property accesses below.
+  it.each([
+    ["JSON null", "null"],
+    ["JSON primitive string", '"x"'],
+    ["JSON primitive number", "42"],
+    ["JSON primitive boolean", "true"],
+    ["JSON top-level array", "[]"],
+  ])("throws when package.json parses to a non-object value (%s)", (_label, raw) => {
+    // The shape validator rejects every non-object JSON parse:
+    // `null` (typeof === "object" needs the explicit `!value`
+    // guard), primitives (string/number/boolean), and top-level
+    // arrays (rejected because `package.json` is contractually an
+    // object, not a list — array indexing into `.version` /
+    // `.name` would silently produce undefined and the downstream
+    // string check would mis-attribute the failure).
     writeFixture();
-    writeFileSync(join(scratch, "package.json"), "null");
+    writeFileSync(join(scratch, "package.json"), raw);
     expect(() => syncVersion(scratch)).toThrow(/did not parse to an object/);
   });
 });

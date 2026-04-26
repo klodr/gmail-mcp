@@ -36,7 +36,11 @@ export function syncVersion(rootDir) {
   // src/server.ts. Fail fast instead — the script is run by
   // `npm version`, so a bad package.json at this point is a
   // definite operator error worth surfacing loudly.
-  if (!pkg || typeof pkg !== "object") {
+  if (!pkg || typeof pkg !== "object" || Array.isArray(pkg)) {
+    // `Array.isArray` reject because `typeof [] === "object"`; a
+    // top-level array would silently produce `undefined` on the
+    // `.version` access and the next guard would mis-attribute
+    // the failure to a missing version string.
     throw new Error("sync-version: package.json did not parse to an object");
   }
   if (typeof pkg.version !== "string" || pkg.version.length === 0) {
