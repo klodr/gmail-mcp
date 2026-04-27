@@ -237,27 +237,43 @@ export function registerMessagingTools(
 
       const get = (name: string) =>
         headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+      const originalReplyTo = get("reply-to");
       const originalFrom = get("from");
       const originalSender = get("sender");
       const originalSubject = get("subject");
       const originalMessageId = get("message-id");
       const originalReferences = get("references");
 
-      // CR finding (PR #99): silently picking the first `From:`
-      // mailbox on a multi-author message can route a private
-      // reply to the wrong participant. Resolution path:
-      //   1. Prefer `Sender:` if present (RFC 5322 §3.6.2 — Sender
+      // CR findings (PR #99): silently picking the first `From:`
+      // mailbox can route a private reply to the wrong participant.
+      // RFC 5322 §3.6.2 specifies a clear precedence order for
+      // determining the reply destination:
+      //   1. `Reply-To:` is the headline case. Mailing-list traffic
+      //      typically sets `From:` to the list address and
+      //      `Reply-To:` to the original author's mailbox. Replying
+      //      to `From:` would broadcast a private reply to the
+      //      whole list; replying to `Reply-To:` reaches the
+      //      intended individual.
+      //   2. `Sender:` when present without `Reply-To:`. Sender
       //      identifies the agent that physically transmitted a
-      //      message authored by multiple From: parties; replying
-      //      to Sender is the conservative choice).
-      //   2. Otherwise require exactly one `From:` mailbox; if
-      //      there are zero or multiple, bail with isError so the
-      //      agent disambiguates explicitly (via send_email +
-      //      manual In-Reply-To, or by asking the human).
+      //      message authored by multiple `From:` parties.
+      //   3. `From:` if no `Reply-To:` / `Sender:` is present and
+      //      there is exactly one mailbox in the header. Zero or
+      //      multiple → bail with isError so the agent
+      //      disambiguates explicitly.
+      const replyToAddresses = parseEmailAddresses(originalReplyTo);
       const senderAddresses = parseEmailAddresses(originalSender);
       const fromAddresses = parseEmailAddresses(originalFrom);
       let replyToAddress: string | undefined;
-      if (senderAddresses.length === 1) {
+      if (replyToAddresses.length >= 1) {
+        // RFC 5322 allows a multi-mailbox `Reply-To:`. When the
+        // source explicitly enumerates multiple reply targets, we
+        // honour the first — the author has already told us
+        // "either of these is fine"; an exact-one requirement here
+        // would defeat the most common multi-target case (a
+        // mailing list announcing both list-owner and an alias).
+        replyToAddress = replyToAddresses[0];
+      } else if (senderAddresses.length === 1) {
         replyToAddress = senderAddresses[0];
       } else if (fromAddresses.length === 1) {
         replyToAddress = fromAddresses[0];
@@ -265,8 +281,8 @@ export function registerMessagingTools(
       if (!replyToAddress) {
         const reason =
           fromAddresses.length === 0
-            ? "source message has no From: header"
-            : "source message has multiple From: mailboxes and no Sender: disambiguator";
+            ? "source message has no From: / Sender: / Reply-To: header"
+            : "source message has multiple From: mailboxes and no Sender: / Reply-To: disambiguator";
         throw new Error(`Could not determine a unique recipient for reply (${reason})`);
       }
       const replyTo = [replyToAddress];

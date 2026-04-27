@@ -132,6 +132,14 @@ interface MockGmailOpts {
    */
   messageSenderOverride?: string;
   /**
+   * Override the optional `Reply-To:` header on `messages.get`
+   * responses. Default: header is absent. Used by reply_to_email
+   * tests that pin RFC 5322 §3.6.2 precedence: when both Reply-To:
+   * and From: are present, the resolver prefers Reply-To (the
+   * mailing-list pattern: From=list, Reply-To=author).
+   */
+  messageReplyToOverride?: string;
+  /**
    * Messages list returned by `gmail.users.messages.list` for
    * `search_emails`.
    */
@@ -355,6 +363,9 @@ function mockGmail(opts: MockGmailOpts = {}): {
                 { name: "Message-ID", value: `<${id}@example.com>` },
                 ...(opts.messageSenderOverride
                   ? [{ name: "Sender", value: opts.messageSenderOverride }]
+                  : []),
+                ...(opts.messageReplyToOverride
+                  ? [{ name: "Reply-To", value: opts.messageReplyToOverride }]
                   : []),
               ],
               parts: [
@@ -1987,7 +1998,7 @@ describe("PR #7 registrars — reply_to_email (sender-only)", () => {
         })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("Could not determine a unique recipient");
-        expect(result.content[0]?.text).toContain("no From: header");
+        expect(result.content[0]?.text).toContain("no From: / Sender: / Reply-To: header");
         expect(fix.calls.messageSend).toHaveLength(0);
       },
       { messageFromOverride: "" },
@@ -2049,6 +2060,39 @@ describe("PR #7 registrars — reply_to_email (sender-only)", () => {
       {
         messageFromOverride: "alice@example.com, david@example.com",
         messageSenderOverride: "ops@example.com",
+      },
+    );
+  });
+
+  it("prefers Reply-To: over From: (RFC 5322 §3.6.2; mailing-list pattern)", async () => {
+    // CR finding (PR #99): the headline mailing-list bug. When a
+    // message arrives with From=list@example.com (the list itself)
+    // and Reply-To=author@example.com (the human who wrote it),
+    // replying to From: would broadcast a "private" reply to the
+    // entire list. Pin the resolver: a single-From + single-Reply-To
+    // source addresses the reply To: the Reply-To mailbox.
+    await withFix(
+      ["gmail.send", "gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "reply_to_email",
+          arguments: {
+            messageId: "msg_listmail",
+            body: "Thanks for posting this.",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        expect(result.content[0]?.text).toContain("Reply sent successfully");
+        const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+        const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+        const toLine = /^To:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+        // Pin: To is the Reply-To mailbox, not the From: list address.
+        expect(toLine).toContain("author@example.com");
+        expect(toLine).not.toContain("list@example.com");
+      },
+      {
+        messageFromOverride: "list@example.com",
+        messageReplyToOverride: "author@example.com",
       },
     );
   });
