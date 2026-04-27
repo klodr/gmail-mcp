@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.30.0] - 2026-04-27 — Server → McpServer migration + tool extraction
+## [0.30.1] - 2026-04-27 — Server → McpServer migration + tool extraction
 
 A minor release that ships the full architectural cut-over from the
 legacy `Server` + monolithic `CallToolRequestSchema` switch dispatcher
@@ -25,6 +25,15 @@ is the very next cut, conditioned on the ergonomic wrappers
 main first. The `0.21 → 0.30` jump signals the size of the internal
 refactor; on-the-wire tool surface, schemas, audit-log states, and
 rate-limit semantics are all preserved.
+
+The patch-level bump `0.30.0 → 0.30.1` (no `0.30.0` was ever
+published to npm) absorbs a CI workflow fix that unblocked the
+release: the doc-pass merge to `main` did not touch any
+Docker-workflow path, so the required "Build Docker image" status
+check never ran on `main` HEAD and indefinitely blocked the tag
+push. Adding `workflow_dispatch` to `.github/workflows/docker.yml`
+lets the same scenario be unblocked on demand on future doc-only
+releases via `gh workflow run docker.yml --ref main`.
 
 ### Changed
 
@@ -133,6 +142,14 @@ rate-limit semantics are all preserved.
 
 ### Fixed
 
+- **`.github/workflows/docker.yml`** — added `workflow_dispatch` as
+  a third trigger so the required "Build Docker image" status check
+  can be re-run on demand against a `main` HEAD whose paths-filter
+  excluded the Docker workflow (e.g. doc-only PR merges). Without
+  this, a doc-only merge to `main` indefinitely blocks tag pushes
+  because branch protection sees the required check as 'expected
+  but absent'. Same convention as the standard CI workflows in the
+  sibling klodr repos.
 - **`getOrCreateLabel` returns `{ label, found }`** instead of a bare
   `GmailLabel`. The previous `result.type === "user" && result.name
   === args.name` heuristic the call site used to distinguish "found
