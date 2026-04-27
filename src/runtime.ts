@@ -276,8 +276,23 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
       const payload = buildInvalidGrantPayload(CREDENTIALS_PATH);
       log(`[startup] ${payload.code}: ${payload.recovery_action}`);
     } else {
-      const msg = err instanceof Error ? err.message : String(err);
-      log(`[startup] getAccessToken probe failed: ${msg}`);
+      // Full redaction (CR-major finding on PR #103). Certain
+      // google-auth-library versions serialise the OAuth response
+      // payload into `err.message`, which can include refresh
+      // tokens or scope details. The previous defensive truncate
+      // (200-char prefix + length suffix) still leaked the FIRST
+      // 200 chars to stderr — and a token can fit comfortably
+      // inside that window. Switch to type+length-only diagnostics:
+      // log the constructor name and the raw message length so
+      // operators can correlate the failure with the GaxiosError /
+      // Error subclass without ever exposing the body. The
+      // `INVALID_GRANT` branch above remains the actionable signal
+      // for the headline "credentials revoked" case.
+      const errType = err instanceof Error ? err.constructor.name : typeof err;
+      const rawLen = err instanceof Error ? err.message.length : String(err).length;
+      log(
+        `[startup] getAccessToken probe failed: type=${errType}, message length=${rawLen} chars (redacted for credential safety; rerun \`npx @klodr/gmail-mcp auth\` if this persists)`,
+      );
     }
   });
 
