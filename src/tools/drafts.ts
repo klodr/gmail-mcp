@@ -22,7 +22,7 @@ import {
   SendDraftSchema,
 } from "../tools.js";
 import { buildEncodedRawMessage, type EmailSendArgs } from "../email-send.js";
-import { requirePairedRecipients } from "../recipient-pairing.js";
+import { isPairingEnabled, requirePairedRecipients } from "../recipient-pairing.js";
 import { resolveDefaultSender } from "../sender-resolver.js";
 import { asGmailApiError } from "../gmail-errors.js";
 import { parseEmailAddresses } from "../reply-all-helpers.js";
@@ -295,27 +295,37 @@ export function registerDraftTools(
         // attacker-supplied args; send_draft consumes a
         // server-resident draft that may have been addressed
         // off-allowlist via the Gmail UI or a separate session).
-        // Resolution: fetch the draft's headers, parse To/Cc/Bcc,
-        // pass the union through requirePairedRecipients before
-        // letting Gmail dispatch. `format=metadata` returns headers
-        // without bodies — Gmail's `users.drafts.get` does not
-        // accept the `metadataHeaders` filter (unlike
-        // `users.messages.get`), so the entire header set comes
-        // back; we filter to To/Cc/Bcc client-side below.
-        const draftResponse = await gmail.users.drafts.get({
-          userId: "me",
-          id: args.id,
-          format: "metadata",
-        });
-        const headers = draftResponse.data.message?.payload?.headers ?? [];
-        const headerValue = (name: string): string =>
-          headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
-        const recipients = [
-          ...parseEmailAddresses(headerValue("to")),
-          ...parseEmailAddresses(headerValue("cc")),
-          ...parseEmailAddresses(headerValue("bcc")),
-        ];
-        requirePairedRecipients(recipients);
+        //
+        // CR follow-up (PR #100): the gate ONLY runs when
+        // `GMAIL_MCP_RECIPIENT_PAIRING=true`. Skipping the
+        // pre-flight `drafts.get` when pairing is disabled saves
+        // an unconditional API round-trip per send_draft call —
+        // the dominant cost on every send for the 99 % of
+        // operators who don't enable the gate. The gate's
+        // semantics are preserved in the enabled case: fetch the
+        // draft's headers, parse To/Cc/Bcc, pass the union
+        // through requirePairedRecipients. `format=metadata`
+        // returns headers without bodies; Gmail's
+        // `users.drafts.get` does not accept the
+        // `metadataHeaders` filter (unlike `users.messages.get`),
+        // so the entire header set comes back and we filter
+        // client-side.
+        if (isPairingEnabled()) {
+          const draftResponse = await gmail.users.drafts.get({
+            userId: "me",
+            id: args.id,
+            format: "metadata",
+          });
+          const headers = draftResponse.data.message?.payload?.headers ?? [];
+          const headerValue = (name: string): string =>
+            headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+          const recipients = [
+            ...parseEmailAddresses(headerValue("to")),
+            ...parseEmailAddresses(headerValue("cc")),
+            ...parseEmailAddresses(headerValue("bcc")),
+          ];
+          requirePairedRecipients(recipients);
+        }
 
         const response = await gmail.users.drafts.send({
           userId: "me",

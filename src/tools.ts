@@ -497,42 +497,19 @@ export const GetDraftSchema = z.object({
     ),
 });
 
-// `update_draft` shape mirrors `SendEmailSchema` + a draft `id`.
-// Replacing a draft fully overwrites its message contents — there
-// is no patch endpoint on Gmail's drafts API. The shape stays in
-// lock-step with `SendEmailSchema` so an agent that already knows
-// how to compose a message can update a draft without learning a
-// second schema.
-export const UpdateDraftSchema = z.object({
+// `update_draft` shape derives from `SendEmailSchema` + a draft `id`
+// via `.extend()` so the two schemas stay in lock-step by
+// construction (CR finding on PR #100): a future field added to
+// SendEmailSchema lands in UpdateDraftSchema automatically, no
+// drift. The only override is the `threadId` description (in the
+// update context, threadId associates the updated draft with an
+// existing thread; in the send context, it's the thread to reply
+// to). All other fields — to/subject/body/from/htmlBody/mimeType/
+// cc/bcc/inReplyTo/attachments — inherit shape, optionality, and
+// defaults verbatim from SendEmailSchema.
+export const UpdateDraftSchema = SendEmailSchema.extend({
   id: GmailIdSchema.describe("Draft ID to update (from `list_drafts`)"),
-  to: coerceArray(z.string()).describe("List of recipient email addresses"),
-  subject: z.string().describe("Email subject"),
-  body: z
-    .string()
-    .describe("Email body content (used for text/plain or when htmlBody not provided)"),
-  from: z
-    .string()
-    .optional()
-    .describe(
-      "Sender email address (must be a configured send-as alias in Gmail settings). Defaults to account's default send-as address if not specified.",
-    ),
-  htmlBody: z.string().optional().describe("HTML version of the email body"),
-  mimeType: z
-    .enum(["text/plain", "text/html", "multipart/alternative"])
-    .optional()
-    .default("text/plain")
-    .describe("Email content type"),
-  cc: coerceArray(z.string()).optional().describe("List of CC recipients"),
-  bcc: coerceArray(z.string()).optional().describe("List of BCC recipients"),
   threadId: GmailIdSchema.optional().describe("Thread ID to associate the updated draft with"),
-  inReplyTo: z
-    .string()
-    .max(998)
-    .optional()
-    .describe("RFC 5322 Message-ID being replied to (e.g. <abc@host>, max 998 chars)"),
-  attachments: coerceArray(FilePathSchema)
-    .optional()
-    .describe("List of file paths to attach to the draft"),
 });
 
 export const DeleteDraftSchema = z.object({

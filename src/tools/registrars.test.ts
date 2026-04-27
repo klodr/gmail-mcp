@@ -2544,24 +2544,18 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
     });
   });
 
-  it("send_draft fetches the draft, gates recipients, then routes drafts.send with the id", async () => {
+  it("send_draft routes drafts.send with the id when pairing is disabled (no pre-flight fetch)", async () => {
+    // CR follow-up on PR #100: when GMAIL_MCP_RECIPIENT_PAIRING is
+    // off (the default), send_draft must NOT pay the cost of an
+    // unconditional drafts.get round-trip just to gate recipients.
+    // Pin: drafts.send fires, drafts.get does NOT.
     await withFix(["gmail.modify"], async (fix) => {
       const result = (await fix.client.callTool({
         name: "send_draft",
         arguments: { id: "d_outgoing" },
       })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
       expect(result.isError).toBeFalsy();
-      // CR finding (PR #100): send_draft must pre-fetch the draft
-      // headers before dispatch so the recipient-pairing gate can
-      // run against the actual To/Cc/Bcc on the server-resident
-      // draft (not against args, which only carry the id). Pin the
-      // extra round-trip on `drafts.get` with format=metadata.
-      expect(fix.calls.draftGet).toHaveLength(1);
-      expect(fix.calls.draftGet[0]).toMatchObject({
-        userId: "me",
-        id: "d_outgoing",
-        format: "metadata",
-      });
+      expect(fix.calls.draftGet).toHaveLength(0);
       expect(fix.calls.draftSend).toHaveLength(1);
       expect(fix.calls.draftSend[0]).toMatchObject({
         userId: "me",
@@ -2570,6 +2564,42 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
       expect(result.content[0]?.text).toContain("Draft d_outgoing sent successfully");
       expect(result.content[0]?.text).toContain("sent_from_d_outgoing");
     });
+  });
+
+  it("send_draft fetches the draft + gates recipients when pairing is enabled (paired To passes)", async () => {
+    // The complementary path: with pairing enabled and the
+    // recipient pre-paired, send_draft DOES pay the drafts.get
+    // round-trip but the gate clears and drafts.send still fires.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(["gmail.modify"], async (fix) => {
+        // Pre-pair the recipient that the mock's drafts.get
+        // returns (alice/bob @example.com per the mock fixture).
+        await fix.client.callTool({
+          name: "pair_recipient",
+          arguments: { action: "add", email: "alice@example.com" },
+        });
+        await fix.client.callTool({
+          name: "pair_recipient",
+          arguments: { action: "add", email: "bob@example.com" },
+        });
+        const result = (await fix.client.callTool({
+          name: "send_draft",
+          arguments: { id: "d_paired" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        // Pin the pre-flight fetch fires under pairing.
+        expect(fix.calls.draftGet).toHaveLength(1);
+        expect(fix.calls.draftGet[0]).toMatchObject({
+          userId: "me",
+          id: "d_paired",
+          format: "metadata",
+        });
+        expect(fix.calls.draftSend).toHaveLength(1);
+      });
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
   });
 
   it("send_draft is blocked by the recipient-pairing gate when an unpaired To/Cc/Bcc is on the draft", async () => {
@@ -2599,6 +2629,8 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
   });
 
   it("send_draft surfaces an HTTP error (e.g. 404 invalid draft id) with isError + status prefix", async () => {
+    // With pairing disabled (the default in this test), the only
+    // round-trip is drafts.send itself; surface a 404 from there.
     await withFix(
       ["gmail.modify"],
       async (fix) => {
@@ -2609,11 +2641,7 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("HTTP 404");
       },
-      // The 404 originates from drafts.get (the new pre-flight
-      // fetch). Either error surface is correct under the contract
-      // — the registrar's catch block surfaces both via the same
-      // "HTTP <code>" prefix.
-      { draftGetHttpError: 404 },
+      { draftSendHttpError: 404 },
     );
   });
 
