@@ -151,6 +151,60 @@ export function registerDraftTools(
         if (!validatedArgs.from || validatedArgs.from.trim() === "") {
           validatedArgs.from = await resolveDefaultSender(gmail);
         }
+
+        // CR finding (PR #100): if the caller supplies `threadId`
+        // without explicit `inReplyTo` / `references`, mirror the
+        // sendOrDraftEmail behaviour and backfill those headers
+        // from the thread's existing messages BEFORE encoding.
+        // Without this, updating a threaded draft strips the
+        // `In-Reply-To` / `References` headers from the regenerated
+        // raw message — when the draft is later sent, the recipient
+        // sees an orphaned reply detached from its conversation. The
+        // try/catch + console.warn pattern matches sendOrDraftEmail
+        // so a thread-fetch failure is logged and the encode
+        // continues degraded (no threading) rather than failing the
+        // whole update.
+        if (validatedArgs.threadId && !validatedArgs.inReplyTo) {
+          try {
+            const threadResponse = await gmail.users.threads.get({
+              userId: "me",
+              id: validatedArgs.threadId,
+              format: "metadata",
+              metadataHeaders: ["Message-ID"],
+            });
+            const threadMessages = threadResponse.data.messages || [];
+            if (threadMessages.length > 0) {
+              const allMessageIds: string[] = [];
+              for (const msg of threadMessages) {
+                const msgHeaders = msg.payload?.headers || [];
+                const messageIdHeader = msgHeaders.find(
+                  (h) => h.name?.toLowerCase() === "message-id",
+                );
+                if (messageIdHeader?.value) {
+                  allMessageIds.push(messageIdHeader.value);
+                }
+              }
+              const lastMessage = threadMessages[threadMessages.length - 1];
+              const lastHeaders = lastMessage?.payload?.headers || [];
+              const lastMessageId = lastHeaders.find(
+                (h) => h.name?.toLowerCase() === "message-id",
+              )?.value;
+              if (lastMessageId) {
+                validatedArgs.inReplyTo = lastMessageId;
+              }
+              if (allMessageIds.length > 0) {
+                validatedArgs.references = allMessageIds.join(" ");
+              }
+            }
+          } catch (threadError: unknown) {
+            const msg = threadError instanceof Error ? threadError.message : String(threadError);
+            console.warn(
+              `Warning: Could not fetch thread ${validatedArgs.threadId} for header resolution: ${msg}`,
+            );
+            // Degraded: encode without threading headers.
+          }
+        }
+
         const encodedMessage = await buildEncodedRawMessage(validatedArgs);
 
         const response = await gmail.users.drafts.update({

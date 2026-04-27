@@ -822,7 +822,16 @@ export const toolDefinitions: ToolDefinition[] = [
       "SIDE EFFECTS: real email leaves the account, recorded in the `Sent` mailbox, billed against the account's daily send quota. The draft is consumed (its slot is freed). Subject to the same recipient-pairing gate as `send_email` when enabled (gate runs against the recipient list embedded in the draft).",
     ].join("\n"),
     schema: SendDraftSchema,
-    scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
+    // CR finding (PR #100): per Gmail API docs, `users.drafts.send`
+    // accepts only `mail.google.com | gmail.modify | gmail.compose`
+    // — `gmail.send` alone is NOT sufficient (it covers the
+    // `users.messages.send` endpoint but not the drafts.send
+    // operation, which mutates a draft resource). Listing
+    // `gmail.send` here advertised send_draft to send-only tokens
+    // that would then fail at the API call site with a 403; trim
+    // to the API-accepted set so the scope filter rejects
+    // mismatched tokens at registration time.
+    scopes: ["gmail.modify", "gmail.compose"],
     annotations: { title: "Send Draft", destructiveHint: false },
   },
   {

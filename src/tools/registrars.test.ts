@@ -2478,6 +2478,59 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
     });
   });
 
+  it("update_draft backfills In-Reply-To / References from threadId (preserves threading)", async () => {
+    // CR finding (PR #100, round 2): without this backfill, the
+    // regenerated raw message strips In-Reply-To / References
+    // headers when the caller supplies threadId without explicit
+    // headers — the updated draft becomes orphaned in its
+    // conversation when later sent. Mirror sendOrDraftEmail's
+    // thread-header resolution path. Pin via the encoded raw
+    // payload: threading headers must round-trip.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "update_draft",
+          arguments: {
+            id: "d_threaded",
+            to: ["bob@example.com"],
+            subject: "Updated subject",
+            body: "Updated body",
+            threadId: "t_existing",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        // Pin: threads.get fired (the backfill triggered).
+        expect(fix.calls.threadGet).toHaveLength(1);
+        expect(fix.calls.threadGet[0]).toMatchObject({
+          userId: "me",
+          id: "t_existing",
+          format: "metadata",
+        });
+        const sent = fix.calls.draftUpdate[0] as {
+          requestBody: { id: string; message: { raw: string; threadId?: string } };
+        };
+        expect(sent.requestBody.message.threadId).toBe("t_existing");
+        const decoded = Buffer.from(sent.requestBody.message.raw, "base64url").toString("utf-8");
+        // Pin: In-Reply-To and References headers ARE present in
+        // the encoded payload — backfilled from the thread's
+        // existing messages by the resolution path.
+        expect(decoded).toMatch(/^In-Reply-To:\s*<t_msg2@example\.com>$/m);
+        expect(decoded).toMatch(/^References:\s*<t_msg1@example\.com> <t_msg2@example\.com>$/m);
+      },
+      {
+        threads: {
+          t_existing: {
+            messages: [
+              { id: "t_msg1", from: "alice@example.com", subject: "Original" },
+              { id: "t_msg2", from: "carol@example.com", subject: "Re: Original" },
+            ],
+          },
+        },
+      },
+    );
+  });
+
   it("delete_draft routes drafts.delete with the supplied id and surfaces a clean confirmation", async () => {
     await withFix(["gmail.modify"], async (fix) => {
       const result = (await fix.client.callTool({
@@ -2492,7 +2545,7 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
   });
 
   it("send_draft fetches the draft, gates recipients, then routes drafts.send with the id", async () => {
-    await withFix(["gmail.send"], async (fix) => {
+    await withFix(["gmail.modify"], async (fix) => {
       const result = (await fix.client.callTool({
         name: "send_draft",
         arguments: { id: "d_outgoing" },
@@ -2528,7 +2581,7 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
     // throw before the drafts.send call lands.
     process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
     try {
-      await withFix(["gmail.send"], async (fix) => {
+      await withFix(["gmail.modify"], async (fix) => {
         const result = (await fix.client.callTool({
           name: "send_draft",
           arguments: { id: "d_unpaired" },
@@ -2547,7 +2600,7 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
 
   it("send_draft surfaces an HTTP error (e.g. 404 invalid draft id) with isError + status prefix", async () => {
     await withFix(
-      ["gmail.send"],
+      ["gmail.modify"],
       async (fix) => {
         const result = (await fix.client.callTool({
           name: "send_draft",
@@ -2562,6 +2615,28 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
       // "HTTP <code>" prefix.
       { draftGetHttpError: 404 },
     );
+  });
+
+  it("send_draft is NOT advertised under a send-only token (Gmail API drafts.send rejects gmail.send)", async () => {
+    // CR finding (PR #100, round 2): per Gmail API docs, the
+    // `users.drafts.send` endpoint accepts only `mail.google.com |
+    // gmail.modify | gmail.compose` — `gmail.send` (which covers
+    // `users.messages.send`) is NOT sufficient. Pin the post-fix
+    // scope gate so a regression that re-adds `gmail.send` to the
+    // tool's scope set is caught.
+    const fix = await buildAndConnect(["gmail.send"]);
+    try {
+      const list = await fix.client.listTools();
+      const names = list.tools.map((t) => t.name);
+      // send_email accepts gmail.send (messages.send endpoint), so
+      // it stays advertised; send_draft does NOT.
+      expect(names).toContain("send_email");
+      expect(names).not.toContain("send_draft");
+      expect(names).not.toContain("update_draft");
+      expect(names).not.toContain("delete_draft");
+    } finally {
+      await fix.close();
+    }
   });
 
   it("update_draft surfaces HTTP errors with isError + status prefix", async () => {
@@ -2644,12 +2719,14 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
     try {
       const list = await fix.client.listTools();
       const names = list.tools.map((t) => t.name);
-      // Compose token can read drafts (list/get accept compose)
-      // and create them (draft_email accepts compose), but cannot
-      // mutate or destroy existing ones.
+      // Compose token can read drafts (list/get accept compose),
+      // create them (draft_email accepts compose), and SEND them
+      // (send_draft accepts modify|compose per Gmail API), but
+      // cannot mutate or destroy existing ones.
       expect(names).toContain("list_drafts");
       expect(names).toContain("get_draft");
       expect(names).toContain("draft_email");
+      expect(names).toContain("send_draft");
       expect(names).not.toContain("update_draft");
       expect(names).not.toContain("delete_draft");
     } finally {
