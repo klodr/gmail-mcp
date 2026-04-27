@@ -24,6 +24,14 @@ on:
       - "tsup.config.ts"
       - ".github/workflows/docker.yml"
   merge_group:
+  # Manual trigger so the check can be re-run on a commit whose
+  # paths-filter excluded the Docker workflow (e.g. doc-only PR
+  # merges to main). Without this, the branch protection rule that
+  # marks "Build Docker image" as a required status check
+  # indefinitely blocks tag pushes whenever main HEAD is a
+  # docs-only commit. `workflow_dispatch` lets `gh workflow run
+  # docker.yml --ref main` re-trigger the build on demand.
+  workflow_dispatch:
 
 permissions:
   contents: read
