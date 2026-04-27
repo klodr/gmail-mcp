@@ -31,6 +31,32 @@ import open from "open";
 import { OAuth2Client } from "google-auth-library";
 import { DEFAULT_SCOPES, scopeNamesToUrls } from "./scopes.js";
 
+// Defensive size cap on the OAuth keys + credentials files before
+// reading them into memory + JSON.parse. Both files are normally
+// 1-3 KB; 64 KB is ~30× the realistic upper bound while still
+// negligible vs heap budget. Hard-fails before either an attacker-
+// controlled (unlikely — these files are user-local) OR
+// accidentally-corrupted (more likely — disk corruption, partial
+// write) multi-GB file consumes the memory budget. Security audit
+// finding (no CVE, defence-in-depth).
+const MAX_OAUTH_FILE_BYTES = 64 * 1024;
+
+/**
+ * Read a JSON file with a hard size cap, then `JSON.parse`. Throws
+ * a clear `Error` when the file exceeds `MAX_OAUTH_FILE_BYTES` so
+ * the caller can surface the boot-time misconfiguration without
+ * loading the full payload into memory.
+ */
+function readJsonBounded(absPath: string): unknown {
+  const stat = fs.statSync(absPath);
+  if (stat.size > MAX_OAUTH_FILE_BYTES) {
+    throw new Error(
+      `OAuth-related file at ${absPath} is ${stat.size} bytes, exceeding the ${MAX_OAUTH_FILE_BYTES}-byte cap. Inspect the file for corruption or replace with the original from Google Cloud Console.`,
+    );
+  }
+  return JSON.parse(fs.readFileSync(absPath, "utf8"));
+}
+
 export interface LoadCredentialsOpts {
   /** Path to the OAuth keys JSON (`gcp-oauth.keys.json` shape). */
   oauthPath: string;
@@ -179,7 +205,7 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
       };
     }
 
-    const keysContent = JSON.parse(fs.readFileSync(opts.oauthPath, "utf8")) as {
+    const keysContent = readJsonBounded(opts.oauthPath) as {
       installed?: { client_id?: string; client_secret?: string };
       web?: { client_id?: string; client_secret?: string };
     };
@@ -221,7 +247,7 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
     let authorizedScopes: readonly string[] = DEFAULT_SCOPES;
 
     if (fs.existsSync(opts.credentialsPath)) {
-      const credentials = JSON.parse(fs.readFileSync(opts.credentialsPath, "utf8")) as {
+      const credentials = readJsonBounded(opts.credentialsPath) as {
         tokens?: Record<string, unknown>;
         scopes?: string[];
         [key: string]: unknown;
