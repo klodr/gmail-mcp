@@ -7,17 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **README cleanup** — replaced the long "no third-party audit" NOTE block with a concise positive summary that names the divergence delta from upstream (121 commits / +26 700 / −10 400 lines vs `GongRzhe/Gmail-MCP-Server`, archived 2026-03-03) and the in-tree review chain (CodeRabbit + dual-model Qodo Merge). The detailed list of hardening controls moved out of the README and stays in [SECURITY.md](.github/SECURITY.md) where it belongs.
-- **README comparison table** — simplified: dropped the duplicate `GitHub repo` row (already in the column headers), the `CONTRIBUTING.md` and `.github/FUNDING.yml` rows (low signal — both are visible from the repo root), and the parenthetical clutter (`(outdated)`, `(multi-file tsc)`, `(target node22, ES2024)`). Updated `Active maintenance` to reflect that the upstream is archived. Test count and coverage floor bumped to `560 tests` / `>93%` to match the post-PR-#91 state.
-
-### Added
-
-- **Test coverage backfill (PR #91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%, downloads.ts 61% → 63%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
-- **MCP `outputSchema` per tool — infrastructure** — `defineTool()` now accepts an optional 9th argument `outputSchema?: ZodRawShape`, threaded through to the SDK's `registerTool` config. `tools/list` advertises the schema in its `outputSchema` field so an agent can introspect the structured-content contract without parsing the textual `RETURNS:` block. The SDK validates each `structuredContent` payload against the schema before emitting, so a regression that drops a field or returns the wrong type fails at the MCP boundary instead of silently producing a malformed agent input. First-wave wiring: `download_email` (1 of 26 tools); `src/tools/output-schemas.ts` houses the schemas with a documented coverage policy. Remaining 25 tools roll out per-tool in follow-up PRs (each needs its actual emit shape pinned + a schema co-designed with the handler return type).
-
-## [0.30.0] - 2026-04-26 — Server → McpServer migration + tool extraction
+## [0.30.0] - 2026-04-27 — Server → McpServer migration + tool extraction
 
 A minor release that ships the full architectural cut-over from the
 legacy `Server` + monolithic `CallToolRequestSchema` switch dispatcher
@@ -30,12 +20,11 @@ that applies the OAuth scope filter at registration time so
 `tools/list` is auto-emitted by the SDK without a custom handler.
 
 This release deliberately stays on the `0.x` line — version `1.0.0`
-is reserved for the second major shipping over a longer maturity
-window (a few more weeks of production traffic on the new
-architecture, plus the `outputSchema`-per-tool work tracked in
-`docs/ROADMAP.md`). The `0.21 → 0.30` jump signals the size of the
-internal refactor; on-the-wire tool surface, schemas, audit-log
-states, and rate-limit semantics are all preserved.
+is the very next cut, conditioned on the ergonomic wrappers
+(`reply_to_email`, `forward_email`) and the Drafts CRUD landing on
+main first. The `0.21 → 0.30` jump signals the size of the internal
+refactor; on-the-wire tool surface, schemas, audit-log states, and
+rate-limit semantics are all preserved.
 
 ### Changed
 
@@ -55,9 +44,33 @@ states, and rate-limit semantics are all preserved.
 - **Codecov thresholds restored** — `project.target: auto` /
   `patch.target: 95%` (was relaxed to `35%` / `75%` during the
   bridge while `src/index.ts` sat at 0% coverage). Global statement
-  coverage is now ~81%; `src/index.ts` stays in `ignore` because the
-  remaining surface is the OAuth callback flow + the `getAccessToken`
-  startup probe, which require integration runs.
+  coverage is now **~98%**; `src/index.ts` stays in `ignore` because
+  the remaining surface is the OAuth callback flow + the
+  `getAccessToken` startup probe, which require integration runs.
+- **README cleanup** — replaced the long "no third-party audit" NOTE
+  block with a concise positive summary that names the divergence
+  delta from upstream (130+ commits + extensive rewrite vs
+  `GongRzhe/Gmail-MCP-Server`, archived 2026-03-03) and the in-tree
+  review chain (CodeRabbit + dual-model Qodo Merge). The detailed
+  list of hardening controls moved out of the README and stays in
+  [SECURITY.md](.github/SECURITY.md) where it belongs.
+- **README comparison table** — simplified: dropped the duplicate
+  `GitHub repo` row (already in the column headers), the
+  `CONTRIBUTING.md` and `.github/FUNDING.yml` rows (low signal — both
+  visible from the repo root), and the parenthetical clutter
+  (`(outdated)`, `(multi-file tsc)`, `(target node22, ES2024)`).
+  Updated `Active maintenance` to reflect that the upstream is
+  archived. Test count and coverage floor bumped to `631 tests` /
+  `>97%` to match the post-coverage-backfill state.
+- **`docs/COMPETITORS.md` snapshot refreshed (2026-04-27)** — re-ran
+  the GitHub stars + forks + pushed-at sweep across the listed
+  competitors. Star deltas: GongRzhe 1098 → 1097, ArtyMcLabin 118 →
+  123, shinzo-labs 51 → 53, klodr/gmail-mcp now lists at 4★. Forks
+  on GongRzhe upstream: 323 → 349. The "GongRzhe is dormant" line is
+  reworded to "**ARCHIVED**". No new "Serious contender" emerged in
+  the 4-day window; classification is unchanged. Footer
+  `klodr/gmail-mcp` line updated to "First tagged version April 2026"
+  (stable across future releases — no per-cut edit needed).
 
 ### Added
 
@@ -85,6 +98,38 @@ states, and rate-limit semantics are all preserved.
   `batch_modify_emails` and `batch_delete_emails`.
 - **`src/gmail-headers.ts` — `extractHeaders(payload)`** moved out of
   `src/index.ts` next to its sibling `makeHeaderGetter`.
+- **Test coverage backfill** — 18 new tests across
+  `src/tools/messaging.ts`, `src/tools/filters.ts`,
+  `src/tools/downloads.ts`, and the prompts surface. Branch coverage
+  on the four registrar files went up substantially (filters.ts 67%
+  → 81%, messages.ts 64% → 67%, downloads.ts 61% → 63%). Mock
+  helpers gained `messageGetHttpError` / `attachmentGetHttpError` /
+  `failOnIds` options to make HTTP-error and per-item-batch-failure
+  branches reachable from tests. A second backfill wave covered
+  `src/audit-log.ts`, `src/middleware.ts`, the registrars, and the
+  recipient-pairing module; `scripts/sync-version.mjs` gained an
+  18-test suite (anchored regex, partial-OAuth-keys rejection,
+  non-object pkg rejection). Coverage rose from ~81 % to **~98 %
+  statements / ~85 % branches** with **631 tests** total.
+- **MCP `outputSchema` per tool — infrastructure** — `defineTool()`
+  now accepts an optional 9th argument `outputSchema?: ZodRawShape`,
+  threaded through to the SDK's `registerTool` config. `tools/list`
+  advertises the schema in its `outputSchema` field so an agent can
+  introspect the structured-content contract without parsing the
+  textual `RETURNS:` block. The SDK validates each
+  `structuredContent` payload against the schema before emitting, so
+  a regression that drops a field or returns the wrong type fails at
+  the MCP boundary instead of silently producing a malformed agent
+  input. First-wave wiring: `download_email` (1 of 26 tools);
+  `src/tools/output-schemas.ts` houses the schemas with a documented
+  coverage policy. The remaining 25 tools roll out per-tool in
+  follow-up PRs (each needs its actual emit shape pinned + a schema
+  co-designed with the handler return type).
+- **`download_email` emits explicit `structuredContent`** in addition
+  to the JSON text channel — typing the result object as `as const`
+  and lifting it explicitly guarantees the SDK validator sees the
+  declared `downloadEmailOutputSchema` shape on every emit,
+  decoupling correctness from the auto-attach best-effort heuristic.
 
 ### Fixed
 
@@ -111,13 +156,19 @@ states, and rate-limit semantics are all preserved.
 
 ### Coverage
 
-- 9 new unit-test files under `src/{tools/,}*.test.ts` (server,
-  defineTool, batch, email-send, gmail-headers, registrars).
-- 511 tests total (was 412 on `0.21.0`).
-- Global statement coverage: ~39 % → **~81 %**.
+- 10+ new unit-test files under `src/{tools/,}*.test.ts` (server,
+  defineTool, batch, email-send, gmail-headers, registrars,
+  sync-version).
+- **631 tests total** (was 412 on `0.21.0`).
+- Global statement coverage: ~39 % → **~98 %**; branch coverage:
+  baseline → **~85 %**.
 - The `read_email` truncation logic (multi-byte UTF-8 safe via
   TextDecoder + trailing-FFFD trim) is now pinned by 6 dedicated
   tests including a U+FFFD-never-appears assertion.
+- Codecov ignores narrowed to non-code patterns (`**/*.md`,
+  `**/*.yaml`, `**/*.yml`, `**/*.json`, `.github/**`); `scripts/**`
+  is now in coverage scope (gained `sync-version.test.mjs` with 18
+  tests for the version-sync regex contract).
 
 ## [0.21.1] - 2026-04-26 — Security review LOW/INFO findings
 

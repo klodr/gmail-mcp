@@ -1,6 +1,6 @@
 # Competitors & ecosystem snapshot
 
-_Snapshot: 2026-04-23_
+_Snapshot: 2026-04-27_
 
 ## Why this page exists
 
@@ -12,30 +12,30 @@ We maintain it honestly. If a repo here has evolved or we got something wrong, o
 
 - GitHub search for `gmail mcp` across public repositories
 - [Glama.ai MCP connector directory](https://glama.ai/mcp/connectors?query=gmail)
-- All forks of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) (the original, and still the most-starred Gmail MCP server at 1098★)
+- All forks of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) (the original, and still the most-starred Gmail MCP server at 1097★)
 - For each repo: language, stars, forks, last push, license, tool count, tests, CI, release discipline, unique features
 
-Scope: 29 standalone Gmail-MCP repositories + 323 forks of the GongRzhe upstream.
+Scope: 29 standalone Gmail-MCP repositories + 349 forks of the GongRzhe upstream.
 
 ## Fork lineage of klodr/gmail-mcp
 
 The comparison table in the [README](../README.md#why-this-mcp) already covers the direct lineage:
 
-- [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) — 1098★, original server, dormant since August 2025 (7+ months, 72+ unmerged PRs).
-- [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) — 118★, active TypeScript port, merged long-pending community fixes.
-- **[klodr/gmail-mcp](https://github.com/klodr/gmail-mcp)** — this repo. Adds the supply-chain / path-jail / review-policy layer.
+- [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) — 1097★, original server, **ARCHIVED** (archived 2026-03-03; last push August 2025; 30 PRs left unmerged at archive time).
+- [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) — 123★, active TypeScript port, merged long-pending community fixes.
+- **[klodr/gmail-mcp](https://github.com/klodr/gmail-mcp)** — 4★, this repo. Adds the supply-chain / path-jail / review-policy layer.
 
 The rest of this page covers the wider landscape.
 
 ## Standalone repositories
 
-Sorted by stars, snapshot `2026-04-23`.
+Sorted by stars, snapshot `2026-04-27`.
 
 ### Serious contenders
 
 | Repo | Stars | Forks | Last push | Language | License | What they do well |
 |---|---:|---:|---|---|---|---|
-| [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp) | 51 | 48 | 2025-11-25 | JavaScript | MIT | The widest Gmail API coverage in the landscape — vacation responder, delegates, S/MIME, IMAP/POP, forwarding, language, `users.watch` push notifications, full settings CRUD. ~50 tools. Changesets-based version flow. |
+| [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp) | 53 | 48 | 2025-11-25 | JavaScript | MIT | The widest Gmail API coverage in the landscape — vacation responder, delegates, S/MIME, IMAP/POP, forwarding, language, `users.watch` push notifications, full settings CRUD. ~50 tools. Changesets-based version flow. |
 | [Quantum-369/Gmail-mcp-server](https://github.com/Quantum-369/Gmail-mcp-server) | 17 | 6 | 2025-07-08 | Python | Apache-2.0 | Multi-account keystore: one Gmail MCP instance handling several mailboxes with per-request `account_id` selector. |
 | [Sallytion/Gmail-MCP](https://github.com/Sallytion/Gmail-MCP) | 12 | 7 | 2025-09-17 | TypeScript | — | Separate upstream root (not a fork of GongRzhe). Source of [GodotH/Easy-Gmail-MCP](https://github.com/GodotH/Easy-Gmail-MCP). IMAP/SMTP app-password auth rather than OAuth — simpler install, narrower security model. |
 | [muammar-yacoob/GMail-Manager-MCP](https://github.com/muammar-yacoob/GMail-Manager-MCP) | 9 | 5 | 2025-09-12 | TypeScript | MIT | Release discipline (33 releases on npm), inbox analytics tools, AI-drafted reply suggestions, dedicated batch-label wrappers. |
@@ -83,7 +83,7 @@ Sorted by stars, snapshot `2026-04-23`.
 
 ## GongRzhe forks
 
-323 forks in total, the vast majority dormant. Beyond **ArtyMcLabin** (which is our own intermediate), only three forks have any meaningful code divergence from upstream:
+349 forks in total, the vast majority dormant. Beyond **ArtyMcLabin** (which is our own intermediate), only three forks have any meaningful code divergence from upstream:
 
 | Fork | Stars | Commits ahead | What they changed |
 |---|---:|---:|---|
@@ -116,12 +116,12 @@ Not value judgments — scope decisions.
 ## Where klodr/gmail-mcp sits
 
 - **Not the largest catalog** — shinzo-labs covers more Gmail Settings endpoints; we're closing that gap (see ROADMAP).
-- **Not the most stars** — GongRzhe has 1098. We're young (v0.9.x, tagged April 2026).
+- **Not the most stars** — GongRzhe has 1097 (archived). First tagged version April 2026.
 - **The only implementation in the landscape** combining:
   - CodeQL Advanced + Socket Security + OpenSSF Scorecard + Snyk on every PR
   - Sigstore keyless signing + SLSA in-toto attestations + SPDX/CycloneDX SBOMs on every release
   - npm provenance statements
-  - 273 vitest tests + fast-check property-based fuzz suite + hardening-specific test file
+  - 631 vitest tests + fast-check property-based fuzz suite + hardening-specific test file
   - Path-jail defenses (`GMAIL_MCP_ATTACHMENT_DIR`, `GMAIL_MCP_DOWNLOAD_DIR` with `O_NOFOLLOW` + post-`mkdir` realpath re-verification)
   - OAuth scope filtering at startup — tool list is filtered before the LLM ever sees it
   - Cryptographic MIME boundaries, CRLF sanitization on both email-assembly paths
@@ -135,4 +135,4 @@ The bet: agent-platform operators care more about what an MCP can't be coerced i
 - Disagree with a verdict or think we mischaracterised your project? Open an issue — we'll fix it or reply in-thread.
 - If your work is cited here and you'd like the attribution adjusted (or the link to your repo swapped for a personal page), ping [@klodr](https://github.com/klodr) directly.
 
-This snapshot reflects the state of the ecosystem on `2026-04-23`. Stars, last-push dates, and forks move; the tradeoffs usually don't.
+This snapshot reflects the state of the ecosystem on `2026-04-27`. Stars, last-push dates, and forks move; the tradeoffs usually don't.

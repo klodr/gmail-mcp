@@ -4,8 +4,8 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 
 ## Near-term (next release cycle)
 
-- **MCP `outputSchema` per tool** — extend `defineTool()` with an optional `outputSchema?: ZodRawShape` parameter (`0.30.0` shipped the `inputSchema` half of the contract). Write a Zod schema for each of the 26 tools, derived from the `structuredContent` shape each handler returns today. Lets us drop the textual `RETURNS:` block from tool descriptions and rely on a machine-readable contract instead. Naturally pairs with the next minor release (`0.31.0` or similar).
-- **v1.0.0 on npm** — cut once the `outputSchema` item above lands. Every release is already signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance — the `0.x` line on npm has the same supply-chain posture, the `1.0.0` cut is purely a maturity / API-stability signal.
+- **MCP `outputSchema` per tool — rollout for the remaining 25 tools** — the `defineTool()` infrastructure shipped in v0.30.0 (optional `outputSchema?: ZodRawShape` parameter, threaded through to the SDK's `registerTool` config). `download_email` is the first wave (1 of 26 tools wired). The remaining 25 each need their actual emit shape pinned + a Zod schema co-designed with the handler return type — multi-PR rollout, one tool family per PR.
+- **v1.0.0 on npm** — cut once the ergonomic wrappers (`reply_to_email`, `forward_email`) and Drafts CRUD land, so the `1.0.0` surface signal matches the actual surface. Every release is already signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance — the `0.x` line on npm has the same supply-chain posture; the `1.0.0` cut is purely a maturity / API-stability signal.
 
 ## Shipped (post-v0.30.0, 2026-04-26)
 
