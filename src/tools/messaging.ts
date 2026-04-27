@@ -215,11 +215,15 @@ export function registerMessagingTools(
     authorizedScopes,
   );
 
-  // reply_to_email — sender-only reply (no Cc broadcast). Mirrors
-  // reply_all but skips the To+Cc rebuild — just picks the first
-  // address out of the source `From:` header. The threading-headers
-  // wiring (In-Reply-To / References / Subject Re: prefix) is the
-  // same.
+  // reply_to_email — sender-only reply (no Cc broadcast). Resolves
+  // the reply destination per RFC 5322 §3.6.2 precedence:
+  // `Reply-To:` → `Sender:` → `From:`, accepting **exactly one
+  // mailbox** at each level. Multi-mailbox or empty headers without
+  // a downstream disambiguator → bail with isError so the agent
+  // chooses explicitly (a sender-only tool cannot guess which of N
+  // co-authors / N reply targets is the intended single recipient).
+  // Threading headers (In-Reply-To / References / Subject Re:
+  // prefix) are wired the same way `reply_all` does.
   const replyToEmail = pull("reply_to_email");
   defineTool(
     server,
@@ -264,25 +268,35 @@ export function registerMessagingTools(
       const replyToAddresses = parseEmailAddresses(originalReplyTo);
       const senderAddresses = parseEmailAddresses(originalSender);
       const fromAddresses = parseEmailAddresses(originalFrom);
+      // CR finding (PR #99 round 2): a multi-mailbox `Reply-To:`
+      // is RFC-valid. For a sender-only tool, picking
+      // `replyToAddresses[0]` arbitrarily would silently send a
+      // private reply to whichever address the author happened to
+      // list first — the same risk that `From:` multi-mailbox
+      // already rejects. Require exactly one parsed `Reply-To:`,
+      // exactly one `Sender:`, or exactly one `From:` — fail
+      // closed otherwise so the agent disambiguates explicitly.
       let replyToAddress: string | undefined;
-      if (replyToAddresses.length >= 1) {
-        // RFC 5322 allows a multi-mailbox `Reply-To:`. When the
-        // source explicitly enumerates multiple reply targets, we
-        // honour the first — the author has already told us
-        // "either of these is fine"; an exact-one requirement here
-        // would defeat the most common multi-target case (a
-        // mailing list announcing both list-owner and an alias).
+      if (replyToAddresses.length === 1) {
         replyToAddress = replyToAddresses[0];
-      } else if (senderAddresses.length === 1) {
+      } else if (replyToAddresses.length === 0 && senderAddresses.length === 1) {
         replyToAddress = senderAddresses[0];
-      } else if (fromAddresses.length === 1) {
+      } else if (
+        replyToAddresses.length === 0 &&
+        senderAddresses.length === 0 &&
+        fromAddresses.length === 1
+      ) {
         replyToAddress = fromAddresses[0];
       }
       if (!replyToAddress) {
         const reason =
-          fromAddresses.length === 0
-            ? "source message has no From: / Sender: / Reply-To: header"
-            : "source message has multiple From: mailboxes and no Sender: / Reply-To: disambiguator";
+          replyToAddresses.length > 1
+            ? "source message has multiple Reply-To: mailboxes (a sender-only reply cannot pick one arbitrarily)"
+            : senderAddresses.length > 1
+              ? "source message has multiple Sender: mailboxes"
+              : fromAddresses.length === 0
+                ? "source message has no From: / Sender: / Reply-To: header"
+                : "source message has multiple From: mailboxes and no single Reply-To: / Sender: disambiguator";
         throw new Error(`Could not determine a unique recipient for reply (${reason})`);
       }
       const replyTo = [replyToAddress];
