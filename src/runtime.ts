@@ -29,12 +29,6 @@ import { loadCredentials, authenticate } from "./oauth-flow.js";
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
-// Cap for the OAuth-probe `err.message` log line. Bound below the
-// shortest known google-auth-library payload that has historically
-// inlined refresh tokens (~1 KB) so any such leak is truncated long
-// before the credential material lands in stderr.
-const ERR_LOG_MAX_CHARS = 200;
-
 export interface RunServerOpts {
   /**
    * The full argv slice as passed by Node (`process.argv`). The
@@ -282,19 +276,23 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
       const payload = buildInvalidGrantPayload(CREDENTIALS_PATH);
       log(`[startup] ${payload.code}: ${payload.recovery_action}`);
     } else {
-      // Defensive truncate: certain google-auth-library versions
-      // serialise the OAuth response payload into `err.message`,
-      // which can include refresh tokens or scope details. Cap
-      // before logging so the startup log never leaks credential
-      // material on a malformed-keys boot. Format mirrors the
-      // `[ELIDED:N chars]` convention used in `src/audit-log.ts`
-      // so log consumers can recognise the truncation marker.
-      const raw = err instanceof Error ? err.message : String(err);
-      const msg =
-        raw.length > ERR_LOG_MAX_CHARS
-          ? `${raw.slice(0, ERR_LOG_MAX_CHARS)} [truncated, ${raw.length} chars total]`
-          : raw;
-      log(`[startup] getAccessToken probe failed: ${msg}`);
+      // Full redaction (CR-major finding on PR #103). Certain
+      // google-auth-library versions serialise the OAuth response
+      // payload into `err.message`, which can include refresh
+      // tokens or scope details. The previous defensive truncate
+      // (200-char prefix + length suffix) still leaked the FIRST
+      // 200 chars to stderr — and a token can fit comfortably
+      // inside that window. Switch to type+length-only diagnostics:
+      // log the constructor name and the raw message length so
+      // operators can correlate the failure with the GaxiosError /
+      // Error subclass without ever exposing the body. The
+      // `INVALID_GRANT` branch above remains the actionable signal
+      // for the headline "credentials revoked" case.
+      const errType = err instanceof Error ? err.constructor.name : typeof err;
+      const rawLen = err instanceof Error ? err.message.length : String(err).length;
+      log(
+        `[startup] getAccessToken probe failed: type=${errType}, message length=${rawLen} chars (redacted for credential safety; rerun \`npx @klodr/gmail-mcp auth\` if this persists)`,
+      );
     }
   });
 

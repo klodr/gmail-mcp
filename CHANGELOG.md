@@ -13,8 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`src/runtime.ts` — defensive truncate on the `getAccessToken` probe error log** (security audit finding). Certain google-auth-library versions serialise the OAuth response payload into `err.message`, which can include refresh-token material on a malformed-keys boot. The probe log now caps the message at `ERR_LOG_MAX_CHARS = 200` and appends a `[truncated, N chars total]` marker (format mirrors the `[ELIDED:N chars]` convention from `src/audit-log.ts`) so credential material can never reach stderr verbatim.
-- **`nodemailer` bumped `8.0.5 → 8.0.6`** — patch release on the attachment-aware MIME assembly path used by `send_email` / `draft_email` / `update_draft` / `reply_all` / `forward_email`. No CVE in 8.0.5, the bump is hygiene before the v1.0.0 cut.
+- **`src/runtime.ts` — full redaction of the `getAccessToken` probe error message** (security audit finding + CR-major reinforcement). Certain google-auth-library versions serialise the OAuth response payload (refresh tokens, scope details) into `err.message`. The probe log now emits only `type=<ErrorClass>, message length=N chars (redacted for credential safety)` — credential material cannot reach stderr at all, even via a 200-char prefix that could comfortably contain a token. The `INVALID_GRANT` branch remains the actionable signal for the headline "credentials revoked" case.
+- **`nodemailer` bumped `8.0.5 → 8.0.6`** — patch release on the attachment-aware MIME assembly path used by `send_email` / `draft_email` / `reply_all`. No CVE in 8.0.5, the bump is hygiene before the v1.0.0 cut. (Also covers the `update_draft` / `forward_email` paths once they land in v1.0.0.)
 
 ## [0.30.0] - 2026-04-27 — Server → McpServer migration + tool extraction
 
