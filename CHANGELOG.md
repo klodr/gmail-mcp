@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Default `send` rate-limit tightened to 100/day, 2000/month** (was 400/day, 6000/month). The previous default was sized to trip just below the 500/day Gmail Workspace trial cap, but that left an order-of-magnitude headroom for a prompt-injected agent to spam before the limiter fired. The new default mirrors the upper end of a human professional workload (~40 emails/day per knowledge worker, with a 2.5× cushion for busy days). Heavy users can opt back into the legacy ceiling via `GMAIL_MCP_RATE_LIMIT_send=400/day,6000/month`.
+
+### Fixed
+
+- **`src/runtime.ts` — defensive truncate on the `getAccessToken` probe error log** (security audit finding). Certain google-auth-library versions serialise the OAuth response payload into `err.message`, which can include refresh-token material on a malformed-keys boot. The probe log now caps the message at `ERR_LOG_MAX_CHARS = 200` and appends a `[truncated, N chars total]` marker (format mirrors the `[ELIDED:N chars]` convention from `src/audit-log.ts`) so credential material can never reach stderr verbatim.
+- **`nodemailer` bumped `8.0.5 → 8.0.6`** — patch release on the attachment-aware MIME assembly path used by `send_email` / `draft_email` / `update_draft` / `reply_all` / `forward_email`. No CVE in 8.0.5, the bump is hygiene before the v1.0.0 cut.
+
 ## [0.30.0] - 2026-04-27 — Server → McpServer migration + tool extraction
 
 A minor release that ships the full architectural cut-over from the

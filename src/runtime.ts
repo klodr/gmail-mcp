@@ -29,6 +29,12 @@ import { loadCredentials, authenticate } from "./oauth-flow.js";
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
+// Cap for the OAuth-probe `err.message` log line. Bound below the
+// shortest known google-auth-library payload that has historically
+// inlined refresh tokens (~1 KB) so any such leak is truncated long
+// before the credential material lands in stderr.
+const ERR_LOG_MAX_CHARS = 200;
+
 export interface RunServerOpts {
   /**
    * The full argv slice as passed by Node (`process.argv`). The
@@ -276,7 +282,18 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
       const payload = buildInvalidGrantPayload(CREDENTIALS_PATH);
       log(`[startup] ${payload.code}: ${payload.recovery_action}`);
     } else {
-      const msg = err instanceof Error ? err.message : String(err);
+      // Defensive truncate: certain google-auth-library versions
+      // serialise the OAuth response payload into `err.message`,
+      // which can include refresh tokens or scope details. Cap
+      // before logging so the startup log never leaks credential
+      // material on a malformed-keys boot. Format mirrors the
+      // `[ELIDED:N chars]` convention used in `src/audit-log.ts`
+      // so log consumers can recognise the truncation marker.
+      const raw = err instanceof Error ? err.message : String(err);
+      const msg =
+        raw.length > ERR_LOG_MAX_CHARS
+          ? `${raw.slice(0, ERR_LOG_MAX_CHARS)} [truncated, ${raw.length} chars total]`
+          : raw;
       log(`[startup] getAccessToken probe failed: ${msg}`);
     }
   });
