@@ -7,19 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **README cleanup** — replaced the long "no third-party audit" NOTE block with a concise positive summary that names the divergence delta from upstream (121 commits / +26 700 / −10 400 lines vs `GongRzhe/Gmail-MCP-Server`, archived 2026-03-03) and the in-tree review chain (CodeRabbit + dual-model Qodo Merge). The detailed list of hardening controls moved out of the README and stays in [SECURITY.md](.github/SECURITY.md) where it belongs.
-- **README comparison table** — simplified: dropped the duplicate `GitHub repo` row (already in the column headers), the `CONTRIBUTING.md` and `.github/FUNDING.yml` rows (low signal — both are visible from the repo root), and the parenthetical clutter (`(outdated)`, `(multi-file tsc)`, `(target node22, ES2024)`). Updated `Active maintenance` to reflect that the upstream is archived. Test count and coverage floor bumped to `560 tests` / `>93%` to match the post-PR-#91 state.
-
 ### Added
 
-- **Test coverage backfill (PR #91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%, downloads.ts 61% → 63%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
-- **MCP `outputSchema` per tool — infrastructure** — `defineTool()` now accepts an optional 9th argument `outputSchema?: ZodRawShape`, threaded through to the SDK's `registerTool` config. `tools/list` advertises the schema in its `outputSchema` field so an agent can introspect the structured-content contract without parsing the textual `RETURNS:` block. The SDK validates each `structuredContent` payload against the schema before emitting, so a regression that drops a field or returns the wrong type fails at the MCP boundary instead of silently producing a malformed agent input. First-wave wiring: `download_email` (1 of 26 tools); `src/tools/output-schemas.ts` houses the schemas with a documented coverage policy. Remaining 25 tools roll out per-tool in follow-up PRs (each needs its actual emit shape pinned + a schema co-designed with the handler return type).
-- **Drafts CRUD complete** — `list_drafts`, `get_draft`, `update_draft`, `delete_draft`, `send_draft` cover the full `users.drafts.*` surface alongside the existing `draft_email` (create). New `src/tools/drafts.ts` registrar; `update_draft` shares the RFC 822 assembly with `sendOrDraftEmail` via the new `buildEncodedRawMessage` helper in `src/email-send.ts` so the draft pipeline emits the exact same MIME bytes the create / send pipeline does. `update_draft` also runs through the `requirePairedRecipients` allowlist when `GMAIL_MCP_RECIPIENT_PAIRING=true`, so an attacker cannot escape the create gate by laundering through update + `send_draft`. Scope mapping: list/get accept `gmail.readonly` / `gmail.modify` / `gmail.compose`; update / delete require `gmail.modify`; send requires `gmail.send` (or any superset). `list_drafts` returns `structuredContent` with `drafts[]` + `nextPageToken` + `resultSizeEstimate`. 11 new E2E tests in `src/tools/registrars.test.ts` cover each verb plus error / scope-filter paths.
-- **`buildEncodedRawMessage(args)` helper** in `src/email-send.ts` — extracts the RFC 822 + base64url assembly from the body of `sendOrDraftEmail` so the new `update_draft` handler can produce the exact same encoded payload the create / send paths produce. Picks the Nodemailer pipeline when `args.attachments` is non-empty, the lighter `createEmailMessage` path otherwise.
+- **Drafts CRUD complete** — `list_drafts`, `get_draft`, `update_draft`, `delete_draft`, `send_draft` cover the full `users.drafts.*` surface alongside the existing `draft_email` (create). New `src/tools/drafts.ts` registrar; `update_draft` shares the RFC 822 assembly with `sendOrDraftEmail` via the new `buildEncodedRawMessage` helper in `src/email-send.ts` so the draft pipeline emits the exact same MIME bytes the create / send pipeline does. Both `update_draft` and `send_draft` run through the `requirePairedRecipients` allowlist when `GMAIL_MCP_RECIPIENT_PAIRING=true`, so an attacker cannot escape the create gate by laundering through update + `send_draft` (the send-time gate fetches the draft's actual recipient list before transmission). Scope mapping: list/get accept `gmail.readonly` / `gmail.modify` / `gmail.compose`; update / delete require `gmail.modify`; send accepts `gmail.modify` / `gmail.compose` (per Gmail API — `gmail.send` covers `users.messages.send` but not `users.drafts.send`). `list_drafts` returns `structuredContent` with `drafts[]` + `nextPageToken` + `resultSizeEstimate`. 13 new E2E tests in `src/tools/registrars.test.ts` cover each verb plus error / scope-filter / pairing-gate / thread-header backfill paths.
+- **`buildEncodedRawMessage(args)` helper** in `src/email-send.ts` — extracts the RFC 822 + base64url assembly from the body of `sendOrDraftEmail` so the `update_draft` handler can produce the exact same encoded payload the create / send paths produce. Picks the Nodemailer pipeline when `args.attachments` is non-empty, the lighter `createEmailMessage` path otherwise. `sendOrDraftEmail` itself now routes through this helper too — single-source the encoder so create / send / update remain byte-identical over future edits.
 
-## [0.30.0] - 2026-04-26 — Server → McpServer migration + tool extraction
+## [0.30.1] - 2026-04-27 — Server → McpServer migration + tool extraction
 
 A minor release that ships the full architectural cut-over from the
 legacy `Server` + monolithic `CallToolRequestSchema` switch dispatcher
@@ -32,12 +25,20 @@ that applies the OAuth scope filter at registration time so
 `tools/list` is auto-emitted by the SDK without a custom handler.
 
 This release deliberately stays on the `0.x` line — version `1.0.0`
-is reserved for the second major shipping over a longer maturity
-window (a few more weeks of production traffic on the new
-architecture, plus the `outputSchema`-per-tool work tracked in
-`docs/ROADMAP.md`). The `0.21 → 0.30` jump signals the size of the
-internal refactor; on-the-wire tool surface, schemas, audit-log
-states, and rate-limit semantics are all preserved.
+is the very next cut, conditioned on the ergonomic wrappers
+(`reply_to_email`, `forward_email`) and the Drafts CRUD landing on
+main first. The `0.21 → 0.30` jump signals the size of the internal
+refactor; on-the-wire tool surface, schemas, audit-log states, and
+rate-limit semantics are all preserved.
+
+The patch-level bump `0.30.0 → 0.30.1` (no `0.30.0` was ever
+published to npm) absorbs a CI workflow fix that unblocked the
+release: the doc-pass merge to `main` did not touch any
+Docker-workflow path, so the required "Build Docker image" status
+check never ran on `main` HEAD and indefinitely blocked the tag
+push. Adding `workflow_dispatch` to `.github/workflows/docker.yml`
+lets the same scenario be unblocked on demand on future doc-only
+releases via `gh workflow run docker.yml --ref main`.
 
 ### Changed
 
@@ -57,9 +58,33 @@ states, and rate-limit semantics are all preserved.
 - **Codecov thresholds restored** — `project.target: auto` /
   `patch.target: 95%` (was relaxed to `35%` / `75%` during the
   bridge while `src/index.ts` sat at 0% coverage). Global statement
-  coverage is now ~81%; `src/index.ts` stays in `ignore` because the
-  remaining surface is the OAuth callback flow + the `getAccessToken`
-  startup probe, which require integration runs.
+  coverage is now **~98%**; `src/index.ts` stays in `ignore` because
+  the remaining surface is the OAuth callback flow + the
+  `getAccessToken` startup probe, which require integration runs.
+- **README cleanup** — replaced the long "no third-party audit" NOTE
+  block with a concise positive summary that names the divergence
+  delta from upstream (130+ commits + extensive rewrite vs
+  `GongRzhe/Gmail-MCP-Server`, archived 2026-03-03) and the in-tree
+  review chain (CodeRabbit + dual-model Qodo Merge). The detailed
+  list of hardening controls moved out of the README and stays in
+  [SECURITY.md](.github/SECURITY.md) where it belongs.
+- **README comparison table** — simplified: dropped the duplicate
+  `GitHub repo` row (already in the column headers), the
+  `CONTRIBUTING.md` and `.github/FUNDING.yml` rows (low signal — both
+  visible from the repo root), and the parenthetical clutter
+  (`(outdated)`, `(multi-file tsc)`, `(target node22, ES2024)`).
+  Updated `Active maintenance` to reflect that the upstream is
+  archived. Test count and coverage floor bumped to `631 tests` /
+  `>97%` to match the post-coverage-backfill state.
+- **`docs/COMPETITORS.md` snapshot refreshed (2026-04-27)** — re-ran
+  the GitHub stars + forks + pushed-at sweep across the listed
+  competitors. Star deltas: GongRzhe 1098 → 1097, ArtyMcLabin 118 →
+  123, shinzo-labs 51 → 53, klodr/gmail-mcp now lists at 4★. Forks
+  on GongRzhe upstream: 323 → 349. The "GongRzhe is dormant" line is
+  reworded to "**ARCHIVED**". No new "Serious contender" emerged in
+  the 4-day window; classification is unchanged. Footer
+  `klodr/gmail-mcp` line updated to "First tagged version April 2026"
+  (stable across future releases — no per-cut edit needed).
 
 ### Added
 
@@ -87,9 +112,49 @@ states, and rate-limit semantics are all preserved.
   `batch_modify_emails` and `batch_delete_emails`.
 - **`src/gmail-headers.ts` — `extractHeaders(payload)`** moved out of
   `src/index.ts` next to its sibling `makeHeaderGetter`.
+- **Test coverage backfill** — 18 new tests across
+  `src/tools/messaging.ts`, `src/tools/filters.ts`,
+  `src/tools/downloads.ts`, and the prompts surface. Branch coverage
+  on the four registrar files went up substantially (filters.ts 67%
+  → 81%, messages.ts 64% → 67%, downloads.ts 61% → 63%). Mock
+  helpers gained `messageGetHttpError` / `attachmentGetHttpError` /
+  `failOnIds` options to make HTTP-error and per-item-batch-failure
+  branches reachable from tests. A second backfill wave covered
+  `src/audit-log.ts`, `src/middleware.ts`, the registrars, and the
+  recipient-pairing module; `scripts/sync-version.mjs` gained an
+  18-test suite (anchored regex, partial-OAuth-keys rejection,
+  non-object pkg rejection). Coverage rose from ~81 % to **~98 %
+  statements / ~85 % branches** with **631 tests** total.
+- **MCP `outputSchema` per tool — infrastructure** — `defineTool()`
+  now accepts an optional 9th argument `outputSchema?: ZodRawShape`,
+  threaded through to the SDK's `registerTool` config. `tools/list`
+  advertises the schema in its `outputSchema` field so an agent can
+  introspect the structured-content contract without parsing the
+  textual `RETURNS:` block. The SDK validates each
+  `structuredContent` payload against the schema before emitting, so
+  a regression that drops a field or returns the wrong type fails at
+  the MCP boundary instead of silently producing a malformed agent
+  input. First-wave wiring: `download_email` (1 of 26 tools);
+  `src/tools/output-schemas.ts` houses the schemas with a documented
+  coverage policy. The remaining 25 tools roll out per-tool in
+  follow-up PRs (each needs its actual emit shape pinned + a schema
+  co-designed with the handler return type).
+- **`download_email` emits explicit `structuredContent`** in addition
+  to the JSON text channel — typing the result object as `as const`
+  and lifting it explicitly guarantees the SDK validator sees the
+  declared `downloadEmailOutputSchema` shape on every emit,
+  decoupling correctness from the auto-attach best-effort heuristic.
 
 ### Fixed
 
+- **`.github/workflows/docker.yml`** — added `workflow_dispatch` as
+  a third trigger so the required "Build Docker image" status check
+  can be re-run on demand against a `main` HEAD whose paths-filter
+  excluded the Docker workflow (e.g. doc-only PR merges). Without
+  this, a doc-only merge to `main` indefinitely blocks tag pushes
+  because branch protection sees the required check as 'expected
+  but absent'. Same convention as the standard CI workflows in the
+  sibling klodr repos.
 - **`getOrCreateLabel` returns `{ label, found }`** instead of a bare
   `GmailLabel`. The previous `result.type === "user" && result.name
   === args.name` heuristic the call site used to distinguish "found
@@ -113,13 +178,19 @@ states, and rate-limit semantics are all preserved.
 
 ### Coverage
 
-- 9 new unit-test files under `src/{tools/,}*.test.ts` (server,
-  defineTool, batch, email-send, gmail-headers, registrars).
-- 511 tests total (was 412 on `0.21.0`).
-- Global statement coverage: ~39 % → **~81 %**.
+- 10+ new unit-test files under `src/{tools/,}*.test.ts` (server,
+  defineTool, batch, email-send, gmail-headers, registrars,
+  sync-version).
+- **631 tests total** (was 412 on `0.21.0`).
+- Global statement coverage: ~39 % → **~98 %**; branch coverage:
+  baseline → **~85 %**.
 - The `read_email` truncation logic (multi-byte UTF-8 safe via
   TextDecoder + trailing-FFFD trim) is now pinned by 6 dedicated
   tests including a U+FFFD-never-appears assertion.
+- Codecov ignores narrowed to non-code patterns (`**/*.md`,
+  `**/*.yaml`, `**/*.yml`, `**/*.json`, `.github/**`); `scripts/**`
+  is now in coverage scope (gained `sync-version.test.mjs` with 18
+  tests for the version-sync regex contract).
 
 ## [0.21.1] - 2026-04-26 — Security review LOW/INFO findings
 
@@ -354,8 +425,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 This repository is a fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Pre-fork changelog is not reproduced here — see the upstream history and the acknowledgments in the README.
 
-[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.30.0...HEAD
-[0.30.0]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.0
+[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.30.1...HEAD
+[0.30.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.1
 [0.21.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/klodr/gmail-mcp/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/klodr/gmail-mcp/compare/v0.10.0...v0.20.0

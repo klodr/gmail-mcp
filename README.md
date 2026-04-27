@@ -23,7 +23,7 @@
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/klodr)
 
 > [!NOTE]
-> Hardened + enhanced fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) (archived 2026-03-03), via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Since the divergence point: **121 commits** (75 ahead of ArtyMcLabin) and **+26 700 / -10 400 lines** across security hardening, Gmail-surface improvements (reply-all, send-as alias, thread-level tools, download-to-disk, recipient pairing, batch ops with retry…), supply-chain hygiene, and CI gating. Every PR goes through CodeRabbit + dual-model Qodo Merge before merge. See [SECURITY.md](.github/SECURITY.md) for the controls and threat model, and the [comparison table](#-why-this-mcp) below for the parent-forks delta.
+> Hardened + enhanced fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) (archived 2026-03-03), via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Since the divergence point: **130+ commits** and an extensive rewrite — security hardening, Gmail-surface improvements (reply-all, send-as alias, thread-level tools, download-to-disk, recipient pairing, batch ops with retry…), supply-chain hygiene, and CI gating. Every PR goes through CodeRabbit + dual-model Qodo Merge before merge. See [SECURITY.md](.github/SECURITY.md) for the controls and threat model, and the [comparison table](#-why-this-mcp) below for the parent-forks delta.
 
 A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, Claude Code, Cursor, Continue, OpenClaw…) read and manage a Gmail account through scope-gated tools. Exposes the Gmail v1 API surface you actually need (messages, threads, labels, filters, attachments, drafts, reply-all) behind a single `npx` install.
 
@@ -74,8 +74,8 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: npm provenance statement | ❌ | ❌ | ✅ |
 | Release: single-file ESM bundle | ❌ | ❌ | ✅ |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (560 tests) |
-| Statement coverage across `src/**` | 0% | 16.14% | **>93%** |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (631 tests) |
+| Statement coverage across `src/**` | 0% | 16.14% | **>97%** |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
 | **CI/CD hardening** | | | |
@@ -218,7 +218,7 @@ See [ROADMAP.md](docs/ROADMAP.md).
 
 ### Wider Gmail-MCP landscape
 
-29 standalone repositories and 323 forks of the original GongRzhe server are reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md) — which ideas we borrowed, which we chose not to, and where `klodr/gmail-mcp` sits on the maturity axes.
+29 standalone repositories and 349 forks of the original GongRzhe server are reviewed in [docs/COMPETITORS.md](./docs/COMPETITORS.md) — which ideas we borrowed, which we chose not to, and where `klodr/gmail-mcp` sits on the maturity axes.
 
 ## 🤝 Contributing
 
