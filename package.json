@@ -1,6 +1,6 @@
 {
   "name": "@klodr/gmail-mcp",
-  "version": "0.30.0",
+  "version": "0.30.1",
   "description": "Gmail MCP server — scope-gated tools + attachment/download path jails + supply-chain hardening. Fork of GongRzhe/Gmail-MCP-Server via ArtyMcLabin's intermediate fork.",
   "type": "module",
   "main": "dist/index.js",

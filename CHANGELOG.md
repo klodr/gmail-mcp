@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/runtime.ts` — full redaction of the `getAccessToken` probe error message** (security audit finding + CR-major reinforcement). Certain google-auth-library versions serialise the OAuth response payload (refresh tokens, scope details) into `err.message`. The probe log now emits only `type=<ErrorClass>, message length=N chars (redacted for credential safety)` — credential material cannot reach stderr at all, even via a 200-char prefix that could comfortably contain a token. The `INVALID_GRANT` branch remains the actionable signal for the headline "credentials revoked" case.
 - **`nodemailer` bumped `8.0.5 → 8.0.6`** — patch release on the attachment-aware MIME assembly path used by `send_email` / `draft_email` / `reply_all`. No CVE in 8.0.5, the bump is hygiene before the v1.0.0 cut. (Also covers the `update_draft` / `forward_email` paths once they land in v1.0.0.)
 
-## [0.30.0] - 2026-04-27 — Server → McpServer migration + tool extraction
+## [0.30.1] - 2026-04-27 — Server → McpServer migration + tool extraction
 
 A minor release that ships the full architectural cut-over from the
 legacy `Server` + monolithic `CallToolRequestSchema` switch dispatcher
@@ -34,6 +34,15 @@ is the very next cut, conditioned on the ergonomic wrappers
 main first. The `0.21 → 0.30` jump signals the size of the internal
 refactor; on-the-wire tool surface, schemas, audit-log states, and
 rate-limit semantics are all preserved.
+
+The patch-level bump `0.30.0 → 0.30.1` (no `0.30.0` was ever
+published to npm) absorbs a CI workflow fix that unblocked the
+release: the doc-pass merge to `main` did not touch any
+Docker-workflow path, so the required "Build Docker image" status
+check never ran on `main` HEAD and indefinitely blocked the tag
+push. Adding `workflow_dispatch` to `.github/workflows/docker.yml`
+lets the same scenario be unblocked on demand on future doc-only
+releases via `gh workflow run docker.yml --ref main`.
 
 ### Changed
 
@@ -142,6 +151,14 @@ rate-limit semantics are all preserved.
 
 ### Fixed
 
+- **`.github/workflows/docker.yml`** — added `workflow_dispatch` as
+  a third trigger so the required "Build Docker image" status check
+  can be re-run on demand against a `main` HEAD whose paths-filter
+  excluded the Docker workflow (e.g. doc-only PR merges). Without
+  this, a doc-only merge to `main` indefinitely blocks tag pushes
+  because branch protection sees the required check as 'expected
+  but absent'. Same convention as the standard CI workflows in the
+  sibling klodr repos.
 - **`getOrCreateLabel` returns `{ label, found }`** instead of a bare
   `GmailLabel`. The previous `result.type === "user" && result.name
   === args.name` heuristic the call site used to distinguish "found
@@ -412,8 +429,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 This repository is a fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Pre-fork changelog is not reproduced here — see the upstream history and the acknowledgments in the README.
 
-[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.30.0...HEAD
-[0.30.0]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.0
+[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.30.1...HEAD
+[0.30.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.1
 [0.21.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/klodr/gmail-mcp/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/klodr/gmail-mcp/compare/v0.10.0...v0.20.0
