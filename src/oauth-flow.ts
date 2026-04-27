@@ -31,6 +31,59 @@ import open from "open";
 import { OAuth2Client } from "google-auth-library";
 import { DEFAULT_SCOPES, scopeNamesToUrls } from "./scopes.js";
 
+// Defensive size cap on the OAuth keys + credentials files before
+// reading them into memory + JSON.parse. Both files are normally
+// 1-3 KB; 64 KB is ~30× the realistic upper bound while still
+// negligible vs heap budget. Hard-fails before either an attacker-
+// controlled (unlikely — these files are user-local) OR
+// accidentally-corrupted (more likely — disk corruption, partial
+// write) multi-GB file consumes the memory budget. Security audit
+// finding (no CVE, defence-in-depth).
+export const MAX_OAUTH_FILE_BYTES = 64 * 1024;
+
+/**
+ * Read a JSON file with a hard size cap, then `JSON.parse`. Throws
+ * a clear `Error` when the file exceeds `MAX_OAUTH_FILE_BYTES` so
+ * the caller can surface the boot-time misconfiguration without
+ * loading the full payload into memory.
+ *
+ * TOCTOU note (CodeQL finding on PR #103): the size check and the
+ * read use the SAME file descriptor (open → fstat → read on
+ * `fd`), so a swap between the two calls cannot widen the read
+ * past the cap. Without this, an `fs.statSync(path)` followed by
+ * an `fs.readFileSync(path)` would re-resolve the path and could
+ * race against a concurrent writer that grew the file in the gap.
+ *
+ * Exported so the size-cap branch is reachable from a unit test
+ * without spinning up a full `loadCredentials` boot path.
+ */
+export function readJsonBounded(absPath: string): unknown {
+  const fd = fs.openSync(absPath, "r");
+  try {
+    const stat = fs.fstatSync(fd);
+    if (stat.size > MAX_OAUTH_FILE_BYTES) {
+      // Branch the remediation hint by file role. Both files are
+      // 1-3 KB in the happy path; the same 64 KB ceiling applies
+      // to both, but the recovery action differs.
+      const base = path.basename(absPath);
+      const remediation =
+        base === "gcp-oauth.keys.json"
+          ? "Replace with the original `gcp-oauth.keys.json` exported from Google Cloud Console (Credentials → OAuth 2.0 Client IDs)."
+          : base === "credentials.json"
+            ? "Delete the file and re-run `npx @klodr/gmail-mcp auth` to regenerate a fresh credentials JSON."
+            : "Inspect the file for corruption.";
+      throw new Error(
+        `OAuth-related file at ${absPath} is ${stat.size} bytes, exceeding the ${MAX_OAUTH_FILE_BYTES}-byte cap. ${remediation}`,
+      );
+    }
+    const buf = Buffer.alloc(stat.size);
+    fs.readSync(fd, buf, 0, stat.size, 0);
+    return JSON.parse(buf.toString("utf8"));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 export interface LoadCredentialsOpts {
   /** Path to the OAuth keys JSON (`gcp-oauth.keys.json` shape). */
   oauthPath: string;
@@ -179,7 +232,7 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
       };
     }
 
-    const keysContent = JSON.parse(fs.readFileSync(opts.oauthPath, "utf8")) as {
+    const keysContent = readJsonBounded(opts.oauthPath) as {
       installed?: { client_id?: string; client_secret?: string };
       web?: { client_id?: string; client_secret?: string };
     };
@@ -221,7 +274,7 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
     let authorizedScopes: readonly string[] = DEFAULT_SCOPES;
 
     if (fs.existsSync(opts.credentialsPath)) {
-      const credentials = JSON.parse(fs.readFileSync(opts.credentialsPath, "utf8")) as {
+      const credentials = readJsonBounded(opts.credentialsPath) as {
         tokens?: Record<string, unknown>;
         scopes?: string[];
         [key: string]: unknown;

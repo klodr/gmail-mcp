@@ -24,7 +24,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OAuth2Client } from "google-auth-library";
-import { loadCredentials, authenticate, InvalidOAuthKeysError } from "./oauth-flow.js";
+import {
+  loadCredentials,
+  authenticate,
+  InvalidOAuthKeysError,
+  readJsonBounded,
+  MAX_OAUTH_FILE_BYTES,
+} from "./oauth-flow.js";
 
 let scratch: string;
 let oauthPath: string;
@@ -720,6 +726,48 @@ describe("authenticate", () => {
     expect(await res.text()).toBe("Authentication failed");
     await settled;
     expect(caughtErr?.message).toBe("invalid_grant");
+  });
+});
+
+describe("readJsonBounded", () => {
+  let scratch: string;
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), "gmail-mcp-readjson-bounded-"));
+  });
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it("parses a valid sub-cap JSON file (open → fstat → read on same fd)", () => {
+    const file = join(scratch, "small.json");
+    writeFileSync(file, JSON.stringify({ a: 1, b: "two" }));
+    expect(readJsonBounded(file)).toEqual({ a: 1, b: "two" });
+  });
+
+  it("rejects a file exceeding MAX_OAUTH_FILE_BYTES with the gcp-oauth.keys.json remediation hint", () => {
+    const file = join(scratch, "gcp-oauth.keys.json");
+    // Write 64 KB + 1 byte of valid JSON-ish bytes (the size check
+    // fires BEFORE JSON.parse, so the content shape doesn't matter).
+    writeFileSync(file, "x".repeat(MAX_OAUTH_FILE_BYTES + 1));
+    expect(() => readJsonBounded(file)).toThrow(
+      /exceeding the 65536-byte cap.*Replace with the original.*Google Cloud Console/s,
+    );
+  });
+
+  it("rejects a credentials.json over cap with the auth-flow remediation hint", () => {
+    const file = join(scratch, "credentials.json");
+    writeFileSync(file, "x".repeat(MAX_OAUTH_FILE_BYTES + 1));
+    expect(() => readJsonBounded(file)).toThrow(
+      /exceeding the 65536-byte cap.*re-run.*npx @klodr\/gmail-mcp auth/s,
+    );
+  });
+
+  it("rejects an unrecognised filename over cap with the generic hint", () => {
+    const file = join(scratch, "random.json");
+    writeFileSync(file, "x".repeat(MAX_OAUTH_FILE_BYTES + 1));
+    expect(() => readJsonBounded(file)).toThrow(
+      /exceeding the 65536-byte cap.*Inspect the file for corruption/s,
+    );
   });
 });
 

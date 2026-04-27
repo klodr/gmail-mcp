@@ -87,15 +87,20 @@ interface BucketLimit {
  *   - Daily send: 2000/day (standard), 1500/day (mail merge), 500/day (trial)
  *   - Unique recipients: 3000/day (500 external on trial)
  *
- * `send` is deliberately capped at 400/day so that even on a trial
- * Google Workspace account (500/day upstream) the MCP limiter is the
- * one that trips first, with a clean "mcp_rate_limit_daily_exceeded"
- * error, rather than a less actionable 429 from Google.
+ * `send` is capped at 100/day to mirror the upper end of human
+ * professional workload (~40 emails/day per knowledge worker, with
+ * a 2.5× cushion for busy days). The previous 400/day default was
+ * sized to trip BEFORE the 500/day Workspace trial cap, but that
+ * left an order-of-magnitude headroom for a prompt-injected agent
+ * to spam before the limiter fired. The new default trips much
+ * earlier in the abuse curve and still covers every legitimate
+ * personal-assistant workload — heavy users override via
+ * `GMAIL_MCP_RATE_LIMIT_send=400/day,6000/month` to opt back in.
  *
  * Override any bucket with `GMAIL_MCP_RATE_LIMIT_<BUCKET>=D/day,M/month`.
  */
 const DEFAULT_BUCKET_LIMITS: Record<string, BucketLimit> = {
-  send: { daily: 400, monthly: 6000 },
+  send: { daily: 100, monthly: 2000 },
   delete: { daily: 200, monthly: 2000 },
   modify: { daily: 500, monthly: 5000 },
   drafts: { daily: 300, monthly: 3000 },

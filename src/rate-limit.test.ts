@@ -63,7 +63,7 @@ describe("rate-limit", () => {
 
   it("rejects malformed override and falls back to default (does not crash)", () => {
     process.env.GMAIL_MCP_RATE_LIMIT_send = "not a valid value";
-    // Default is 400/day for send — must not throw on the first call
+    // Default is 100/day for send — must not throw on the first call
     expect(() => enforceRateLimit("send_email")).not.toThrow();
   });
 
