@@ -25,6 +25,7 @@ import {
   ForwardEmailSchema,
 } from "../tools.js";
 import { sendOrDraftEmail, type EmailSendArgs } from "../email-send.js";
+import { makeHeaderGetter } from "../gmail-headers.js";
 import { addPairedAddress, readPairedList, removePairedAddress } from "../recipient-pairing.js";
 import {
   addFwdPrefix,
@@ -158,8 +159,7 @@ export function registerMessagingTools(
       const headers = originalEmail.data.payload?.headers || [];
       const threadId = originalEmail.data.threadId || "";
 
-      const get = (name: string) =>
-        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+      const get = makeHeaderGetter(headers);
       const originalFrom = get("from");
       const originalTo = get("to");
       const originalCc = get("cc");
@@ -239,8 +239,7 @@ export function registerMessagingTools(
       const headers = originalEmail.data.payload?.headers || [];
       const threadId = originalEmail.data.threadId || "";
 
-      const get = (name: string) =>
-        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+      const get = makeHeaderGetter(headers);
       const originalReplyTo = get("reply-to");
       const originalFrom = get("from");
       const originalSender = get("sender");
@@ -352,8 +351,7 @@ export function registerMessagingTools(
         format: "full",
       });
       const headers = originalEmail.data.payload?.headers || [];
-      const get = (name: string) =>
-        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+      const get = makeHeaderGetter(headers);
       const originalFrom = get("from");
       const originalDate = get("date");
       const originalSubject = get("subject");
