@@ -26,7 +26,7 @@ import {
 // `npm version patch|minor|major`. Mirrors the same convention used in
 // klodr/mercury-invoicing-mcp/src/server.ts:VERSION and
 // klodr/faxdrop-mcp/src/server.ts:VERSION.
-export const VERSION = "0.30.0";
+export const VERSION = "0.30.1";
 
 export interface ServerOptions {
   /**
