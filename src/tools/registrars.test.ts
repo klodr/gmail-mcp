@@ -15,7 +15,7 @@
  * promote to default.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, readdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -209,6 +209,13 @@ interface MockGmailOpts {
    */
   messageGetHttpError?: number;
   attachmentGetHttpError?: number;
+  /**
+   * When set, `gmail.users.threads.get` throws an Error with this
+   * code. Pins the degraded `update_draft` path where thread-header
+   * backfill fails — handler logs a warning and continues without
+   * threading headers.
+   */
+  threadGetHttpError?: number;
   /**
    * When set, `gmail.users.messages.modify` and
    * `gmail.users.messages.delete` throw a generic Error for any
@@ -608,6 +615,13 @@ function mockGmail(opts: MockGmailOpts = {}): {
         },
         get: async (params: unknown) => {
           calls.threadGet.push(params);
+          if (opts.threadGetHttpError !== undefined) {
+            const err = new Error(`Mock thread HTTP ${opts.threadGetHttpError}`) as Error & {
+              code?: number;
+            };
+            err.code = opts.threadGetHttpError;
+            throw err;
+          }
           const id = (params as { id?: string }).id ?? "thread_unknown";
           const t = opts.threads?.[id];
           if (!t) {
@@ -2884,6 +2898,52 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
         },
       },
     );
+  });
+
+  it("update_draft continues degraded when threads.get fails (warning, no In-Reply-To backfill)", async () => {
+    // Pins the catch arm of the thread-header backfill (drafts.ts
+    // ~200-205): if `threads.get` throws, the handler logs and
+    // proceeds without `In-Reply-To` / `References`. The encode +
+    // drafts.update still fire so the user-visible draft body is
+    // saved; only the threading metadata is lost.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await withFix(
+        ["gmail.modify"],
+        async (fix) => {
+          const result = (await fix.client.callTool({
+            name: "update_draft",
+            arguments: {
+              id: "d_target",
+              to: ["bob@example.com"],
+              subject: "Updated subject",
+              body: "Updated body content",
+              threadId: "t_broken",
+            },
+          })) as { isError?: boolean };
+          expect(result.isError).toBeFalsy();
+          // threads.get fired (the backfill was attempted) but
+          // threw; drafts.update still ran with the threadId.
+          expect(fix.calls.threadGet).toHaveLength(1);
+          expect(fix.calls.draftUpdate).toHaveLength(1);
+          const sent = fix.calls.draftUpdate[0] as {
+            requestBody: { message: { raw: string; threadId?: string } };
+          };
+          expect(sent.requestBody.message.threadId).toBe("t_broken");
+          // No threading headers in the encoded body (degraded mode).
+          const decoded = Buffer.from(sent.requestBody.message.raw, "base64url").toString("utf-8");
+          expect(decoded).not.toMatch(/^In-Reply-To:/m);
+          expect(decoded).not.toMatch(/^References:/m);
+          // Console warn fired with the expected prefix.
+          expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining("Could not fetch thread t_broken"),
+          );
+        },
+        { threadGetHttpError: 500 },
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("delete_draft routes drafts.delete with the supplied id and surfaces a clean confirmation", async () => {
