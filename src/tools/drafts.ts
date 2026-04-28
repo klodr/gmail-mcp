@@ -324,13 +324,19 @@ export function registerDraftTools(
             format: "full",
           });
           const headers = draftResponse.data.message?.payload?.headers ?? [];
-          const headerValue = (name: string): string =>
-            headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
-          const recipients = [
-            ...parseEmailAddresses(headerValue("to")),
-            ...parseEmailAddresses(headerValue("cc")),
-            ...parseEmailAddresses(headerValue("bcc")),
-          ];
+          // RFC 5322 allows repeated `To` / `Cc` / `Bcc` headers and Gmail
+          // merges them when sending. `headers.find` would only see the
+          // first instance, letting an attacker stage `To: alice@allowed`
+          // + `To: mallory@evil` and slip past the allowlist on `mallory`.
+          // Collect every matching header and concat into the parser.
+          const headerValues = (name: string): string[] =>
+            headers
+              .filter((h) => h.name?.toLowerCase() === name.toLowerCase())
+              .map((h) => h.value ?? "")
+              .filter((v) => v !== "");
+          const recipients = ["to", "cc", "bcc"].flatMap((name) =>
+            parseEmailAddresses(headerValues(name).join(", ")),
+          );
           requirePairedRecipients(recipients);
         }
 

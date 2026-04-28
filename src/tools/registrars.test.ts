@@ -251,6 +251,14 @@ interface MockGmailOpts {
    * full-format must round-trip it).
    */
   draftBccHeader?: string;
+  /**
+   * Inject extra `{name, value}` headers into the draft returned by
+   * `drafts.get`. Used by the send_draft multi-header bypass test:
+   * RFC 5322 allows repeated `To` / `Cc` / `Bcc` and Gmail merges
+   * them when sending, so the pairing gate must collect *every*
+   * matching header instance, not just the first.
+   */
+  draftExtraHeaders?: Array<{ name: string; value: string }>;
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -504,6 +512,9 @@ function mockGmail(opts: MockGmailOpts = {}): {
           ];
           if (opts.draftBccHeader !== undefined) {
             headers.push({ name: "Bcc", value: opts.draftBccHeader });
+          }
+          if (opts.draftExtraHeaders) {
+            for (const h of opts.draftExtraHeaders) headers.push(h);
           }
           const baseMessage = {
             id: `msg_in_${id}`,
@@ -2991,6 +3002,52 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
           expect(fix.calls.draftSend).toHaveLength(0);
         },
         { draftBccHeader: "eve@evil.example" },
+      );
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
+  });
+
+  it("send_draft pairing gate inspects ALL repeated To/Cc/Bcc headers, not just the first instance", async () => {
+    // CR Major (PR #100, round 6): RFC 5322 allows repeated
+    // destination headers and Gmail merges them when sending. A
+    // `headers.find` (first-only) implementation would let an
+    // attacker stage `To: alice@allowed` + `To: mallory@evil` —
+    // pairing checks alice (paired), Gmail sends to BOTH. The
+    // gate must walk every matching header instance and pass the
+    // union of mailboxes to `requirePairedRecipients`.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(
+        ["gmail.modify"],
+        async (fix) => {
+          // Pair only alice — the first `To:` instance. mallory
+          // is the second instance and stays unpaired.
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "alice@example.com" },
+          });
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "bob@example.com" },
+          });
+          const result = (await fix.client.callTool({
+            name: "send_draft",
+            arguments: { id: "d_multi_to_attack" },
+          })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+          expect(result.isError).toBe(true);
+          // The error names the unpaired second-instance address
+          // — operator gets actionable diagnostic.
+          expect(result.content[0]?.text).toContain("mallory@evil.example");
+          // Gate fired before drafts.send.
+          expect(fix.calls.draftSend).toHaveLength(0);
+        },
+        {
+          draftExtraHeaders: [
+            { name: "To", value: "alice@example.com" },
+            { name: "To", value: "mallory@evil.example" },
+          ],
+        },
       );
     } finally {
       delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
