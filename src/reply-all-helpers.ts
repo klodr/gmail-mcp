@@ -164,6 +164,62 @@ export function addRePrefix(subject: string): string {
 }
 
 /**
+ * Adds "Fwd: " prefix to a subject if not already present.
+ * Case-insensitive check matches both "Fwd:" and "Fw:" — both are
+ * standard variants per RFC 5322 §3.6.5 / RFC 2822, and Gmail's UI
+ * strips either when threading is computed.
+ *
+ * @param subject - The original email subject
+ * @returns Subject with "Fwd: " prefix
+ */
+export function addFwdPrefix(subject: string): string {
+  const lower = subject.toLowerCase();
+  if (lower.startsWith("fwd:") || lower.startsWith("fw:")) {
+    return subject;
+  }
+  return `Fwd: ${subject}`;
+}
+
+/**
+ * Builds the quoted-message body for a forward, mirroring Gmail's
+ * web-UI format (`---------- Forwarded message ---------` separator
+ * + From/Date/Subject/To headers + blank line + original text body).
+ *
+ * The optional `preface` is prepended verbatim, separated from the
+ * quoted block by one blank line. When omitted, the forward stands
+ * on its own — useful for relay forwards where the agent has no
+ * comment to add.
+ *
+ * Output is always plain text (UTF-8). HTML forwards are intentionally
+ * out of scope for this helper — building a faithful quoted-HTML
+ * representation requires sanitizing the source HTML body and pinning
+ * a wrapper `<blockquote>` style that survives every recipient's
+ * client. Callers wanting an HTML forward should compose the body
+ * themselves and call `send_email` directly.
+ *
+ * @param originalHeaders - From/Date/Subject/To pulled from the source message
+ * @param originalText - The text/plain body of the source message (already MIME-decoded)
+ * @param preface - Optional comment to prepend before the quoted block
+ * @returns The full plain-text body to put in the forward's `body` field
+ */
+export function buildForwardQuotedBody(
+  originalHeaders: { from: string; date: string; subject: string; to: string },
+  originalText: string,
+  preface?: string,
+): string {
+  const header = [
+    "---------- Forwarded message ---------",
+    `From: ${originalHeaders.from}`,
+    `Date: ${originalHeaders.date}`,
+    `Subject: ${originalHeaders.subject}`,
+    `To: ${originalHeaders.to}`,
+    "",
+    originalText,
+  ].join("\n");
+  return preface && preface.length > 0 ? `${preface}\n\n${header}` : header;
+}
+
+/**
  * Builds the References header for a reply email.
  * Combines original References with original Message-ID.
  *

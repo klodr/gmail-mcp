@@ -130,6 +130,21 @@ interface MockGmailOpts {
    */
   messageFromOverride?: string;
   /**
+   * Override the optional `Sender:` header on `messages.get`
+   * responses. Default: header is absent. Used by the reply_to_email
+   * tests that pin RFC 5322 §3.6.2 behaviour — when both From: and
+   * Sender: are present, the resolver prefers Sender.
+   */
+  messageSenderOverride?: string;
+  /**
+   * Override the optional `Reply-To:` header on `messages.get`
+   * responses. Default: header is absent. Used by reply_to_email
+   * tests that pin RFC 5322 §3.6.2 precedence: when both Reply-To:
+   * and From: are present, the resolver prefers Reply-To (the
+   * mailing-list pattern: From=list, Reply-To=author).
+   */
+  messageReplyToOverride?: string;
+  /**
    * Messages list returned by `gmail.users.messages.list` for
    * `search_emails`.
    */
@@ -389,6 +404,12 @@ function mockGmail(opts: MockGmailOpts = {}): {
                 { name: "Subject", value: `Test message ${id}` },
                 { name: "Date", value: "Fri, 25 Apr 2026 10:00:00 +0000" },
                 { name: "Message-ID", value: `<${id}@example.com>` },
+                ...(opts.messageSenderOverride
+                  ? [{ name: "Sender", value: opts.messageSenderOverride }]
+                  : []),
+                ...(opts.messageReplyToOverride
+                  ? [{ name: "Reply-To", value: opts.messageReplyToOverride }]
+                  : []),
               ],
               parts: [
                 {
@@ -2109,6 +2130,243 @@ describe("PR #7 registrars — reply_all", () => {
   });
 });
 
+describe("PR #7 registrars — reply_to_email (sender-only)", () => {
+  it("fetches the source, picks the first From mailbox, and sends a sender-only reply", async () => {
+    await withFix(["gmail.send", "gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "reply_to_email",
+        arguments: {
+          messageId: "msg_orig",
+          body: "Acknowledged.",
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("Reply sent successfully");
+      expect(fix.calls.messageGet).toHaveLength(1);
+      // No getProfile call — the sender-only path does not need to
+      // know the authenticated user's address (no self-filter to apply
+      // when we are only writing back to the original `From:`).
+      expect(fix.calls.getProfile).toHaveLength(0);
+      expect(fix.calls.messageSend).toHaveLength(1);
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      // Pin: To is the source `From:` mailbox only; no Cc broadcast.
+      const toLine = /^To:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+      const ccLine = /^Cc:\s*(.+)$/m.exec(decoded);
+      expect(toLine).toContain("alice@example.com");
+      expect(ccLine).toBeNull();
+      // Subject carries Re: prefix, threading headers wired.
+      expect(decoded).toMatch(/^Subject:\s*Re: Test message msg_orig$/m);
+      expect(decoded).toMatch(/^In-Reply-To:\s*<msg_orig@example\.com>$/m);
+      expect(decoded).toMatch(/^References:\s*<msg_orig@example\.com>$/m);
+    });
+  });
+
+  it("isError when the source message has no From: header", async () => {
+    // `messageFromOverride: ""` empties the From header on the
+    // mock's messages.get — the sender-only resolver then has no
+    // mailbox to reply to and bails with isError BEFORE issuing a
+    // send, mirroring the reply_all empty-recipients guard.
+    await withFix(
+      ["gmail.send", "gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "reply_to_email",
+          arguments: {
+            messageId: "msg_no_from",
+            body: "Hello?",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Could not determine a unique recipient");
+        expect(result.content[0]?.text).toContain("no From: / Sender: / Reply-To: header");
+        expect(fix.calls.messageSend).toHaveLength(0);
+      },
+      { messageFromOverride: "" },
+    );
+  });
+
+  it("isError when the source message has multiple From: mailboxes and no Sender:", async () => {
+    // CR finding (PR #99): silently picking the first From: on a
+    // multi-author message could route a private reply to the
+    // wrong participant. Pin the post-fix behaviour: with two
+    // From: addresses and no Sender: disambiguator, the resolver
+    // bails with isError so the agent must explicitly choose.
+    await withFix(
+      ["gmail.send", "gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "reply_to_email",
+          arguments: {
+            messageId: "msg_multi_from",
+            body: "Hello?",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("Could not determine a unique recipient");
+        expect(result.content[0]?.text).toContain("multiple From: mailboxes");
+        expect(fix.calls.messageSend).toHaveLength(0);
+      },
+      { messageFromOverride: "alice@example.com, david@example.com" },
+    );
+  });
+
+  it("prefers Sender: when the source carries one (RFC 5322 §3.6.2)", async () => {
+    // CR finding (PR #99): when both From: and Sender: are
+    // present, RFC 5322 §3.6.2 says Sender identifies the agent
+    // that physically transmitted the message. Replying to Sender
+    // is the conservative choice when From: is multi-party. Pin
+    // the resolver: a multi-From + single-Sender source addresses
+    // the reply To: the Sender mailbox.
+    await withFix(
+      ["gmail.send", "gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "reply_to_email",
+          arguments: {
+            messageId: "msg_with_sender",
+            body: "Acknowledged.",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        expect(result.content[0]?.text).toContain("Reply sent successfully");
+        expect(fix.calls.messageSend).toHaveLength(1);
+        const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+        const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+        const toLine = /^To:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+        // Pin: To is the Sender mailbox, not the first From entry.
+        expect(toLine).toContain("ops@example.com");
+        expect(toLine).not.toContain("alice@example.com");
+      },
+      {
+        messageFromOverride: "alice@example.com, david@example.com",
+        messageSenderOverride: "ops@example.com",
+      },
+    );
+  });
+
+  it("prefers Reply-To: over From: (RFC 5322 §3.6.2; mailing-list pattern)", async () => {
+    // CR finding (PR #99): the headline mailing-list bug. When a
+    // message arrives with From=list@example.com (the list itself)
+    // and Reply-To=author@example.com (the human who wrote it),
+    // replying to From: would broadcast a "private" reply to the
+    // entire list. Pin the resolver: a single-From + single-Reply-To
+    // source addresses the reply To: the Reply-To mailbox.
+    await withFix(
+      ["gmail.send", "gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "reply_to_email",
+          arguments: {
+            messageId: "msg_listmail",
+            body: "Thanks for posting this.",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        expect(result.content[0]?.text).toContain("Reply sent successfully");
+        const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+        const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+        const toLine = /^To:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
+        // Pin: To is the Reply-To mailbox, not the From: list address.
+        expect(toLine).toContain("author@example.com");
+        expect(toLine).not.toContain("list@example.com");
+      },
+      {
+        messageFromOverride: "list@example.com",
+        messageReplyToOverride: "author@example.com",
+      },
+    );
+  });
+});
+
+describe("PR #7 registrars — forward_email", () => {
+  it("fetches the source, builds Fwd: subject + quoted body, and sends to the new recipients", async () => {
+    await withFix(["gmail.send", "gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "forward_email",
+        arguments: {
+          messageId: "msg_orig",
+          to: ["carol@example.com"],
+          body: "FYI — see below.",
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toContain("Forward sent successfully");
+      expect(fix.calls.messageGet).toHaveLength(1);
+      expect(fix.calls.messageSend).toHaveLength(1);
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string; threadId?: string } };
+      // Forward starts a fresh thread — must NOT carry over
+      // `threadId` from the source, otherwise Gmail UI nests the
+      // forward under the original conversation and the recipient
+      // sees an out-of-context reply chain.
+      expect(sent.requestBody.threadId).toBeUndefined();
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      // Subject prefixed Fwd:, To carries the new recipient.
+      expect(decoded).toMatch(/^Subject:\s*Fwd: Test message msg_orig$/m);
+      expect(decoded).toMatch(/^To:\s*carol@example\.com$/m);
+      // The quoted body MUST include the standard separator + the
+      // From/Date/Subject/To headers of the source. Pinning the
+      // exact strings guards against a regression that drops a
+      // header line or restyles the separator (Gmail's UI is
+      // strict about the exact ASCII for thread inference).
+      expect(decoded).toContain("FYI — see below.");
+      expect(decoded).toContain("---------- Forwarded message ---------");
+      expect(decoded).toContain("From: Alice <alice@example.com>");
+      expect(decoded).toContain("Subject: Test message msg_orig");
+      expect(decoded).toContain("To: bob@example.com");
+      // Original body verbatim — pinned so the mime-walker
+      // extractEmailContent path stays wired.
+      expect(decoded).toContain("default body content");
+    });
+  });
+
+  it("supports cc and bcc recipients on the forward", async () => {
+    await withFix(["gmail.send", "gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "forward_email",
+        arguments: {
+          messageId: "msg_orig",
+          to: ["carol@example.com"],
+          cc: ["dave@example.com"],
+          bcc: ["eve@example.com"],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      expect(decoded).toMatch(/^Cc:\s*dave@example\.com$/m);
+      expect(decoded).toMatch(/^Bcc:\s*eve@example\.com$/m);
+      // Sanity-check the user-facing summary surfaces the cc/bcc
+      // counts so the agent can confirm the broadcast scope.
+      expect(result.content[0]?.text).toContain("CC: dave@example.com");
+      expect(result.content[0]?.text).toContain("BCC: eve@example.com");
+    });
+  });
+
+  it("omits preface gracefully when no body is supplied", async () => {
+    await withFix(["gmail.send", "gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "forward_email",
+        arguments: {
+          messageId: "msg_orig",
+          to: ["carol@example.com"],
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
+      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      // First non-header line of the MIME body is the separator —
+      // no preface gap. Use a non-greedy split to grab the body
+      // section only (after the empty line that marks header end).
+      const bodyStart = decoded
+        .split(/\r?\n\r?\n/)
+        .slice(1)
+        .join("\n\n");
+      expect(bodyStart.startsWith("---------- Forwarded message ---------")).toBe(true);
+    });
+  });
+});
+
 describe("PR #4 registrars — filter templates (4 paths)", () => {
   it("create_filter_from_template (withSubject) pins criteria.subject + action.addLabelIds on the wire", async () => {
     await withFix(["gmail.settings.basic"], async (fix) => {
@@ -2461,6 +2719,33 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
           { id: "d_b", messageId: "msg_b", threadId: "thr_b" },
         ],
         draftsNextPageToken: "page2",
+      },
+    );
+  });
+
+  it("list_drafts forwards q + includeSpamTrash when supplied", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "list_drafts",
+          arguments: {
+            q: "subject:invoice",
+            includeSpamTrash: true,
+            maxResults: 25,
+          },
+        })) as { isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        expect(fix.calls.draftList).toHaveLength(1);
+        expect(fix.calls.draftList[0]).toMatchObject({
+          userId: "me",
+          maxResults: 25,
+          q: "subject:invoice",
+          includeSpamTrash: true,
+        });
+      },
+      {
+        drafts: [{ id: "d_a", messageId: "msg_a", threadId: "thr_a" }],
       },
     );
   });
@@ -2893,6 +3178,7 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "download_attachment",
           "download_email",
           "draft_email",
+          "forward_email",
           "get_draft",
           "get_filter",
           "get_inbox_with_threads",
@@ -2907,6 +3193,7 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "pair_recipient",
           "read_email",
           "reply_all",
+          "reply_to_email",
           "search_emails",
           "send_draft",
           "send_email",

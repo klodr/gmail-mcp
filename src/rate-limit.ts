@@ -59,6 +59,9 @@ const TOOL_BUCKET: Record<string, string> = {
 
   // Drafts (reversible, higher allowance)
   draft_email: "drafts",
+  update_draft: "drafts",
+  delete_draft: "drafts",
+  send_draft: "drafts",
 
   // Label management
   create_label: "labels",
