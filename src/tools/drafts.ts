@@ -27,6 +27,25 @@ import { resolveDefaultSender } from "../sender-resolver.js";
 import { asGmailApiError } from "../gmail-errors.js";
 import { parseEmailAddresses } from "../reply-all-helpers.js";
 
+/**
+ * Single error-formatting site for every `gmail.users.drafts.*` catch
+ * arm in this registrar. Folds `asGmailApiError` + the `Failed to ${op}
+ * (HTTP ${code})` prefix + the `{ content, isError }` envelope into one
+ * call site so a future change (e.g. structured-content errors,
+ * different prefix scheme) flips for all five draft tools at once.
+ */
+function gmailDraftToolError(
+  op: string,
+  error: unknown,
+): { content: Array<{ type: "text"; text: string }>; isError: true } {
+  const { code, message } = asGmailApiError(error);
+  const prefix = code !== undefined ? `Failed to ${op} (HTTP ${code})` : `Failed to ${op}`;
+  return {
+    content: [{ type: "text", text: `${prefix}: ${message}` }],
+    isError: true,
+  };
+}
+
 export function registerDraftTools(
   server: McpServer,
   gmail: gmail_v1.Gmail,
@@ -69,13 +88,7 @@ export function registerDraftTools(
           structuredContent: result,
         };
       } catch (error: unknown) {
-        const { code, message } = asGmailApiError(error);
-        const prefix =
-          code !== undefined ? `Failed to list drafts (HTTP ${code})` : "Failed to list drafts";
-        return {
-          content: [{ type: "text", text: `${prefix}: ${message}` }],
-          isError: true,
-        };
+        return gmailDraftToolError("list drafts", error);
       }
     },
     listDrafts.annotations,
@@ -115,13 +128,7 @@ export function registerDraftTools(
           ],
         };
       } catch (error: unknown) {
-        const { code, message } = asGmailApiError(error);
-        const prefix =
-          code !== undefined ? `Failed to get draft (HTTP ${code})` : "Failed to get draft";
-        return {
-          content: [{ type: "text", text: `${prefix}: ${message}` }],
-          isError: true,
-        };
+        return gmailDraftToolError("get draft", error);
       }
     },
     getDraft.annotations,
@@ -228,13 +235,7 @@ export function registerDraftTools(
           ],
         };
       } catch (error: unknown) {
-        const { code, message } = asGmailApiError(error);
-        const prefix =
-          code !== undefined ? `Failed to update draft (HTTP ${code})` : "Failed to update draft";
-        return {
-          content: [{ type: "text", text: `${prefix}: ${message}` }],
-          isError: true,
-        };
+        return gmailDraftToolError("update draft", error);
       }
     },
     updateDraft.annotations,
@@ -264,13 +265,7 @@ export function registerDraftTools(
           ],
         };
       } catch (error: unknown) {
-        const { code, message } = asGmailApiError(error);
-        const prefix =
-          code !== undefined ? `Failed to delete draft (HTTP ${code})` : "Failed to delete draft";
-        return {
-          content: [{ type: "text", text: `${prefix}: ${message}` }],
-          isError: true,
-        };
+        return gmailDraftToolError("delete draft", error);
       }
     },
     deleteDraft.annotations,
@@ -353,13 +348,7 @@ export function registerDraftTools(
           ],
         };
       } catch (error: unknown) {
-        const { code, message } = asGmailApiError(error);
-        const prefix =
-          code !== undefined ? `Failed to send draft (HTTP ${code})` : "Failed to send draft";
-        return {
-          content: [{ type: "text", text: `${prefix}: ${message}` }],
-          isError: true,
-        };
+        return gmailDraftToolError("send draft", error);
       }
     },
     sendDraft.annotations,
