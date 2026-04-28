@@ -819,7 +819,7 @@ export const toolDefinitions: ToolDefinition[] = [
     // "destructive write that must hit the modify capability" floor
     // intact.
     scopes: ["gmail.modify"],
-    annotations: { title: "Update Draft", destructiveHint: false, idempotentHint: true },
+    annotations: { title: "Update Draft", destructiveHint: true, idempotentHint: true },
   },
   {
     name: "delete_draft",
