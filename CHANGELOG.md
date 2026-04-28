@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-28 — Drafts CRUD + ergonomic wrappers (API stability cut)
+
+The `1.0.0` cut is a **maturity / API-stability signal**, not a supply-chain step
+change: every `0.x` release on npm already shipped Sigstore keyless signing
+(GitHub OIDC), an SLSA in-toto attestation, and npm provenance — `1.0.0` carries
+the same posture. What changes at `1.0.0` is the surface contract: the tool
+catalog (Drafts CRUD complete + ergonomic `reply_to_email` / `forward_email`
+wrappers + the prior security-hardening floor) is now considered the stable
+v1 API, and breaking changes will move the major version going forward.
+
 ### Added
 
 - **Drafts CRUD complete** — `list_drafts`, `get_draft`, `update_draft`, `delete_draft`, `send_draft` cover the full `users.drafts.*` surface alongside the existing `draft_email` (create). New `src/tools/drafts.ts` registrar; `update_draft` shares the RFC 822 assembly with `sendOrDraftEmail` via the new `buildEncodedRawMessage` helper in `src/email-send.ts` so the draft pipeline emits the exact same MIME bytes the create / send pipeline does. `UpdateDraftSchema` derives from `SendEmailSchema` via `.extend({ id, threadId })` so the two schemas stay in lock-step by construction (no drift). Both `update_draft` and `send_draft` run through the `requirePairedRecipients` allowlist when `GMAIL_MCP_RECIPIENT_PAIRING=true`, so an attacker cannot escape the create gate by laundering through update + `send_draft`. The `send_draft` pairing gate is **lazy**: when pairing is disabled (the default), no pre-flight `drafts.get` round-trip is paid — only the `drafts.send` call fires. Scope mapping: list/get accept `gmail.readonly` / `gmail.modify` / `gmail.compose`; update / delete require `gmail.modify`; send accepts `gmail.modify` / `gmail.compose` (per Gmail API — `gmail.send` covers `users.messages.send` but not `users.drafts.send`). `list_drafts` returns `structuredContent` with `drafts[]` + `count` + `nextPageToken` + `resultSizeEstimate`. **Rate-limit + dry-run coverage**: `update_draft` and `delete_draft` are added to the `drafts` bucket in `src/rate-limit.ts`, while `send_draft` is routed to the stricter `send` bucket alongside `send_email` / `reply_all` (a pre-staged draft must share the same anti-spam ceiling as a freshly-composed send), so the daily / monthly write quotas span the full mutation surface. All three are also added to the `WRITE_TOOLS` set in `src/middleware.ts` so they short-circuit before reaching Gmail under `GMAIL_MCP_DRY_RUN=true`. **Pairing-gate Bcc safety**: the `send_draft` pre-flight `drafts.get` uses `format: "full"` (not `metadata`) — Gmail's metadata projection can omit the `Bcc:` header, which would let an attacker stage a draft with an unpaired Bcc recipient and slip past the allowlist. `format: "full"` preserves every original header so all three of `To` / `Cc` / `Bcc` reach the `requirePairedRecipients` check. **Pairing-gate multi-header safety**: the gate now collects every repeated `To` / `Cc` / `Bcc` header instance (RFC 5322 allows duplicates and Gmail merges them when sending), so an attacker cannot stage `To: alice@allowed` + `To: mallory@evil` and have the gate inspect only the first instance. 20 new E2E tests in `src/tools/registrars.test.ts` cover each verb plus error / scope-filter / pairing-gate (both branches: enabled + disabled) / Bcc bypass / multi-header bypass / thread-header backfill paths.
@@ -428,7 +438,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 This repository is a fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Pre-fork changelog is not reproduced here — see the upstream history and the acknowledgments in the README.
 
-[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/klodr/gmail-mcp/compare/v0.30.1...v1.0.0
 [0.30.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.1
 [0.21.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/klodr/gmail-mcp/compare/v0.20.0...v0.21.0
