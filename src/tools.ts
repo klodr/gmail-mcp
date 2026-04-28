@@ -810,7 +810,7 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "DO NOT USE: to send the draft (use `send_draft`). To create a new draft, use `draft_email`.",
       "",
-      "SIDE EFFECTS: rewrites the draft message in place. Subject to the same recipient-pairing gate as `send_email` when enabled. Idempotent given identical inputs.",
+      "SIDE EFFECTS: rewrites the draft message in place. Subject to the same recipient-pairing gate as `send_email` when enabled. NOT idempotent: the draft `id` is preserved, but each call replaces the underlying message and yields a new `messageId`, so retrying the same call still mutates persisted state.",
     ].join("\n"),
     schema: UpdateDraftSchema,
     // CR finding (PR #100): drop `gmail.compose` from update_draft.
@@ -824,7 +824,7 @@ export const toolDefinitions: ToolDefinition[] = [
     // "destructive write that must hit the modify capability" floor
     // intact.
     scopes: ["gmail.modify"],
-    annotations: { title: "Update Draft", destructiveHint: true, idempotentHint: true },
+    annotations: { title: "Update Draft", destructiveHint: true },
   },
   {
     name: "delete_draft",
@@ -863,7 +863,7 @@ export const toolDefinitions: ToolDefinition[] = [
     // to the API-accepted set so the scope filter rejects
     // mismatched tokens at registration time.
     scopes: ["gmail.modify", "gmail.compose"],
-    annotations: { title: "Send Draft", destructiveHint: false },
+    annotations: { title: "Send Draft", destructiveHint: true },
   },
   {
     name: "modify_email",
