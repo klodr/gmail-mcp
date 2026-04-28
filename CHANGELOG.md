@@ -438,7 +438,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 This repository is a fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Pre-fork changelog is not reproduced here — see the upstream history and the acknowledgments in the README.
 
-[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/klodr/gmail-mcp/compare/v0.30.1...v1.0.0
 [0.30.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.1
 [0.21.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/klodr/gmail-mcp/compare/v0.20.0...v0.21.0
