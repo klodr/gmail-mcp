@@ -247,34 +247,15 @@ export function registerMessagingTools(
       const originalMessageId = get("message-id");
       const originalReferences = get("references");
 
-      // CR findings (PR #99): silently picking the first `From:`
-      // mailbox can route a private reply to the wrong participant.
-      // RFC 5322 §3.6.2 specifies a clear precedence order for
-      // determining the reply destination:
-      //   1. `Reply-To:` is the headline case. Mailing-list traffic
-      //      typically sets `From:` to the list address and
-      //      `Reply-To:` to the original author's mailbox. Replying
-      //      to `From:` would broadcast a private reply to the
-      //      whole list; replying to `Reply-To:` reaches the
-      //      intended individual.
-      //   2. `Sender:` when present without `Reply-To:`. Sender
-      //      identifies the agent that physically transmitted a
-      //      message authored by multiple `From:` parties.
-      //   3. `From:` if no `Reply-To:` / `Sender:` is present and
-      //      there is exactly one mailbox in the header. Zero or
-      //      multiple → bail with isError so the agent
-      //      disambiguates explicitly.
+      // Resolver invariant (RFC 5322 §3.6.2): destination is
+      // chosen in precedence order Reply-To > Sender > From, and
+      // the picked header MUST contain exactly one parsed mailbox.
+      // Zero or multiple at the chosen level → fail closed; a
+      // sender-only tool cannot guess which of N targets was
+      // intended without risking a misrouted private reply.
       const replyToAddresses = parseEmailAddresses(originalReplyTo);
       const senderAddresses = parseEmailAddresses(originalSender);
       const fromAddresses = parseEmailAddresses(originalFrom);
-      // CR finding (PR #99 round 2): a multi-mailbox `Reply-To:`
-      // is RFC-valid. For a sender-only tool, picking
-      // `replyToAddresses[0]` arbitrarily would silently send a
-      // private reply to whichever address the author happened to
-      // list first — the same risk that `From:` multi-mailbox
-      // already rejects. Require exactly one parsed `Reply-To:`,
-      // exactly one `Sender:`, or exactly one `From:` — fail
-      // closed otherwise so the agent disambiguates explicitly.
       let replyToAddress: string | undefined;
       if (replyToAddresses.length === 1) {
         replyToAddress = replyToAddresses[0];
