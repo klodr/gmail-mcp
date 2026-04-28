@@ -229,6 +229,13 @@ interface MockGmailOpts {
   draftUpdateHttpError?: number;
   draftDeleteHttpError?: number;
   draftSendHttpError?: number;
+  /**
+   * Inject a `Bcc:` header into the draft returned by
+   * `drafts.get`. Used by the send_draft pairing-gate Bcc bypass
+   * test (the metadata projection from Gmail can omit Bcc;
+   * full-format must round-trip it).
+   */
+  draftBccHeader?: string;
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -469,11 +476,14 @@ function mockGmail(opts: MockGmailOpts = {}): {
           // - `full` → headers + parts[].
           // - `raw` → adds an RFC 822 raw blob alongside the full
           //   payload, mirroring the messages.get raw shape.
-          const headers = [
+          const headers: Array<{ name: string; value: string }> = [
             { name: "From", value: "alice@example.com" },
             { name: "To", value: "bob@example.com" },
             { name: "Subject", value: `Draft ${id}` },
           ];
+          if (opts.draftBccHeader !== undefined) {
+            headers.push({ name: "Bcc", value: opts.draftBccHeader });
+          }
           const baseMessage = {
             id: `msg_in_${id}`,
             threadId: `thread_in_${id}`,
@@ -2637,15 +2647,66 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
           arguments: { id: "d_paired" },
         })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
         expect(result.isError).toBeFalsy();
-        // Pin the pre-flight fetch fires under pairing.
+        // Pin the pre-flight fetch fires under pairing with
+        // format=full (CR security follow-up: metadata can omit
+        // the Bcc header — full preserves all original headers
+        // so an unpaired Bcc cannot bypass the gate).
         expect(fix.calls.draftGet).toHaveLength(1);
         expect(fix.calls.draftGet[0]).toMatchObject({
           userId: "me",
           id: "d_paired",
-          format: "metadata",
+          format: "full",
         });
         expect(fix.calls.draftSend).toHaveLength(1);
       });
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
+  });
+
+  it("send_draft pairing gate uses format=full so an unpaired Bcc cannot bypass the allowlist", async () => {
+    // CR security finding (PR #100): metadata-format `drafts.get`
+    // can omit the `Bcc:` header (Gmail strips Bcc from the
+    // metadata projection of sent messages and may do the same
+    // for drafts). With `metadata`, an attacker who staged a
+    // draft with an unpaired Bcc via the Gmail UI / a different
+    // session / a prior `update_draft` would slip past the gate
+    // and reach `drafts.send`. Pin the post-fix behaviour: the
+    // gate fetches with `format=full`, the mock returns the Bcc
+    // header verbatim, the gate sees the unpaired recipient, and
+    // `drafts.send` is short-circuited.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(
+        ["gmail.modify"],
+        async (fix) => {
+          // Pre-pair the To/From mailboxes so the only unpaired
+          // recipient is the injected Bcc — that proves the Bcc
+          // is what blocks the send (not the To).
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "alice@example.com" },
+          });
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "bob@example.com" },
+          });
+          const result = (await fix.client.callTool({
+            name: "send_draft",
+            arguments: { id: "d_bcc_attack" },
+          })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+          expect(result.isError).toBe(true);
+          // The error mentions the Bcc address that broke the
+          // allowlist — operator gets actionable diagnostic.
+          expect(result.content[0]?.text).toContain("eve@evil.example");
+          // Drafts.get fired with format=full (preserves Bcc);
+          // drafts.send did NOT — the gate caught the Bcc.
+          expect(fix.calls.draftGet).toHaveLength(1);
+          expect(fix.calls.draftGet[0]).toMatchObject({ format: "full" });
+          expect(fix.calls.draftSend).toHaveLength(0);
+        },
+        { draftBccHeader: "eve@evil.example" },
+      );
     } finally {
       delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     }

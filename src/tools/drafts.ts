@@ -301,20 +301,27 @@ export function registerDraftTools(
         // pre-flight `drafts.get` when pairing is disabled saves
         // an unconditional API round-trip per send_draft call —
         // the dominant cost on every send for the 99 % of
-        // operators who don't enable the gate. The gate's
-        // semantics are preserved in the enabled case: fetch the
-        // draft's headers, parse To/Cc/Bcc, pass the union
-        // through requirePairedRecipients. `format=metadata`
-        // returns headers without bodies; Gmail's
-        // `users.drafts.get` does not accept the
-        // `metadataHeaders` filter (unlike `users.messages.get`),
-        // so the entire header set comes back and we filter
-        // client-side.
+        // operators who don't enable the gate.
+        //
+        // CR security follow-up (PR #100): use `format: "full"`
+        // rather than `metadata`. Gmail's `metadata` projection
+        // can omit the `Bcc` header — that field is normally
+        // stripped from sent messages (it's the whole point of
+        // Bcc), and the Gmail API documentation does not
+        // guarantee its presence on a draft's metadata response
+        // either. Without `Bcc`, an attacker who stages a draft
+        // with an unpaired `Bcc` recipient (via the Gmail UI, a
+        // different agent session, or a prior `update_draft`
+        // call) would slip through this gate and reach the actual
+        // `drafts.send`. `format: "full"` includes the entire
+        // payload tree, so all original headers — including the
+        // load-bearing `Bcc` — round-trip to the client. The
+        // extra body bytes are negligible vs the safety floor.
         if (isPairingEnabled()) {
           const draftResponse = await gmail.users.drafts.get({
             userId: "me",
             id: args.id,
-            format: "metadata",
+            format: "full",
           });
           const headers = draftResponse.data.message?.payload?.headers ?? [];
           const headerValue = (name: string): string =>
