@@ -15,7 +15,7 @@
  * promote to default.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, readdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,6 +82,11 @@ interface MockedGmailCalls {
   attachmentGet: Array<unknown>;
   messageSend: Array<unknown>;
   draftCreate: Array<unknown>;
+  draftList: Array<unknown>;
+  draftGet: Array<unknown>;
+  draftUpdate: Array<unknown>;
+  draftDelete: Array<unknown>;
+  draftSend: Array<unknown>;
   getProfile: Array<unknown>;
   threadModify: Array<unknown>;
   threadGet: Array<unknown>;
@@ -205,6 +210,13 @@ interface MockGmailOpts {
   messageGetHttpError?: number;
   attachmentGetHttpError?: number;
   /**
+   * When set, `gmail.users.threads.get` throws an Error with this
+   * code. Pins the degraded `update_draft` path where thread-header
+   * backfill fails — handler logs a warning and continues without
+   * threading headers.
+   */
+  threadGetHttpError?: number;
+  /**
    * When set, `gmail.users.messages.modify` and
    * `gmail.users.messages.delete` throw a generic Error for any
    * `id` listed here. Pins the per-item failure-collection branch in
@@ -213,6 +225,47 @@ interface MockGmailOpts {
    * the "Failed to … N messages" footer).
    */
   failOnIds?: string[];
+  /**
+   * Drafts seed data returned by `gmail.users.drafts.list`. Each entry
+   * becomes a `{id, message:{id, threadId}}` row in the response.
+   */
+  drafts?: Array<{ id: string; messageId?: string; threadId?: string }>;
+  /**
+   * `nextPageToken` for `drafts.list`. Set to a non-empty string to
+   * exercise the pagination branch (the registrar appends a "Next
+   * page token: …" footer when present).
+   */
+  draftsNextPageToken?: string;
+  /**
+   * `resultSizeEstimate` for `drafts.list`. Defaults to `drafts.length`
+   * — override only to test count-vs-estimate divergence.
+   */
+  draftsResultSizeEstimate?: number;
+  /**
+   * When set to a numeric HTTP status, the matching `drafts.*` mock
+   * throws an Error with `.code = <status>`. Pins the catch branch in
+   * `src/tools/drafts.ts` for each verb.
+   */
+  draftListHttpError?: number;
+  draftGetHttpError?: number;
+  draftUpdateHttpError?: number;
+  draftDeleteHttpError?: number;
+  draftSendHttpError?: number;
+  /**
+   * Inject a `Bcc:` header into the draft returned by
+   * `drafts.get`. Used by the send_draft pairing-gate Bcc bypass
+   * test (the metadata projection from Gmail can omit Bcc;
+   * full-format must round-trip it).
+   */
+  draftBccHeader?: string;
+  /**
+   * Inject extra `{name, value}` headers into the draft returned by
+   * `drafts.get`. Used by the send_draft multi-header bypass test:
+   * RFC 5322 allows repeated `To` / `Cc` / `Bcc` and Gmail merges
+   * them when sending, so the pairing gate must collect *every*
+   * matching header instance, not just the first.
+   */
+  draftExtraHeaders?: Array<{ name: string; value: string }>;
 }
 
 function mockGmail(opts: MockGmailOpts = {}): {
@@ -226,6 +279,11 @@ function mockGmail(opts: MockGmailOpts = {}): {
     messageModify: [],
     messageSend: [],
     draftCreate: [],
+    draftList: [],
+    draftGet: [],
+    draftUpdate: [],
+    draftDelete: [],
+    draftSend: [],
     getProfile: [],
     attachmentGet: [],
     threadModify: [],
@@ -401,6 +459,147 @@ function mockGmail(opts: MockGmailOpts = {}): {
           calls.draftCreate.push(params);
           return { data: { id: `draft_${calls.draftCreate.length}` } };
         },
+        list: async (params: unknown) => {
+          calls.draftList.push(params);
+          if (opts.draftListHttpError !== undefined) {
+            const err: Error & { code?: number } = new Error("Simulated Gmail API failure");
+            err.code = opts.draftListHttpError;
+            throw err;
+          }
+          const items = opts.drafts ?? [];
+          return {
+            data: {
+              drafts: items.map((d) => ({
+                id: d.id,
+                message: {
+                  id: d.messageId ?? `msg_${d.id}`,
+                  threadId: d.threadId ?? `thread_${d.id}`,
+                },
+              })),
+              nextPageToken: opts.draftsNextPageToken,
+              resultSizeEstimate: opts.draftsResultSizeEstimate ?? items.length,
+            },
+          };
+        },
+        get: async (params: unknown) => {
+          calls.draftGet.push(params);
+          if (opts.draftGetHttpError !== undefined) {
+            const err: Error & { code?: number } = new Error("Simulated Gmail API failure");
+            err.code = opts.draftGetHttpError;
+            throw err;
+          }
+          const id = (params as { id?: string }).id ?? "draft_unknown";
+          // Reject unsupported formats so a registrar regression
+          // that asks for, say, `format: "html"` (not in the
+          // `users.drafts.get` enum) cannot silently pass on the
+          // default-format payload. Mirrors the messages.get mock's
+          // SUPPORTED guard. CR finding (PR #100): the previous
+          // mock returned the same payload for every format and
+          // hid format-forwarding regressions.
+          const format = (params as { format?: string }).format ?? "full";
+          const SUPPORTED = new Set(["full", "metadata", "minimal", "raw"]);
+          if (!SUPPORTED.has(format)) {
+            throw new Error(
+              `mockGmail: drafts.get called with unexpected format=${format}; supported: ${[...SUPPORTED].join(", ")} (id=${id})`,
+            );
+          }
+          // Branch the payload shape on `format` so each
+          // registrar-supplied format is exercised distinctly.
+          // - `minimal` → only id + threadId + labelIds (no
+          //   headers, no body, no payload).
+          // - `metadata` → id + threadId + payload.headers (no
+          //   body parts).
+          // - `full` → headers + parts[].
+          // - `raw` → adds an RFC 822 raw blob alongside the full
+          //   payload, mirroring the messages.get raw shape.
+          const headers: Array<{ name: string; value: string }> = [
+            { name: "From", value: "alice@example.com" },
+            { name: "To", value: "bob@example.com" },
+            { name: "Subject", value: `Draft ${id}` },
+          ];
+          if (opts.draftBccHeader !== undefined) {
+            headers.push({ name: "Bcc", value: opts.draftBccHeader });
+          }
+          if (opts.draftExtraHeaders) {
+            for (const h of opts.draftExtraHeaders) headers.push(h);
+          }
+          const baseMessage = {
+            id: `msg_in_${id}`,
+            threadId: `thread_in_${id}`,
+            labelIds: ["DRAFT"],
+          };
+          let message: Record<string, unknown> = baseMessage;
+          if (format === "metadata") {
+            message = { ...baseMessage, payload: { headers } };
+          } else if (format === "full") {
+            const bodyB64 = Buffer.from(`Body of ${id}`, "utf-8")
+              .toString("base64")
+              .replace(/\+/g, "-")
+              .replace(/\//g, "_")
+              .replace(/=+$/, "");
+            message = {
+              ...baseMessage,
+              payload: {
+                headers,
+                parts: [
+                  {
+                    mimeType: "text/plain",
+                    body: { size: 12, data: bodyB64 },
+                  },
+                ],
+              },
+            };
+          } else if (format === "raw") {
+            const rfc822 = `From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Draft ${id}\r\n\r\nBody of ${id}`;
+            message = {
+              ...baseMessage,
+              payload: { headers },
+              raw: Buffer.from(rfc822, "utf-8").toString("base64url"),
+            };
+          }
+          // `minimal` falls through with no payload — matches the
+          // Gmail API behaviour for that format value.
+          return { data: { id, message } };
+        },
+        update: async (params: unknown) => {
+          calls.draftUpdate.push(params);
+          if (opts.draftUpdateHttpError !== undefined) {
+            const err: Error & { code?: number } = new Error("Simulated Gmail API failure");
+            err.code = opts.draftUpdateHttpError;
+            throw err;
+          }
+          const id = (params as { id?: string }).id ?? "draft_updated";
+          return {
+            data: {
+              id,
+              message: { id: `msg_after_update_${id}`, threadId: `thread_${id}` },
+            },
+          };
+        },
+        delete: async (params: unknown) => {
+          calls.draftDelete.push(params);
+          if (opts.draftDeleteHttpError !== undefined) {
+            const err: Error & { code?: number } = new Error("Simulated Gmail API failure");
+            err.code = opts.draftDeleteHttpError;
+            throw err;
+          }
+          return { data: {} };
+        },
+        send: async (params: unknown) => {
+          calls.draftSend.push(params);
+          if (opts.draftSendHttpError !== undefined) {
+            const err: Error & { code?: number } = new Error("Simulated Gmail API failure");
+            err.code = opts.draftSendHttpError;
+            throw err;
+          }
+          const body = (params as { requestBody?: { id?: string } }).requestBody ?? {};
+          return {
+            data: {
+              id: `sent_from_${body.id ?? "unknown"}`,
+              threadId: `thread_sent_${body.id ?? "unknown"}`,
+            },
+          };
+        },
       },
       // reply_all uses getProfile to figure out which address to drop
       // from the recipient list (so the user is not CC'd on their own
@@ -416,6 +615,13 @@ function mockGmail(opts: MockGmailOpts = {}): {
         },
         get: async (params: unknown) => {
           calls.threadGet.push(params);
+          if (opts.threadGetHttpError !== undefined) {
+            const err = new Error(`Mock thread HTTP ${opts.threadGetHttpError}`) as Error & {
+              code?: number;
+            };
+            err.code = opts.threadGetHttpError;
+            throw err;
+          }
           const id = (params as { id?: string }).id ?? "thread_unknown";
           const t = opts.threads?.[id];
           if (!t) {
@@ -2505,6 +2711,570 @@ describe("PR #6 registrars — download error paths", () => {
   });
 });
 
+describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / delete_draft / send_draft", () => {
+  it("list_drafts returns the seeded items + nextPageToken in structuredContent", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "list_drafts",
+          arguments: { maxResults: 50 },
+        })) as {
+          content: Array<{ type: string; text: string }>;
+          structuredContent?: {
+            drafts?: Array<{ id: string }>;
+            nextPageToken?: string;
+            count?: number;
+          };
+          isError?: boolean;
+        };
+        expect(result.isError).toBeFalsy();
+        expect(fix.calls.draftList).toHaveLength(1);
+        expect(fix.calls.draftList[0]).toMatchObject({ userId: "me", maxResults: 50 });
+        expect(result.structuredContent?.count).toBe(2);
+        expect(result.structuredContent?.drafts?.map((d) => d.id)).toEqual(["d_a", "d_b"]);
+        expect(result.structuredContent?.nextPageToken).toBe("page2");
+        // Pin the user-facing footer that surfaces nextPageToken so an
+        // agent reading the text channel sees there is more data.
+        expect(result.content[0]?.text).toContain("Next page token: page2");
+      },
+      {
+        drafts: [
+          { id: "d_a", messageId: "msg_a", threadId: "thr_a" },
+          { id: "d_b", messageId: "msg_b", threadId: "thr_b" },
+        ],
+        draftsNextPageToken: "page2",
+      },
+    );
+  });
+
+  it("list_drafts forwards q + includeSpamTrash when supplied", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "list_drafts",
+          arguments: {
+            q: "subject:invoice",
+            includeSpamTrash: true,
+            maxResults: 25,
+          },
+        })) as { isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        expect(fix.calls.draftList).toHaveLength(1);
+        expect(fix.calls.draftList[0]).toMatchObject({
+          userId: "me",
+          maxResults: 25,
+          q: "subject:invoice",
+          includeSpamTrash: true,
+        });
+      },
+      {
+        drafts: [{ id: "d_a", messageId: "msg_a", threadId: "thr_a" }],
+      },
+    );
+  });
+
+  it("list_drafts surfaces an HTTP error with isError + status prefix", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "list_drafts",
+          arguments: {},
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("HTTP 503");
+      },
+      { draftListHttpError: 503 },
+    );
+  });
+
+  it("get_draft fetches one draft by id and returns id + message in the JSON envelope", async () => {
+    await withFix(["gmail.readonly"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "get_draft",
+        arguments: { id: "d_target" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(fix.calls.draftGet).toHaveLength(1);
+      expect(fix.calls.draftGet[0]).toMatchObject({ userId: "me", id: "d_target", format: "full" });
+      // Pin id + nested message.id so a regression that drops the
+      // message envelope on the wire is caught (the textual handler
+      // would still emit "id: d_target" but agents that introspect
+      // the JSON envelope would lose the headers + body).
+      expect(result.content[0]?.text).toContain('"id": "d_target"');
+      expect(result.content[0]?.text).toContain('"id": "msg_in_d_target"');
+    });
+  });
+
+  it("update_draft assembles the new RFC 822 payload and routes drafts.update with the same id", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "update_draft",
+        arguments: {
+          id: "d_target",
+          to: ["bob@example.com"],
+          subject: "Updated subject",
+          body: "Updated body content",
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(fix.calls.draftUpdate).toHaveLength(1);
+      const sent = fix.calls.draftUpdate[0] as {
+        userId: string;
+        id: string;
+        requestBody: { id: string; message: { raw: string; threadId?: string } };
+      };
+      // Pin the id duplication (URL path + body — Gmail's API is
+      // strict that both match) and the absence of threadId when the
+      // caller did not supply one.
+      expect(sent.userId).toBe("me");
+      expect(sent.id).toBe("d_target");
+      expect(sent.requestBody.id).toBe("d_target");
+      expect(sent.requestBody.message.threadId).toBeUndefined();
+      // The encoded raw payload must round-trip back to a real
+      // RFC 822 message containing the updated subject/body. A
+      // regression that drops the buildEncodedRawMessage hop would
+      // produce an empty `raw`.
+      const decoded = Buffer.from(sent.requestBody.message.raw, "base64url").toString("utf-8");
+      expect(decoded).toMatch(/^Subject:\s*Updated subject$/m);
+      expect(decoded).toContain("Updated body content");
+      expect(decoded).toMatch(/^To:\s*bob@example\.com$/m);
+      // Surface message indicates the draft id + new message id.
+      expect(result.content[0]?.text).toContain("Draft d_target updated successfully");
+      expect(result.content[0]?.text).toContain("msg_after_update_d_target");
+    });
+  });
+
+  it("update_draft backfills In-Reply-To / References from threadId (preserves threading)", async () => {
+    // CR finding (PR #100, round 2): without this backfill, the
+    // regenerated raw message strips In-Reply-To / References
+    // headers when the caller supplies threadId without explicit
+    // headers — the updated draft becomes orphaned in its
+    // conversation when later sent. Mirror sendOrDraftEmail's
+    // thread-header resolution path. Pin via the encoded raw
+    // payload: threading headers must round-trip.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "update_draft",
+          arguments: {
+            id: "d_threaded",
+            to: ["bob@example.com"],
+            subject: "Updated subject",
+            body: "Updated body",
+            threadId: "t_existing",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        // Pin: threads.get fired (the backfill triggered).
+        expect(fix.calls.threadGet).toHaveLength(1);
+        expect(fix.calls.threadGet[0]).toMatchObject({
+          userId: "me",
+          id: "t_existing",
+          format: "metadata",
+        });
+        const sent = fix.calls.draftUpdate[0] as {
+          requestBody: { id: string; message: { raw: string; threadId?: string } };
+        };
+        expect(sent.requestBody.message.threadId).toBe("t_existing");
+        const decoded = Buffer.from(sent.requestBody.message.raw, "base64url").toString("utf-8");
+        // Pin: In-Reply-To and References headers ARE present in
+        // the encoded payload — backfilled from the thread's
+        // existing messages by the resolution path.
+        expect(decoded).toMatch(/^In-Reply-To:\s*<t_msg2@example\.com>$/m);
+        expect(decoded).toMatch(/^References:\s*<t_msg1@example\.com> <t_msg2@example\.com>$/m);
+      },
+      {
+        threads: {
+          t_existing: {
+            messages: [
+              { id: "t_msg1", from: "alice@example.com", subject: "Original" },
+              { id: "t_msg2", from: "carol@example.com", subject: "Re: Original" },
+            ],
+          },
+        },
+      },
+    );
+  });
+
+  it("update_draft continues degraded when threads.get fails (warning, no In-Reply-To backfill)", async () => {
+    // Pins the catch arm of the thread-header backfill (drafts.ts
+    // ~200-205): if `threads.get` throws, the handler logs and
+    // proceeds without `In-Reply-To` / `References`. The encode +
+    // drafts.update still fire so the user-visible draft body is
+    // saved; only the threading metadata is lost.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await withFix(
+        ["gmail.modify"],
+        async (fix) => {
+          const result = (await fix.client.callTool({
+            name: "update_draft",
+            arguments: {
+              id: "d_target",
+              to: ["bob@example.com"],
+              subject: "Updated subject",
+              body: "Updated body content",
+              threadId: "t_broken",
+            },
+          })) as { isError?: boolean };
+          expect(result.isError).toBeFalsy();
+          // threads.get fired (the backfill was attempted) but
+          // threw; drafts.update still ran with the threadId.
+          expect(fix.calls.threadGet).toHaveLength(1);
+          expect(fix.calls.draftUpdate).toHaveLength(1);
+          const sent = fix.calls.draftUpdate[0] as {
+            requestBody: { message: { raw: string; threadId?: string } };
+          };
+          expect(sent.requestBody.message.threadId).toBe("t_broken");
+          // No threading headers in the encoded body (degraded mode).
+          const decoded = Buffer.from(sent.requestBody.message.raw, "base64url").toString("utf-8");
+          expect(decoded).not.toMatch(/^In-Reply-To:/m);
+          expect(decoded).not.toMatch(/^References:/m);
+          // Console warn fired with the expected prefix.
+          expect(warnSpy).toHaveBeenCalledWith(
+            expect.stringContaining("Could not fetch thread t_broken"),
+          );
+        },
+        { threadGetHttpError: 500 },
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("delete_draft routes drafts.delete with the supplied id and surfaces a clean confirmation", async () => {
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "delete_draft",
+        arguments: { id: "d_doomed" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(fix.calls.draftDelete).toHaveLength(1);
+      expect(fix.calls.draftDelete[0]).toMatchObject({ userId: "me", id: "d_doomed" });
+      expect(result.content[0]?.text).toContain("Draft d_doomed deleted permanently");
+    });
+  });
+
+  it("send_draft routes drafts.send with the id when pairing is disabled (no pre-flight fetch)", async () => {
+    // CR follow-up on PR #100: when GMAIL_MCP_RECIPIENT_PAIRING is
+    // off (the default), send_draft must NOT pay the cost of an
+    // unconditional drafts.get round-trip just to gate recipients.
+    // Pin: drafts.send fires, drafts.get does NOT.
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "send_draft",
+        arguments: { id: "d_outgoing" },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      expect(fix.calls.draftGet).toHaveLength(0);
+      expect(fix.calls.draftSend).toHaveLength(1);
+      expect(fix.calls.draftSend[0]).toMatchObject({
+        userId: "me",
+        requestBody: { id: "d_outgoing" },
+      });
+      expect(result.content[0]?.text).toContain("Draft d_outgoing sent successfully");
+      expect(result.content[0]?.text).toContain("sent_from_d_outgoing");
+    });
+  });
+
+  it("send_draft fetches the draft + gates recipients when pairing is enabled (paired To passes)", async () => {
+    // The complementary path: with pairing enabled and the
+    // recipient pre-paired, send_draft DOES pay the drafts.get
+    // round-trip but the gate clears and drafts.send still fires.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(["gmail.modify"], async (fix) => {
+        // Pre-pair the recipient that the mock's drafts.get
+        // returns (alice/bob @example.com per the mock fixture).
+        await fix.client.callTool({
+          name: "pair_recipient",
+          arguments: { action: "add", email: "alice@example.com" },
+        });
+        await fix.client.callTool({
+          name: "pair_recipient",
+          arguments: { action: "add", email: "bob@example.com" },
+        });
+        const result = (await fix.client.callTool({
+          name: "send_draft",
+          arguments: { id: "d_paired" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBeFalsy();
+        // Pin the pre-flight fetch fires under pairing with
+        // format=full (CR security follow-up: metadata can omit
+        // the Bcc header — full preserves all original headers
+        // so an unpaired Bcc cannot bypass the gate).
+        expect(fix.calls.draftGet).toHaveLength(1);
+        expect(fix.calls.draftGet[0]).toMatchObject({
+          userId: "me",
+          id: "d_paired",
+          format: "full",
+        });
+        expect(fix.calls.draftSend).toHaveLength(1);
+      });
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
+  });
+
+  it("send_draft pairing gate uses format=full so an unpaired Bcc cannot bypass the allowlist", async () => {
+    // CR security finding (PR #100): metadata-format `drafts.get`
+    // can omit the `Bcc:` header (Gmail strips Bcc from the
+    // metadata projection of sent messages and may do the same
+    // for drafts). With `metadata`, an attacker who staged a
+    // draft with an unpaired Bcc via the Gmail UI / a different
+    // session / a prior `update_draft` would slip past the gate
+    // and reach `drafts.send`. Pin the post-fix behaviour: the
+    // gate fetches with `format=full`, the mock returns the Bcc
+    // header verbatim, the gate sees the unpaired recipient, and
+    // `drafts.send` is short-circuited.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(
+        ["gmail.modify"],
+        async (fix) => {
+          // Pre-pair the To/From mailboxes so the only unpaired
+          // recipient is the injected Bcc — that proves the Bcc
+          // is what blocks the send (not the To).
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "alice@example.com" },
+          });
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "bob@example.com" },
+          });
+          const result = (await fix.client.callTool({
+            name: "send_draft",
+            arguments: { id: "d_bcc_attack" },
+          })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+          expect(result.isError).toBe(true);
+          // The error mentions the Bcc address that broke the
+          // allowlist — operator gets actionable diagnostic.
+          expect(result.content[0]?.text).toContain("eve@evil.example");
+          // Drafts.get fired with format=full (preserves Bcc);
+          // drafts.send did NOT — the gate caught the Bcc.
+          expect(fix.calls.draftGet).toHaveLength(1);
+          expect(fix.calls.draftGet[0]).toMatchObject({ format: "full" });
+          expect(fix.calls.draftSend).toHaveLength(0);
+        },
+        { draftBccHeader: "eve@evil.example" },
+      );
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
+  });
+
+  it("send_draft pairing gate inspects ALL repeated To/Cc/Bcc headers, not just the first instance", async () => {
+    // CR Major (PR #100, round 6): RFC 5322 allows repeated
+    // destination headers and Gmail merges them when sending. A
+    // `headers.find` (first-only) implementation would let an
+    // attacker stage `To: alice@allowed` + `To: mallory@evil` —
+    // pairing checks alice (paired), Gmail sends to BOTH. The
+    // gate must walk every matching header instance and pass the
+    // union of mailboxes to `requirePairedRecipients`.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(
+        ["gmail.modify"],
+        async (fix) => {
+          // Pair only alice — the first `To:` instance. mallory
+          // is the second instance and stays unpaired.
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "alice@example.com" },
+          });
+          await fix.client.callTool({
+            name: "pair_recipient",
+            arguments: { action: "add", email: "bob@example.com" },
+          });
+          const result = (await fix.client.callTool({
+            name: "send_draft",
+            arguments: { id: "d_multi_to_attack" },
+          })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+          expect(result.isError).toBe(true);
+          // The error names the unpaired second-instance address
+          // — operator gets actionable diagnostic.
+          expect(result.content[0]?.text).toContain("mallory@evil.example");
+          // Gate fired before drafts.send.
+          expect(fix.calls.draftSend).toHaveLength(0);
+        },
+        {
+          draftExtraHeaders: [
+            { name: "To", value: "alice@example.com" },
+            { name: "To", value: "mallory@evil.example" },
+          ],
+        },
+      );
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
+  });
+
+  it("send_draft is blocked by the recipient-pairing gate when an unpaired To/Cc/Bcc is on the draft", async () => {
+    // CR finding (PR #100): the headline send-draft pairing
+    // bypass. Stage the env so pairing is enforced; the mock's
+    // drafts.get returns a draft addressed to `bob@example.com`,
+    // which is NOT in the paired allowlist. The gate must fire on
+    // the union of To/Cc/Bcc parsed from the draft's headers and
+    // throw before the drafts.send call lands.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    try {
+      await withFix(["gmail.modify"], async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "send_draft",
+          arguments: { id: "d_unpaired" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("bob@example.com");
+        // Drafts.get fired (we needed the headers to gate); but
+        // drafts.send did NOT — short-circuited by the throw.
+        expect(fix.calls.draftGet).toHaveLength(1);
+        expect(fix.calls.draftSend).toHaveLength(0);
+      });
+    } finally {
+      delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    }
+  });
+
+  it("send_draft surfaces an HTTP error (e.g. 404 invalid draft id) with isError + status prefix", async () => {
+    // With pairing disabled (the default in this test), the only
+    // round-trip is drafts.send itself; surface a 404 from there.
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "send_draft",
+          arguments: { id: "d_missing" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("HTTP 404");
+      },
+      { draftSendHttpError: 404 },
+    );
+  });
+
+  it("send_draft is NOT advertised under a send-only token (Gmail API drafts.send rejects gmail.send)", async () => {
+    // CR finding (PR #100, round 2): per Gmail API docs, the
+    // `users.drafts.send` endpoint accepts only `mail.google.com |
+    // gmail.modify | gmail.compose` — `gmail.send` (which covers
+    // `users.messages.send`) is NOT sufficient. Pin the post-fix
+    // scope gate so a regression that re-adds `gmail.send` to the
+    // tool's scope set is caught.
+    const fix = await buildAndConnect(["gmail.send"]);
+    try {
+      const list = await fix.client.listTools();
+      const names = list.tools.map((t) => t.name);
+      // send_email accepts gmail.send (messages.send endpoint), so
+      // it stays advertised; send_draft does NOT.
+      expect(names).toContain("send_email");
+      expect(names).not.toContain("send_draft");
+      expect(names).not.toContain("update_draft");
+      expect(names).not.toContain("delete_draft");
+    } finally {
+      await fix.close();
+    }
+  });
+
+  it("update_draft surfaces HTTP errors with isError + status prefix", async () => {
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "update_draft",
+          arguments: {
+            id: "d_target",
+            to: ["bob@example.com"],
+            subject: "Subject",
+            body: "Body",
+          },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("HTTP 500");
+      },
+      { draftUpdateHttpError: 500 },
+    );
+  });
+
+  it("delete_draft surfaces HTTP errors with isError + status prefix", async () => {
+    await withFix(
+      ["gmail.modify"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "delete_draft",
+          arguments: { id: "d_missing" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("HTTP 404");
+      },
+      { draftDeleteHttpError: 404 },
+    );
+  });
+
+  it("get_draft surfaces HTTP errors with isError + status prefix", async () => {
+    await withFix(
+      ["gmail.readonly"],
+      async (fix) => {
+        const result = (await fix.client.callTool({
+          name: "get_draft",
+          arguments: { id: "d_unknown" },
+        })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("HTTP 404");
+      },
+      { draftGetHttpError: 404 },
+    );
+  });
+
+  it("delete_draft is NOT advertised under a readonly token (gmail.modify only)", async () => {
+    const fix = await buildAndConnect(["gmail.readonly"]);
+    try {
+      const list = await fix.client.listTools();
+      const names = list.tools.map((t) => t.name);
+      // delete_draft requires gmail.modify (irrevocable); list_drafts
+      // and get_draft accept readonly. Pin both halves of the scope
+      // gate so a regression that widens delete_draft to readonly is
+      // caught.
+      expect(names).toContain("list_drafts");
+      expect(names).toContain("get_draft");
+      expect(names).not.toContain("delete_draft");
+      expect(names).not.toContain("update_draft");
+      expect(names).not.toContain("send_draft");
+    } finally {
+      await fix.close();
+    }
+  });
+
+  it("update_draft is NOT advertised under a compose-only token (gmail.modify required)", async () => {
+    // CR finding (PR #100): update_draft was previously gated by
+    // [gmail.modify, gmail.compose] which advertised the tool to
+    // compose-only identities, contradicting the documented
+    // 'update / delete require modify' mapping. Pin the post-fix
+    // gate so a regression that re-adds gmail.compose to the
+    // scopes list is caught.
+    const fix = await buildAndConnect(["gmail.compose"]);
+    try {
+      const list = await fix.client.listTools();
+      const names = list.tools.map((t) => t.name);
+      // Compose token can read drafts (list/get accept compose),
+      // create them (draft_email accepts compose), and SEND them
+      // (send_draft accepts modify|compose per Gmail API), but
+      // cannot mutate or destroy existing ones.
+      expect(names).toContain("list_drafts");
+      expect(names).toContain("get_draft");
+      expect(names).toContain("draft_email");
+      expect(names).toContain("send_draft");
+      expect(names).not.toContain("update_draft");
+      expect(names).not.toContain("delete_draft");
+    } finally {
+      await fix.close();
+    }
+  });
+});
+
 describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
   it("advertises every PR-#3+#4+#5+#6 tool when the token covers every required scope", async () => {
     await withFix(
@@ -2518,6 +3288,7 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "create_filter",
           "create_filter_from_template",
           "create_label",
+          "delete_draft",
           "delete_email",
           "delete_filter",
           "delete_label",
@@ -2525,10 +3296,12 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "download_email",
           "draft_email",
           "forward_email",
+          "get_draft",
           "get_filter",
           "get_inbox_with_threads",
           "get_or_create_label",
           "get_thread",
+          "list_drafts",
           "list_email_labels",
           "list_filters",
           "list_inbox_threads",
@@ -2539,7 +3312,9 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "reply_all",
           "reply_to_email",
           "search_emails",
+          "send_draft",
           "send_email",
+          "update_draft",
           "update_label",
         ]);
       },

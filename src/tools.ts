@@ -452,6 +452,83 @@ export const PairRecipientSchema = z.object({
     .describe("Email address to add or remove. Required when action is add or remove."),
 });
 
+// Drafts CRUD — extends `draft_email` (create) with the rest of the
+// surface: list / get / update / delete / send. Each operation maps
+// 1:1 to a `gmail.users.drafts.*` endpoint. Scope mapping for the
+// verbs declared in this block:
+//   - list / get   = readonly | modify | compose
+//   - update / delete = modify (only — neither readonly nor compose
+//     covers a destructive draft mutation)
+//   - send         = modify | compose (`users.drafts.send` does NOT
+//     accept `gmail.send` alone — see the explanatory comment on
+//     `send_draft.scopes` below).
+
+export const ListDraftsSchema = z.object({
+  maxResults: coerceInt({ min: 1, max: 500 })
+    .optional()
+    .default(20)
+    .describe(
+      "Maximum number of drafts to return per page (1-500). Default 20. Mirrors `users.drafts.list` upper bound.",
+    ),
+  pageToken: z
+    .string()
+    .max(2048)
+    .optional()
+    .describe(
+      "Pagination token from a previous `list_drafts` call. Pass to fetch the next page; absent on the first page.",
+    ),
+  q: z
+    .string()
+    .max(2048)
+    .optional()
+    .describe(
+      "Optional Gmail search query (same syntax as `search_emails`, e.g. `from:alice@example.com subject:invoice`) to filter the drafts returned.",
+    ),
+  includeSpamTrash: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Include drafts living under the SPAM or TRASH labels. Default false."),
+});
+
+export const GetDraftSchema = z.object({
+  id: GmailIdSchema.describe("Draft ID to fetch (from `list_drafts`)"),
+  format: z
+    .enum(["full", "metadata", "minimal", "raw"])
+    .optional()
+    .default("full")
+    .describe(
+      "Response shape: 'full' (default — headers + body + attachment list), 'metadata' (headers only, no body), 'minimal' (id + threadId + labelIds only), 'raw' (RFC 5322-encoded raw message).",
+    ),
+});
+
+// `update_draft` shape derives from `SendEmailSchema` + a draft `id`
+// via `.extend()` so the two schemas stay in lock-step by
+// construction (CR finding on PR #100): a future field added to
+// SendEmailSchema lands in UpdateDraftSchema automatically, no
+// drift. The only override is the `threadId` description (in the
+// update context, threadId associates the updated draft with an
+// existing thread; in the send context, it's the thread to reply
+// to). All other fields — to/subject/body/from/htmlBody/mimeType/
+// cc/bcc/inReplyTo/attachments — inherit shape, optionality, and
+// defaults verbatim from SendEmailSchema.
+export const UpdateDraftSchema = SendEmailSchema.extend({
+  id: GmailIdSchema.describe("Draft ID to update (from `list_drafts`)"),
+  threadId: GmailIdSchema.optional().describe("Thread ID to associate the updated draft with"),
+});
+
+export const DeleteDraftSchema = z.object({
+  id: GmailIdSchema.describe(
+    "Draft ID to permanently delete. **Irreversible** — there is no Gmail-side trash for drafts.",
+  ),
+});
+
+export const SendDraftSchema = z.object({
+  id: GmailIdSchema.describe(
+    "Draft ID to convert into a sent message. The draft is sent verbatim — no further composition step.",
+  ),
+});
+
 // Reply All schema - fetches original email and builds recipient list automatically
 export const ReplyAllSchema = z.object({
   messageId: GmailIdSchema.describe("ID of the email message to reply to"),
@@ -690,13 +767,103 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "USE WHEN: composing an email that the human should review and send manually from the Gmail UI. Useful for high-stakes outbound where the human-in-the-loop is required.",
       "",
-      "DO NOT USE: to send immediately (use `send_email`). The draft remains visible in the user's Gmail Drafts folder until they send or delete it.",
+      "DO NOT USE: to send immediately (use `send_email`). The draft remains visible in the user's Gmail Drafts folder until they send or delete it. To enumerate existing drafts, use `list_drafts`. To inspect / mutate / delete an existing draft, use `get_draft` / `update_draft` / `delete_draft`. To send an existing draft, use `send_draft`.",
       "",
       "SIDE EFFECTS: writes a draft to Gmail. Persistent. Counts toward the account's draft quota (rare to hit). Subject to the same recipient-pairing gate as `send_email` when enabled.",
     ].join("\n"),
     schema: SendEmailSchema,
     scopes: ["gmail.modify", "gmail.compose"],
     annotations: { title: "Draft Email", destructiveHint: false },
+  },
+  {
+    name: "list_drafts",
+    description: [
+      "List the drafts in the authenticated Gmail account, paginated.",
+      "",
+      "USE WHEN: enumerating existing drafts before reading / updating / deleting / sending one. Returns a flat list with `id`, `messageId`, `threadId`, plus a `nextPageToken` when more results exist. Pass an optional `q` to filter (same syntax as `search_emails`).",
+      "",
+      "DO NOT USE: to inspect a single draft whose ID is known (use `get_draft`). The list response is light — call `get_draft` to materialise the headers and body of any specific draft.",
+    ].join("\n"),
+    schema: ListDraftsSchema,
+    scopes: ["gmail.readonly", "gmail.modify", "gmail.compose"],
+    annotations: { title: "List Drafts", readOnlyHint: true },
+  },
+  {
+    name: "get_draft",
+    description: [
+      "Retrieve one Gmail draft by `id`, including headers, body, and attachment metadata.",
+      "",
+      "USE WHEN: an `id` is already known (typically from `list_drafts`). Default `format: 'full'` returns the materialised headers + body. Pass `format: 'metadata'` for headers only, or `format: 'raw'` for the RFC 5322-encoded payload (downloadable / re-uploadable verbatim).",
+      "",
+      "DO NOT USE: to enumerate drafts (use `list_drafts`).",
+    ].join("\n"),
+    schema: GetDraftSchema,
+    scopes: ["gmail.readonly", "gmail.modify", "gmail.compose"],
+    annotations: { title: "Get Draft", readOnlyHint: true },
+  },
+  {
+    name: "update_draft",
+    description: [
+      "Replace an existing draft's message contents. **No mail is sent.**",
+      "",
+      "USE WHEN: amending a draft that has already been created (typically via `draft_email` or via the Gmail UI). The replacement is a FULL overwrite — Gmail's API has no patch endpoint for drafts. The `id` of the draft is preserved; the underlying message gets a new `messageId` after the update.",
+      "",
+      "DO NOT USE: to send the draft (use `send_draft`). To create a new draft, use `draft_email`.",
+      "",
+      "SIDE EFFECTS: rewrites the draft message in place. Subject to the same recipient-pairing gate as `send_email` when enabled. NOT idempotent: the draft `id` is preserved, but each call replaces the underlying message and yields a new `messageId`, so retrying the same call still mutates persisted state.",
+    ].join("\n"),
+    schema: UpdateDraftSchema,
+    // CR finding (PR #100): drop `gmail.compose` from update_draft.
+    // The PR's intent matrix gates update / delete behind the modify
+    // scope. Allowing compose-only tokens to update advertises the
+    // tool to a strictly narrower-than-modify identity, which
+    // contradicts the documented mapping in `docs/ROADMAP.md` and
+    // the README catalog. Gmail's API would accept `gmail.compose`
+    // for `users.drafts.update` upstream, but our tool gating is
+    // additive on top of that — pinning to `modify` keeps the
+    // "destructive write that must hit the modify capability" floor
+    // intact.
+    scopes: ["gmail.modify"],
+    annotations: { title: "Update Draft", destructiveHint: true },
+  },
+  {
+    name: "delete_draft",
+    description: [
+      "**PERMANENTLY DELETE** a Gmail draft by `id`. The draft is removed immediately — Gmail does NOT trash a deleted draft; there is no recovery.",
+      "",
+      "USE WHEN: removing a draft that should never be sent. ALWAYS confirm with the user before calling — Gmail offers no undo for draft deletion.",
+      "",
+      "DO NOT USE: to send the draft (use `send_draft`). To inspect the draft before deletion, use `get_draft`.",
+      "",
+      "SIDE EFFECTS: irrevocable removal of the draft. Quota slot recovered.",
+    ].join("\n"),
+    schema: DeleteDraftSchema,
+    scopes: ["gmail.modify"],
+    annotations: { title: "Delete Draft", destructiveHint: true },
+  },
+  {
+    name: "send_draft",
+    description: [
+      "Send an existing Gmail draft by `id`. **The email is delivered to the recipients immediately.**",
+      "",
+      "USE WHEN: dispatching a draft that has already been composed and (typically) reviewed by the human. The draft is sent verbatim — there is no further composition step. ALWAYS confirm the recipient list, subject, and body with the user before calling (`get_draft` is the inspection tool).",
+      "",
+      "DO NOT USE: to send a brand-new email without staging it as a draft first (use `send_email`). To delete a draft instead of sending, use `delete_draft`.",
+      "",
+      "SIDE EFFECTS: real email leaves the account, recorded in the `Sent` mailbox, billed against the account's daily send quota. The draft is consumed (its slot is freed). Subject to the same recipient-pairing gate as `send_email` when enabled (gate runs against the recipient list embedded in the draft).",
+    ].join("\n"),
+    schema: SendDraftSchema,
+    // CR finding (PR #100): per Gmail API docs, `users.drafts.send`
+    // accepts only `mail.google.com | gmail.modify | gmail.compose`
+    // — `gmail.send` alone is NOT sufficient (it covers the
+    // `users.messages.send` endpoint but not the drafts.send
+    // operation, which mutates a draft resource). Listing
+    // `gmail.send` here advertised send_draft to send-only tokens
+    // that would then fail at the API call site with a 403; trim
+    // to the API-accepted set so the scope filter rejects
+    // mismatched tokens at registration time.
+    scopes: ["gmail.modify", "gmail.compose"],
+    annotations: { title: "Send Draft", destructiveHint: true },
   },
   {
     name: "modify_email",
