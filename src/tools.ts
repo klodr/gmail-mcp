@@ -456,7 +456,8 @@ export const PairRecipientSchema = z.object({
 // surface: list / get / update / delete / send. Each operation maps
 // 1:1 to a `gmail.users.drafts.*` endpoint. Scopes mirror the
 // underlying API: read = readonly|modify|compose, write = modify|compose,
-// send = modify|send.
+// send = modify|compose (`users.drafts.send` does NOT accept `gmail.send`
+// alone — see the explanatory comment on `send_draft.scopes` below).
 
 export const ListDraftsSchema = z.object({
   maxResults: coerceInt({ min: 1, max: 500 })

@@ -61,7 +61,12 @@ const TOOL_BUCKET: Record<string, string> = {
   draft_email: "drafts",
   update_draft: "drafts",
   delete_draft: "drafts",
-  send_draft: "drafts",
+  // `send_draft` is an irreversible outbound send: it consumes the draft
+  // and delivers the staged message to recipients. Route it through the
+  // stricter `send` bucket alongside `send_email` / `reply_all` so a
+  // pre-staged draft cannot bypass the anti-spam ceiling that gates
+  // freshly-composed sends.
+  send_draft: "send",
 
   // Label management
   create_label: "labels",
