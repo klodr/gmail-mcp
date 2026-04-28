@@ -446,22 +446,71 @@ function mockGmail(opts: MockGmailOpts = {}): {
             throw err;
           }
           const id = (params as { id?: string }).id ?? "draft_unknown";
-          return {
-            data: {
-              id,
-              message: {
-                id: `msg_in_${id}`,
-                threadId: `thread_in_${id}`,
-                payload: {
-                  headers: [
-                    { name: "From", value: "alice@example.com" },
-                    { name: "To", value: "bob@example.com" },
-                    { name: "Subject", value: `Draft ${id}` },
-                  ],
-                },
-              },
-            },
+          // Reject unsupported formats so a registrar regression
+          // that asks for, say, `format: "html"` (not in the
+          // `users.drafts.get` enum) cannot silently pass on the
+          // default-format payload. Mirrors the messages.get mock's
+          // SUPPORTED guard. CR finding (PR #100): the previous
+          // mock returned the same payload for every format and
+          // hid format-forwarding regressions.
+          const format = (params as { format?: string }).format ?? "full";
+          const SUPPORTED = new Set(["full", "metadata", "minimal", "raw"]);
+          if (!SUPPORTED.has(format)) {
+            throw new Error(
+              `mockGmail: drafts.get called with unexpected format=${format}; supported: ${[...SUPPORTED].join(", ")} (id=${id})`,
+            );
+          }
+          // Branch the payload shape on `format` so each
+          // registrar-supplied format is exercised distinctly.
+          // - `minimal` → only id + threadId + labelIds (no
+          //   headers, no body, no payload).
+          // - `metadata` → id + threadId + payload.headers (no
+          //   body parts).
+          // - `full` → headers + parts[].
+          // - `raw` → adds an RFC 822 raw blob alongside the full
+          //   payload, mirroring the messages.get raw shape.
+          const headers = [
+            { name: "From", value: "alice@example.com" },
+            { name: "To", value: "bob@example.com" },
+            { name: "Subject", value: `Draft ${id}` },
+          ];
+          const baseMessage = {
+            id: `msg_in_${id}`,
+            threadId: `thread_in_${id}`,
+            labelIds: ["DRAFT"],
           };
+          let message: Record<string, unknown> = baseMessage;
+          if (format === "metadata") {
+            message = { ...baseMessage, payload: { headers } };
+          } else if (format === "full") {
+            const bodyB64 = Buffer.from(`Body of ${id}`, "utf-8")
+              .toString("base64")
+              .replace(/\+/g, "-")
+              .replace(/\//g, "_")
+              .replace(/=+$/, "");
+            message = {
+              ...baseMessage,
+              payload: {
+                headers,
+                parts: [
+                  {
+                    mimeType: "text/plain",
+                    body: { size: 12, data: bodyB64 },
+                  },
+                ],
+              },
+            };
+          } else if (format === "raw") {
+            const rfc822 = `From: alice@example.com\r\nTo: bob@example.com\r\nSubject: Draft ${id}\r\n\r\nBody of ${id}`;
+            message = {
+              ...baseMessage,
+              payload: { headers },
+              raw: Buffer.from(rfc822, "utf-8").toString("base64url"),
+            };
+          }
+          // `minimal` falls through with no payload — matches the
+          // Gmail API behaviour for that format value.
+          return { data: { id, message } };
         },
         update: async (params: unknown) => {
           calls.draftUpdate.push(params);
