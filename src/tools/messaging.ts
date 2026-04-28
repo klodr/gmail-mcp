@@ -17,14 +17,25 @@
 import type { gmail_v1 } from "googleapis";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defineTool, pullToolMeta as pull } from "./_shared.js";
-import { SendEmailSchema, PairRecipientSchema, ReplyAllSchema } from "../tools.js";
+import {
+  SendEmailSchema,
+  PairRecipientSchema,
+  ReplyAllSchema,
+  ReplyToEmailSchema,
+  ForwardEmailSchema,
+} from "../tools.js";
 import { sendOrDraftEmail, type EmailSendArgs } from "../email-send.js";
+import { makeHeaderGetter } from "../gmail-headers.js";
 import { addPairedAddress, readPairedList, removePairedAddress } from "../recipient-pairing.js";
 import {
+  addFwdPrefix,
   addRePrefix,
+  buildForwardQuotedBody,
   buildReferencesHeader,
   buildReplyAllRecipients,
+  parseEmailAddresses,
 } from "../reply-all-helpers.js";
+import { extractEmailContent } from "../mime-walkers.js";
 
 export function registerMessagingTools(
   server: McpServer,
@@ -148,8 +159,7 @@ export function registerMessagingTools(
       const headers = originalEmail.data.payload?.headers || [];
       const threadId = originalEmail.data.threadId || "";
 
-      const get = (name: string) =>
-        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+      const get = makeHeaderGetter(headers);
       const originalFrom = get("from");
       const originalTo = get("to");
       const originalCc = get("cc");
@@ -202,6 +212,173 @@ export function registerMessagingTools(
     },
     replyAll.annotations,
     replyAll.scopes,
+    authorizedScopes,
+  );
+
+  // reply_to_email — sender-only reply (no Cc broadcast). Resolves
+  // the reply destination per RFC 5322 §3.6.2 precedence:
+  // `Reply-To:` → `Sender:` → `From:`, accepting **exactly one
+  // mailbox** at each level. Multi-mailbox or empty headers without
+  // a downstream disambiguator → bail with isError so the agent
+  // chooses explicitly (a sender-only tool cannot guess which of N
+  // co-authors / N reply targets is the intended single recipient).
+  // Threading headers (In-Reply-To / References / Subject Re:
+  // prefix) are wired the same way `reply_all` does.
+  const replyToEmail = pull("reply_to_email");
+  defineTool(
+    server,
+    "reply_to_email",
+    replyToEmail.description,
+    ReplyToEmailSchema.shape,
+    async (args) => {
+      const originalEmail = await gmail.users.messages.get({
+        userId: "me",
+        id: args.messageId,
+        format: "full",
+      });
+      const headers = originalEmail.data.payload?.headers || [];
+      const threadId = originalEmail.data.threadId || "";
+
+      const get = makeHeaderGetter(headers);
+      const originalReplyTo = get("reply-to");
+      const originalFrom = get("from");
+      const originalSender = get("sender");
+      const originalSubject = get("subject");
+      const originalMessageId = get("message-id");
+      const originalReferences = get("references");
+
+      // Resolver invariant (RFC 5322 §3.6.2): destination is
+      // chosen in precedence order Reply-To > Sender > From, and
+      // the picked header MUST contain exactly one parsed mailbox.
+      // Zero or multiple at the chosen level → fail closed; a
+      // sender-only tool cannot guess which of N targets was
+      // intended without risking a misrouted private reply.
+      const replyToAddresses = parseEmailAddresses(originalReplyTo);
+      const senderAddresses = parseEmailAddresses(originalSender);
+      const fromAddresses = parseEmailAddresses(originalFrom);
+      let replyToAddress: string | undefined;
+      if (replyToAddresses.length === 1) {
+        replyToAddress = replyToAddresses[0];
+      } else if (replyToAddresses.length === 0 && senderAddresses.length === 1) {
+        replyToAddress = senderAddresses[0];
+      } else if (
+        replyToAddresses.length === 0 &&
+        senderAddresses.length === 0 &&
+        fromAddresses.length === 1
+      ) {
+        replyToAddress = fromAddresses[0];
+      }
+      if (!replyToAddress) {
+        const reason =
+          replyToAddresses.length > 1
+            ? "source message has multiple Reply-To: mailboxes (a sender-only reply cannot pick one arbitrarily)"
+            : senderAddresses.length > 1
+              ? "source message has multiple Sender: mailboxes"
+              : fromAddresses.length === 0
+                ? "source message has no From: / Sender: / Reply-To: header"
+                : "source message has multiple From: mailboxes and no single Reply-To: / Sender: disambiguator";
+        throw new Error(`Could not determine a unique recipient for reply (${reason})`);
+      }
+      const replyTo = [replyToAddress];
+
+      const replySubject = addRePrefix(originalSubject);
+      const references = buildReferencesHeader(originalReferences, originalMessageId);
+
+      const emailArgs: EmailSendArgs = {
+        to: replyTo,
+        subject: replySubject,
+        body: args.body,
+        htmlBody: args.htmlBody,
+        mimeType: args.mimeType,
+        threadId,
+        inReplyTo: originalMessageId,
+        references,
+        attachments: args.attachments,
+      };
+
+      await sendOrDraftEmail(gmail, "send", emailArgs);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Reply sent successfully!\nTo: ${replyTo.join(", ")}\nSubject: ${replySubject}\nThread ID: ${threadId}`,
+          },
+        ],
+      };
+    },
+    replyToEmail.annotations,
+    replyToEmail.scopes,
+    authorizedScopes,
+  );
+
+  // forward_email — relay an existing message to a new recipient
+  // list. Builds a Gmail-style quoted body (`---------- Forwarded
+  // message ---------` separator + From/Date/Subject/To headers +
+  // original text) and prepends the optional `body` preface. New
+  // thread (no threadId carry-over). Attachments from the source
+  // are NOT re-attached — the caller chains download_attachment +
+  // passes paths via `attachments` if carry-over is wanted.
+  const forwardEmail = pull("forward_email");
+  defineTool(
+    server,
+    "forward_email",
+    forwardEmail.description,
+    ForwardEmailSchema.shape,
+    async (args) => {
+      const originalEmail = await gmail.users.messages.get({
+        userId: "me",
+        id: args.messageId,
+        format: "full",
+      });
+      const headers = originalEmail.data.payload?.headers || [];
+      const get = makeHeaderGetter(headers);
+      const originalFrom = get("from");
+      const originalDate = get("date");
+      const originalSubject = get("subject");
+      const originalTo = get("to");
+
+      const emailContent = extractEmailContent(originalEmail.data.payload || {});
+      const originalText = emailContent.text || "";
+
+      const forwardSubject = addFwdPrefix(originalSubject);
+      const forwardBody = buildForwardQuotedBody(
+        {
+          from: originalFrom,
+          date: originalDate,
+          subject: originalSubject,
+          to: originalTo,
+        },
+        originalText,
+        args.body,
+      );
+
+      const emailArgs: EmailSendArgs = {
+        to: args.to,
+        cc: args.cc,
+        bcc: args.bcc,
+        subject: forwardSubject,
+        body: forwardBody,
+        attachments: args.attachments,
+      };
+
+      await sendOrDraftEmail(gmail, "send", emailArgs);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Forward sent successfully!\nTo: ${args.to.join(", ")}${
+              args.cc && args.cc.length > 0 ? `\nCC: ${args.cc.join(", ")}` : ""
+            }${
+              args.bcc && args.bcc.length > 0 ? `\nBCC: ${args.bcc.join(", ")}` : ""
+            }\nSubject: ${forwardSubject}`,
+          },
+        ],
+      };
+    },
+    forwardEmail.annotations,
+    forwardEmail.scopes,
     authorizedScopes,
   );
 }

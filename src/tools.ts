@@ -469,6 +469,55 @@ export const ReplyAllSchema = z.object({
     .describe("List of file paths to attach to the reply"),
 });
 
+// Reply To Email schema — sender-only reply (no Cc broadcast). Same
+// surface as ReplyAllSchema; the difference lives in the handler that
+// picks the original `From:` as the sole recipient. Kept distinct from
+// ReplyAllSchema so the JSON-Schema description in `tools/list` reads
+// "the sender" and not "every original recipient" — the agent picks
+// the right tool from the description, not the shape.
+export const ReplyToEmailSchema = z.object({
+  messageId: GmailIdSchema.describe("ID of the email message to reply to"),
+  body: z
+    .string()
+    .describe("Reply body content (used for text/plain or when htmlBody not provided)"),
+  htmlBody: z.string().optional().describe("HTML version of the reply body"),
+  mimeType: z
+    .enum(["text/plain", "text/html", "multipart/alternative"])
+    .optional()
+    .default("text/plain")
+    .describe("Email content type"),
+  attachments: coerceArray(FilePathSchema)
+    .optional()
+    .describe("List of file paths to attach to the reply"),
+});
+
+// Forward Email schema — relay an existing message to a fresh recipient
+// list. The handler fetches the source, builds a Gmail-style quoted
+// body (`---------- Forwarded message ---------` + headers + original
+// text), and prepends the optional `body` preface. New thread (no
+// `threadId` carry-over). Attachments from the source are NOT
+// re-attached; the caller chains `download_attachment` + passes paths
+// here when carry-over is desired.
+export const ForwardEmailSchema = z.object({
+  messageId: GmailIdSchema.describe("ID of the email message to forward"),
+  to: coerceArray(z.string()).describe(
+    "List of recipient email addresses to forward the message to",
+  ),
+  cc: coerceArray(z.string()).optional().describe("List of CC recipients"),
+  bcc: coerceArray(z.string()).optional().describe("List of BCC recipients"),
+  body: z
+    .string()
+    .optional()
+    .describe(
+      "Optional plain-text preface to prepend before the quoted forwarded message. When omitted the forward stands on its own with the standard '---------- Forwarded message ---------' separator.",
+    ),
+  attachments: coerceArray(FilePathSchema)
+    .optional()
+    .describe(
+      "Additional file paths to attach. Attachments from the source message are NOT re-attached automatically — chain `download_attachment` and pass the resulting paths here if carry-over is needed.",
+    ),
+});
+
 // Tool definition type
 export interface ToolAnnotations {
   title: string;
@@ -871,13 +920,47 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "USE WHEN: replying to a multi-party thread where every original recipient should receive the response. ALWAYS confirm the recipient list with the user before calling — `reply_all` can broadcast to a much wider audience than expected.",
       "",
-      "DO NOT USE: when the user only wants to reply to the sender (no first-class `reply_to_email` tool exists yet — see ROADMAP; for now, use `send_email` with manual `In-Reply-To` headers). To stage a draft for review, use `draft_email`.",
+      "DO NOT USE: when the user only wants to reply to the sender — use `reply_to_email` for sender-only replies. To stage a draft for review, use `draft_email`.",
       "",
       "SIDE EFFECTS: real email leaves the account, recorded in the `Sent` mailbox, billed against daily send quota. Subject to the same `GMAIL_MCP_RECIPIENT_PAIRING` gate as `send_email`.",
     ].join("\n"),
     schema: ReplyAllSchema,
     scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
     annotations: { title: "Reply All", destructiveHint: false },
+  },
+
+  // Sender-only reply
+  {
+    name: "reply_to_email",
+    description: [
+      "Reply to a thread, addressing the original sender ONLY (no Cc, no broadcast). The MCP fetches the source message, picks the original `From:` as the sole recipient, preserves `Subject:` (with `Re:` prefix added if absent), and sets `In-Reply-To` / `References` headers automatically. **The reply is sent immediately.**",
+      "",
+      "USE WHEN: replying privately to the person who sent the message — the safe default for a sender-only follow-up where `reply_all` would over-broadcast to everyone on the original `To:`/`Cc:` list.",
+      "",
+      "DO NOT USE: when every original recipient should receive the response (use `reply_all`). To stage a draft for review instead of sending, use `draft_email`.",
+      "",
+      "SIDE EFFECTS: real email leaves the account, recorded in the `Sent` mailbox, billed against daily send quota. Subject to the same `GMAIL_MCP_RECIPIENT_PAIRING` gate as `send_email`.",
+    ].join("\n"),
+    schema: ReplyToEmailSchema,
+    scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
+    annotations: { title: "Reply To Email", destructiveHint: false },
+  },
+
+  // Forward operation
+  {
+    name: "forward_email",
+    description: [
+      "Forward an existing message to a fresh recipient list. The MCP fetches the source, builds a Gmail-style quoted body (`---------- Forwarded message ---------` separator + From/Date/Subject/To headers + original text body), prepends the optional `body` preface, and sends in a NEW thread. **The forward is sent immediately.**",
+      "",
+      "USE WHEN: passing a message along to a recipient who was not on the original thread — the safe default for a relay handoff.",
+      "",
+      "DO NOT USE: to reply within the same thread (use `reply_to_email` or `reply_all`). To stage a draft for review, use `draft_email`. Attachments from the source message are NOT re-attached automatically — chain `download_attachment` then pass the resulting paths via `attachments` if you want them carried over.",
+      "",
+      "SIDE EFFECTS: real email leaves the account in a new thread, recorded in the `Sent` mailbox, billed against daily send quota. Subject to the same `GMAIL_MCP_RECIPIENT_PAIRING` gate as `send_email`.",
+    ].join("\n"),
+    schema: ForwardEmailSchema,
+    scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
+    annotations: { title: "Forward Email", destructiveHint: false },
   },
 ];
 

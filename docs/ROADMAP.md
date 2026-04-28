@@ -10,6 +10,7 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 ## Shipped (post-v0.30.0, 2026-04-26)
 
 - ✅ **Test coverage backfill (#91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Brought the global statement coverage from ~81% (v0.30.0 cut) to **>93%** with 560 tests total. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
+- ✅ **Ergonomic wrappers `reply_to_email` + `forward_email`** — first-class single-recipient reply and one-call forward. `reply_to_email` picks the source `From:` mailbox as the sole recipient, preserves `Subject:` with a `Re:` prefix, and threads `In-Reply-To` / `References` automatically. `forward_email` builds a Gmail-style quoted body (`---------- Forwarded message ---------` separator + From/Date/Subject/To headers + original text), prepends an optional preface, and starts a new thread (no `threadId` carry-over). Both tools route through the existing `sendOrDraftEmail` pipeline so they inherit the `GMAIL_MCP_RECIPIENT_PAIRING` gate, audit-log elision, dry-run, and 60-second timeout. Source-message attachments are NOT re-attached automatically — chain `download_attachment` + pass paths via `attachments` if carry-over is needed.
 
 ## Shipped in v0.30.0 (2026-04-26)
 
@@ -67,8 +68,7 @@ The MCP currently covers ~25 tools across messages, threads, labels, and filters
 
 Dedicated wrappers that save the agent from reconstructing MIME headers, fetching thread context, or multi-step lookups. Inspired by tools seen in [ustikya/mcp-gmail](https://github.com/ustikya/mcp-gmail) and [fernandezdiegoh/gmail-mcp](https://github.com/fernandezdiegoh/gmail-mcp) (see [COMPETITORS.md](./COMPETITORS.md)).
 
-- **`reply_to_email`** — first-class single-recipient reply. `reply_all` exists today but forcing the agent to choose `reply_all` with manually-trimmed recipients is error-prone; a dedicated `reply_to_email` that replies to the message's `From` address only (or an explicit recipient) fills the common case cleanly and threads `In-Reply-To` / `References` automatically.
-- **`forward_email`** — single-call forward that preserves the original subject with a `Fwd:` prefix, includes a quoted body, carries the attachments forward, and lets the agent add a cover note in one parameter. Today the agent has to fetch the message, assemble a new MIME, and re-upload attachments.
+`reply_to_email` and `forward_email` shipped post-v0.30.0 (see the section above). Source-message attachments still travel via the explicit `download_attachment` → `attachments` chain rather than being re-attached server-side; an opt-in `forwardAttachments: true` flag may follow once a use case justifies the extra round-trips and the 35 MB Gmail raw-message ceiling is not the binding constraint.
 
 ## Transport
 
