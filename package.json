@@ -65,9 +65,9 @@
     "email-addresses": "^5.0.0",
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
-    "nodemailer": "^8.0.6",
+    "nodemailer": "^8.0.7",
     "open": "^11.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.4.2"
   },
   "devDependencies": {
     "@codecov/bundle-analyzer": "^2.0.1",
