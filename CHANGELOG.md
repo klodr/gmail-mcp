@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-03 — Dependency refresh
+
+### Changed
+
+- **`zod`** 4.3.6 → 4.4.2 (production). Schemas drive every tool input/output in this repo; bumped on its own PR (#107) for independent triage. Tests 675/675 pass against the new minor.
+- **`nodemailer`** 8.0.6 → 8.0.7 (production, patch).
+- **`eslint`** 10.2.1 → 10.3.0 (dev, minor).
+- **`typescript-eslint`** 8.59.0 → 8.59.1 (dev, patch).
+
+Pre-empts the weekly dependabot run rather than letting it open the bumps over multiple cycles. Two PRs: dev-deps (#106) and prod-deps (#107).
+
 ## [1.0.0] - 2026-04-28 — Drafts CRUD + ergonomic wrappers (API stability cut)
 
 The `1.0.0` cut is a **maturity / API-stability signal**, not a supply-chain step
@@ -438,7 +449,8 @@ the 25-tool dispatcher (tracked in `ROADMAP.md`).
 
 This repository is a fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Pre-fork changelog is not reproduced here — see the upstream history and the acknowledgments in the README.
 
-[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/klodr/gmail-mcp/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/klodr/gmail-mcp/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/klodr/gmail-mcp/compare/v0.30.1...v1.0.0
 [0.30.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.1...v0.30.1
 [0.21.1]: https://github.com/klodr/gmail-mcp/compare/v0.21.0...v0.21.1
