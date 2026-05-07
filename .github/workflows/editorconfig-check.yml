@@ -1,0 +1,30 @@
+name: EditorConfig check
+
+# Enforces the rules in `.editorconfig` (UTF-8, LF line endings,
+# 2-space indent, no trailing whitespace except in Markdown). Cheap
+# CI gate that catches editor-induced whitespace drift before review.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editorconfig-check:
+    name: EditorConfig check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: editorconfig-checker
+        uses: editorconfig-checker/action-editorconfig-checker@840e866d93b8e032123c23bac69dece044d4d84c # v2.2.0

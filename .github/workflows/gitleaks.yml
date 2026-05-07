@@ -1,0 +1,43 @@
+name: Gitleaks (secret scanning)
+
+# Scans every push and PR for accidentally-committed secrets (API
+# keys, tokens, certificates, .env files). Free OSS scanner under
+# the standard MIT license.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: read
+  # gitleaks-action queries /repos/.../pulls/<n>/commits to enumerate
+  # the PR's commit list. Without `pull-requests: read` the API call
+  # 403s and the whole job exits with "Resource not accessible by
+  # integration" — purely a permission grant, no secret involved.
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history needed so gitleaks can audit every commit on
+          # PR branches, not just the head.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,68 @@
+name: OSV-Scanner
+
+# Google's OSS vulnerability scanner. Cross-references every dependency
+# in package-lock.json against the OSV.dev database (which aggregates
+# GitHub Security Advisories, npm advisories, RustSec, Go vulndb, PyPI,
+# etc.) and fails the build if a vulnerable version is found. We run
+# the OSV-Scanner CLI directly and surface findings via the workflow
+# log + non-zero exit code (which blocks the merge via the
+# required-status-checks ruleset).
+#
+# Reference: https://google.github.io/osv-scanner/
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  osv-scanner:
+    name: OSV-Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install OSV-Scanner CLI (pinned binary, sha256-verified)
+        # Pinned to v2.3.6. The SHA256 below is the upstream-published
+        # sha256sum from osv-scanner_SHA256SUMS at the same release tag
+        # — verifying it before chmod prevents a tampered binary from
+        # ever running.
+        env:
+          OSV_SCANNER_VERSION: "v2.3.6"
+          OSV_SCANNER_SHA256: "f689e183ef0d573d2459738aae457d411a26241ae58b5088de1af288b3355604"
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location \
+               --retry 3 --retry-all-errors \
+               --connect-timeout 10 --max-time 120 \
+               -o osv-scanner \
+               "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  osv-scanner" | sha256sum --check --strict
+          chmod +x osv-scanner
+
+      - name: Scan dependencies (fail on findings)
+        # --recursive walks every nested manifest (none today, but
+        # future-proof).
+        # --format=table renders a human-readable report in the log.
+        # Non-zero exit on any finding fails the workflow → blocks
+        # merge through the required-status-checks ruleset.
+        # NB: v2.x of the CLI dropped `--skip-git` (git history scan
+        # is opt-in via `--commit` instead, so the default already
+        # skips it).
+        run: |
+          set -euo pipefail
+          # v2 CLI uses subcommands — `scan source` performs the
+          # source-tree scan that v1's bare invocation did.
+          ./osv-scanner scan source --recursive --format=table ./
