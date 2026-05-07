@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write   # OIDC tokenless upload to Codecov
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -49,23 +50,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Upload bundle stats to Codecov
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        # Skip silently if the secret is not provisioned yet rather
-        # than failing CI on unrelated PRs (e.g. a Dependabot PR
-        # before the secret is shared with bot context). Reading
-        # `secrets.*` directly inside `if:` would expose the secret's
-        # existence to the workflow log; piping through `env` and
-        # checking inside the script keeps the secret state opaque.
+      - name: Upload bundle stats to Codecov (OIDC, tokenless)
+        # OIDC tokenless upload — the job claims `id-token: write` above,
+        # codecov auto-detects GitHub Actions and exchanges the OIDC token
+        # for an upload credential. Aligned with ci.yml's coverage upload.
+        # Pinned version: a floating `npx @codecov/bundle-analyzer` would
+        # bypass package-lock determinism and pull whatever is published at
+        # CI time. The chosen version is bumped via Dependabot's npm group.
         run: |
-          if [ -z "$CODECOV_TOKEN" ]; then
-            echo "CODECOV_TOKEN not configured — skipping Codecov upload."
-            exit 0
-          fi
-          # Pinned version: a floating `npx @codecov/bundle-analyzer` would
-          # bypass package-lock determinism and pull whatever is published at
-          # CI time. The chosen version is bumped via Dependabot's npm group.
           npx @codecov/bundle-analyzer@2.0.1 dist \
-            --upload-token "$CODECOV_TOKEN" \
             --bundle-name gmail-mcp
