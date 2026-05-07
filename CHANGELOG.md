@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2](https://github.com/klodr/gmail-mcp/compare/v1.1.1...v1.1.2) (2026-05-07)
+
+
+### Changed
+
+* bump ip-address and express-rate-limit ([#111](https://github.com/klodr/gmail-mcp/issues/111)) ([4d0c92b](https://github.com/klodr/gmail-mcp/commit/4d0c92b33bc736dfd92f0821f5a41d730c761fc3))
+
 ## [1.1.1](https://github.com/klodr/gmail-mcp/compare/v1.1.0...v1.1.1) (2026-05-07)
 
 
