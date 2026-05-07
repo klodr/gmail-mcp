@@ -43,6 +43,10 @@ jobs:
           node-version: "22"
 
       - name: Install lockfile-lint
+        env:
+          # Disable lifecycle scripts during the global install — defense-
+          # in-depth against a transitive postinstall trying to side-load.
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
         run: npm install -g lockfile-lint@4.14.1
 
       - name: Validate package-lock.json

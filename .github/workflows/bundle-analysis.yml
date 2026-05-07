@@ -63,6 +63,9 @@ jobs:
             echo "CODECOV_TOKEN not configured — skipping Codecov upload."
             exit 0
           fi
-          npx @codecov/bundle-analyzer dist \
+          # Pinned version: a floating `npx @codecov/bundle-analyzer` would
+          # bypass package-lock determinism and pull whatever is published at
+          # CI time. The chosen version is bumped via Dependabot's npm group.
+          npx @codecov/bundle-analyzer@2.0.1 dist \
             --upload-token "$CODECOV_TOKEN" \
             --bundle-name gmail-mcp
