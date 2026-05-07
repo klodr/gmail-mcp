@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1](https://github.com/klodr/gmail-mcp/compare/v1.1.0...v1.1.1) (2026-05-07)
+
+
+### Changed
+
+* bump hono from 4.12.14 to 4.12.18 ([#113](https://github.com/klodr/gmail-mcp/issues/113)) ([e397c28](https://github.com/klodr/gmail-mcp/commit/e397c287bfc84a49178c21d2b06f81273080e18d))
+* bump zod from 4.4.2 to 4.4.3 in the production-dependencies group ([#110](https://github.com/klodr/gmail-mcp/issues/110)) ([c25ceb7](https://github.com/klodr/gmail-mcp/commit/c25ceb73a882bc31ea68b565b99956a3ed98438e))
+
 ## [Unreleased]
 
 ## [1.1.0] - 2026-05-03 — Dependency refresh
