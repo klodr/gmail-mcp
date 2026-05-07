@@ -40,6 +40,15 @@ jobs:
   build:
     name: Build & Test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    # `id-token: write` lets codecov-action upload coverage via OIDC
+    # without a long-lived `CODECOV_TOKEN` secret. This matters for
+    # Dependabot PRs in particular: Dependabot's restricted secret
+    # context cannot read `CODECOV_TOKEN`, so without OIDC the upload
+    # silently fails, codecov never posts the required status check,
+    # and the merge gate stays BLOCKED for every dependency PR.
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +83,11 @@ jobs:
         with:
           fail_ci_if_error: true
           slug: klodr/gmail-mcp
-          token: ${{ secrets.CODECOV_TOKEN }}
+          # OIDC-based upload — works in Dependabot PR context too,
+          # where `secrets.CODECOV_TOKEN` is unavailable. Tokens are
+          # still scoped per-upload; OIDC just removes the long-lived
+          # secret from the round-trip.
+          use_oidc: true
 
       - name: Upload test results to Codecov (Test Analytics)
         # Explicit `always()` bypasses the implicit `success()` check so
@@ -88,4 +101,4 @@ jobs:
           files: ./test-results.junit.xml
           fail_ci_if_error: false
           slug: klodr/gmail-mcp
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
