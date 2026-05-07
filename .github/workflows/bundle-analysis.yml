@@ -23,7 +23,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # OIDC tokenless upload to Codecov
+  id-token: write # OIDC tokenless upload to Codecov
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -52,11 +52,12 @@ jobs:
 
       - name: Upload bundle stats to Codecov (OIDC, tokenless)
         # OIDC tokenless upload — the job claims `id-token: write` above,
-        # codecov auto-detects GitHub Actions and exchanges the OIDC token
-        # for an upload credential. Aligned with ci.yml's coverage upload.
-        # Pinned version: a floating `npx @codecov/bundle-analyzer` would
-        # bypass package-lock determinism and pull whatever is published at
-        # CI time. The chosen version is bumped via Dependabot's npm group.
+        # codecov reads `codecov-bundle.json` to enable the GitHub Actions
+        # OIDC exchange. Aligned with ci.yml's coverage upload pattern.
+        # Pinned package version: a floating `npx @codecov/bundle-analyzer`
+        # would bypass package-lock determinism and pull whatever is
+        # published at CI time.
         run: |
           npx @codecov/bundle-analyzer@2.0.1 dist \
+            --config-file=codecov-bundle.json \
             --bundle-name gmail-mcp
