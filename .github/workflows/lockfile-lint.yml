@@ -42,12 +42,33 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install lockfile-lint
+      - name: Install lockfile-lint (pinned tarball, sha512-verified)
+        # Pin by hash, not by version. Pulls the published tarball,
+        # verifies the sha512 (taken from `npm view lockfile-lint@4.14.1
+        # dist.integrity`) before installing — same defense-in-depth
+        # pattern as the OSV-Scanner step. Scorecard’s
+        # PinnedDependenciesID gate flags `npm install -g pkg@vX` as
+        # unpinned; this satisfies the gate without giving up
+        # provisioning ergonomics.
         env:
           # Disable lifecycle scripts during the global install — defense-
           # in-depth against a transitive postinstall trying to side-load.
           NPM_CONFIG_IGNORE_SCRIPTS: "true"
-        run: npm install -g lockfile-lint@4.14.1
+          LOCKFILE_LINT_VERSION: "4.14.1"
+          LOCKFILE_LINT_SHA512: "NW0Tk1qfldhbhJWQENYQWANdmlanXKxvTJYRYKn56INYjaP2M07Ua2SJYkUMS+ZbYwxDzul/C6pDsV/NEXrl+A=="
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location \
+               --retry 3 --retry-all-errors \
+               --connect-timeout 10 --max-time 120 \
+               -o lockfile-lint.tgz \
+               "https://registry.npmjs.org/lockfile-lint/-/lockfile-lint-${LOCKFILE_LINT_VERSION}.tgz"
+          actual=$(openssl dgst -sha512 -binary lockfile-lint.tgz | openssl base64 -A)
+          if [ "${actual}" != "${LOCKFILE_LINT_SHA512}" ]; then
+            echo "sha512 mismatch: expected=${LOCKFILE_LINT_SHA512} actual=${actual}"
+            exit 1
+          fi
+          npm install -g ./lockfile-lint.tgz
 
       - name: Validate package-lock.json
         run: |
