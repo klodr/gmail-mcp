@@ -42,15 +42,44 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Preflight lockfile host/integrity (no install)
+        # Validate registry URLs + SRI presence BEFORE `npm ci` consumes
+        # the lockfile. Without this, a malicious `resolved:` host or a
+        # missing `integrity` slipping into a PR would already be fetched
+        # by `npm ci` before `lockfile-lint` had a chance to flag it.
+        # Pure node — no npm install yet, no transitive trust.
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+            const bad = [];
+            for (const [name, meta] of Object.entries(lock.packages ?? {})) {
+              if (!name || !meta || meta.link) continue;
+              if (meta.resolved && !meta.resolved.startsWith("https://registry.npmjs.org/")) {
+                bad.push(name + ": resolved=" + meta.resolved);
+              }
+              if (meta.resolved && !meta.integrity) {
+                bad.push(name + ": missing integrity");
+              }
+            }
+            if (bad.length) {
+              console.error("package-lock preflight failed:\n" + bad.join("\n"));
+              process.exit(1);
+            }
+            console.log("preflight OK: " + Object.keys(lock.packages ?? {}).length + " entries");
+          '
+
       - name: Install dependencies (locked, no scripts)
-        # `npm ci` consumes package-lock.json — every entry is already
-        # pinned by SRI hash. `--ignore-scripts` blocks any postinstall
-        # script from a transitive dep during this CI step.
+        # `npm ci` consumes package-lock.json — preflight above already
+        # rejected hostile `resolved:` URLs and missing SRI. Lifecycle
+        # scripts are still blocked defensively via --ignore-scripts.
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: "true"
         run: npm ci --ignore-scripts
 
-      - name: Validate package-lock.json
+      - name: Validate package-lock.json (full defense-in-depth)
+        # Same SRI/host check as the preflight + extra rules
+        # (--validate-package-names) that need lockfile-lint installed.
         run: |
           npx --no-install lockfile-lint \
             --path package-lock.json \
