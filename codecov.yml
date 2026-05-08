@@ -2,26 +2,13 @@ coverage:
   status:
     project:
       default:
-        # Re-tightened by PR #7 of the v1.0.0 migration. The legacy
-        # `CallToolRequestSchema` switch dispatcher in `src/index.ts`
-        # was deleted; every tool now lives in `src/tools/*.ts` with
-        # direct unit-test coverage via the `defineTool` →
-        # InMemoryTransport E2E pattern. Global coverage now sits
-        # around 80%+ — restoring `auto` so subsequent PRs are gated
-        # against the actual baseline rather than an arbitrary floor.
         target: auto
         threshold: 0.5%
         only_pulls: false
-        # PRs that don't touch source code (CI bumps, doc-only, GitHub
-        # Actions updates) produce no coverage upload — pass instead of
-        # blocking on a missing report. Aligns with mercury/faxdrop.
         if_no_uploads: success
         if_not_found: success
     patch:
       default:
-        # Restored to the pre-relaxation 95% target. New code in a PR
-        # must be well-covered; the 1.5% threshold absorbs the noise
-        # of a defensive branch or two without flagging.
         target: 95%
         threshold: 1.5%
         only_pulls: false
