@@ -12,6 +12,11 @@ coverage:
         target: auto
         threshold: 0.5%
         only_pulls: false
+        # PRs that don't touch source code (CI bumps, doc-only, GitHub
+        # Actions updates) produce no coverage upload — pass instead of
+        # blocking on a missing report. Aligns with mercury/faxdrop.
+        if_no_uploads: success
+        if_not_found: success
     patch:
       default:
         # Restored to the pre-relaxation 95% target. New code in a PR
@@ -20,6 +25,8 @@ coverage:
         target: 95%
         threshold: 1.5%
         only_pulls: false
+        if_no_uploads: success
+        if_not_found: success
   ignore:
     # Doc-only / config-only PRs never touch these paths.
     - "**/*.md"
