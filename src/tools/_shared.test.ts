@@ -3,11 +3,11 @@ import { pullToolMeta } from "./_shared.js";
 
 describe("pullToolMeta", () => {
   it("returns description / scopes / annotations for a registered tool", () => {
-    // `read_email` is registered in src/tools.ts with the readonly scope.
+    // `read_email` is registered in src/tools.ts with gmail.readonly scope.
     const meta = pullToolMeta("read_email");
     expect(meta.description).toBeTruthy();
     expect(Array.isArray(meta.scopes)).toBe(true);
-    expect(meta.scopes.length).toBeGreaterThan(0);
+    expect(meta.scopes).toContain("gmail.readonly");
     expect(meta.annotations).toBeDefined();
   });
 

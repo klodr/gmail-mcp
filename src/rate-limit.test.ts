@@ -175,11 +175,14 @@ describe("rate-limit", () => {
     const statePath = join(stateDir, "ratelimit.json");
     writeFileSync(statePath, "{ this is not valid json", { mode: 0o600 });
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    process.env.GMAIL_MCP_RATE_LIMIT_send = "5/day,100/month";
-    expect(() => enforceRateLimit("send_email")).not.toThrow();
-    const msgs = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
-    expect(msgs).toMatch(/corrupted state/i);
-    errSpy.mockRestore();
+    try {
+      process.env.GMAIL_MCP_RATE_LIMIT_send = "5/day,100/month";
+      expect(() => enforceRateLimit("send_email")).not.toThrow();
+      const msgs = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(msgs).toMatch(/corrupted state/i);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it("does not clobber an unreadable state file (read error other than ENOENT)", () => {
