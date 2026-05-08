@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3](https://github.com/klodr/gmail-mcp/compare/v1.1.2...v1.1.3) (2026-05-08)
+
+
+### Fixed
+
+* **security:** aggregate supply-chain hardenings into a release ([#125](https://github.com/klodr/gmail-mcp/issues/125)) ([7acdc38](https://github.com/klodr/gmail-mcp/commit/7acdc387da8b85c0db552c055c0303c1aa4ff838))
+
 ## [1.1.2](https://github.com/klodr/gmail-mcp/compare/v1.1.1...v1.1.2) (2026-05-07)
 
 
