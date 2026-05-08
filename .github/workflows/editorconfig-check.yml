@@ -26,5 +26,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: editorconfig-checker
+      - name: Install editorconfig-checker
+        # The action only adds the binary to PATH — it does not run it.
+        # The actual check is in the next step.
         uses: editorconfig-checker/action-editorconfig-checker@840e866d93b8e032123c23bac69dece044d4d84c # v2.2.0
+
+      - name: Run editorconfig-checker
+        # Honours .editorconfig + .editorconfig-checker.json at the repo
+        # root. The config disables indent-size (which trips on visual-
+        # alignment patterns in YAML continuations, JSDoc comments, and
+        # nested markdown lists) while keeping LF/UTF-8/trailing/final-
+        # newline checks.
+        run: editorconfig-checker
