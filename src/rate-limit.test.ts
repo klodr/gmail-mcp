@@ -1,5 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeSync, fstatSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  chmodSync,
+  closeSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -160,5 +169,77 @@ describe("rate-limit", () => {
     const err = new RateLimitError("send_email", "send", "monthly", 500, 86_400_000);
     const parsed = JSON.parse(formatRateLimitError(err)) as Record<string, unknown>;
     expect(parsed.error_type).toBe("mcp_rate_limit_monthly_exceeded");
+  });
+
+  it("recovers from a corrupted state file by starting fresh + warning", () => {
+    const statePath = join(stateDir, "ratelimit.json");
+    writeFileSync(statePath, "{ this is not valid json", { mode: 0o600 });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    process.env.GMAIL_MCP_RATE_LIMIT_send = "5/day,100/month";
+    expect(() => enforceRateLimit("send_email")).not.toThrow();
+    const msgs = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+    expect(msgs).toMatch(/corrupted state/i);
+    errSpy.mockRestore();
+  });
+
+  it("does not clobber an unreadable state file (read error other than ENOENT)", () => {
+    const statePath = join(stateDir, "ratelimit.json");
+    // Write a valid state so we know what we expect to NOT see overwritten,
+    // then make the file unreadable so the load path takes the EACCES branch.
+    writeFileSync(statePath, '{"send":[1,2,3]}', { mode: 0o600 });
+    chmodSync(statePath, 0o000);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      process.env.GMAIL_MCP_RATE_LIMIT_send = "5/day,100/month";
+      // Must not throw — readState swallows the error and stays in
+      // readOk=false mode.
+      expect(() => enforceRateLimit("send_email")).not.toThrow();
+      const msgs = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(msgs).toMatch(/failed to read state/i);
+      // Restore perms so afterEach rmSync can clean up; check the file
+      // contents were NOT clobbered (persistCallHistory should be a no-op
+      // when readOk=false).
+      chmodSync(statePath, 0o600);
+      const fd = openSync(statePath, "r");
+      try {
+        const stat = fstatSync(fd);
+        const buf = Buffer.alloc(stat.size);
+        readSync(fd, buf, 0, stat.size, 0);
+        expect(buf.toString("utf8")).toBe('{"send":[1,2,3]}');
+      } finally {
+        closeSync(fd);
+      }
+    } finally {
+      try {
+        chmodSync(statePath, 0o600);
+      } catch {
+        // already restored or gone
+      }
+      errSpy.mockRestore();
+    }
+  });
+
+  it("logs but does not throw when persisting the state file fails", () => {
+    // STATE_DIR is a read-only directory: read step takes the ENOENT
+    // branch (no state file under it yet) → readOk=true → persist tries
+    // to write a tmp + rename and fails with EACCES. The catch in
+    // persistCallHistory must log to stderr, not throw.
+    const roDir = join(stateDir, "ro");
+    chmodSync(stateDir, 0o755); // ensure parent stays writable for cleanup
+    // Use mkdtempSync-style by creating the dir then locking it.
+    require("node:fs").mkdirSync(roDir, { mode: 0o755 });
+    chmodSync(roDir, 0o500); // r-x only — writes fail with EACCES
+    process.env.GMAIL_MCP_STATE_DIR = roDir;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      process.env.GMAIL_MCP_RATE_LIMIT_send = "5/day,100/month";
+      expect(() => enforceRateLimit("send_email")).not.toThrow();
+      const msgs = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+      expect(msgs).toMatch(/failed to persist state/i);
+    } finally {
+      // Restore perms so afterEach rmSync can clean up.
+      chmodSync(roDir, 0o700);
+      errSpy.mockRestore();
+    }
   });
 });
