@@ -27,14 +27,6 @@ coverage:
         only_pulls: false
         if_no_uploads: success
         if_not_found: success
-  ignore:
-    # Doc-only / config-only PRs never touch these paths.
-    - "**/*.md"
-    - "**/*.yaml"
-    - "**/*.yml"
-    - "**/*.json"
-    - ".github/**"
-
 comment:
   layout: "reach,diff,flags,files,footer"
   behavior: default
