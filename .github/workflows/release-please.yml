@@ -48,7 +48,7 @@ jobs:
     # state. `workflow_dispatch` invocations always pass through.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     permissions:
-      actions: read         # the gate step below reads workflow-runs of OTHER workflows on this SHA
+      actions: read # the gate step below reads workflow-runs of OTHER workflows on this SHA
       contents: write
       pull-requests: write
     steps:
