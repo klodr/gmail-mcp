@@ -89,6 +89,10 @@ export async function sendOrDraftEmail(
     // (manage via the `pair_recipient` tool). Caps the blast
     // radius of a prompt-injection-driven send.
     requirePairedRecipients([
+      // Zod's parsed shape narrows `to` to `string[]` once optional()
+      // sees a value, but at runtime the field is still elided when
+      // the caller omits it. Keep the `?? []` for the runtime path.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       ...(validatedArgs.to ?? []),
       ...(validatedArgs.cc ?? []),
       ...(validatedArgs.bcc ?? []),

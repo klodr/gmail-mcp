@@ -22,7 +22,7 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
-  ...tseslint.configs.strict,
+  ...tseslint.configs.strictTypeChecked,
   promise.configs["flat/recommended"],
   prettier,
   {

@@ -70,6 +70,9 @@ export function registerThreadTools(
       const threadResponse = await gmail.users.threads.get({
         userId: "me",
         id: args.threadId,
+        // Zod parses `format` into a defined enum once provided, but
+        // the optional() field is elided when omitted at runtime.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         format: args.format || "full",
       });
       const threadMessages = threadResponse.data.messages || [];
@@ -85,6 +88,7 @@ export function registerThreadTools(
 
         let body = "";
         if (args.format !== "minimal") {
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- payload may be omitted on some Gmail response shapes
           const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
           body = pickBodyAnnotated(text, html).body;
         }
@@ -274,7 +278,8 @@ export function registerThreadTools(
             const bcc = getH(headers, "bcc");
             const date = getH(headers, "date");
 
-            const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- payload may be omitted on some Gmail response shapes
+          const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
             const body = pickBodyAnnotated(text, html).body;
 
             const attachments = msg.payload

@@ -146,8 +146,16 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
      `console.error(...)` and `process.exit(code)` — calling either
      from a unit test would corrupt test output (the former) or
      kill the runner (the latter). */
-  const log = opts.log ?? ((msg: string, ...rest: unknown[]) => console.error(msg, ...rest));
-  const exit = opts.exit ?? ((code: number) => process.exit(code));
+  const log =
+    opts.log ??
+    ((msg: string, ...rest: unknown[]) => {
+      console.error(msg, ...rest);
+    });
+  const exit =
+    opts.exit ??
+    ((code: number) => {
+      process.exit(code);
+    });
 
   const CONFIG_DIR = path.join(os.homedir(), ".gmail-mcp");
   /* v8 ignore start -- env-var-vs-default fallback branches for the

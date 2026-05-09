@@ -69,6 +69,9 @@ export function registerMessageTools(
         return { content: [{ type: "text", text: headerBlock }] };
       }
 
+      // Cast widens `payload` to non-nullable but Gmail can omit it
+      // on some metadata response shapes; keep the runtime fallback.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       const { text, html } = extractEmailContent((response.data.payload as GmailMessagePart) || {});
       const { body, source } = pickBody(text, html);
       const contentTypeNote = source === "html" ? HTML_FALLBACK_NOTE : "";
@@ -228,6 +231,10 @@ export function registerMessageTools(
       if (args.removeLabelIds) requestBody.removeLabelIds = args.removeLabelIds;
       const { successes, failures } = await processBatches(
         args.messageIds,
+        // Zod's parsed shape narrows `batchSize` to a number once the
+        // optional() default sees a value, but at runtime the field
+        // is elided when the caller omits it.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         args.batchSize ?? 50,
         async (batch) =>
           Promise.all(
@@ -263,6 +270,10 @@ export function registerMessageTools(
     async (args) => {
       const { successes, failures } = await processBatches(
         args.messageIds,
+        // Zod's parsed shape narrows `batchSize` to a number once the
+        // optional() default sees a value, but at runtime the field
+        // is elided when the caller omits it.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         args.batchSize ?? 50,
         async (batch) =>
           Promise.all(

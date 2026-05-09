@@ -54,7 +54,7 @@ const coerceArrayPreprocess = (val: unknown) => {
   }
 };
 
-const coerceArray = <T extends z.ZodTypeAny>(inner: T, opts?: { max?: number }) => {
+const coerceArray = <T extends z.ZodType>(inner: T, opts?: { max?: number }) => {
   const arr = opts?.max !== undefined ? z.array(inner).max(opts.max) : z.array(inner);
   return z.preprocess(coerceArrayPreprocess, arr);
 };
@@ -610,7 +610,7 @@ export interface ToolDefinition {
   // zod-to-json-schema@3's public signature widens to `z.ZodType<any>`;
   // using a tighter generic here causes a structural mismatch at the
   // consumer call site. The `any` is fenced inside ToolDefinition only.
-  schema: z.ZodType<unknown>;
+  schema: z.ZodType;
   scopes: string[]; // Any of these scopes grants access
   annotations: ToolAnnotations;
 }

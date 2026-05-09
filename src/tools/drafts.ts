@@ -149,6 +149,9 @@ export function registerDraftTools(
         // / `reply_all`. Update is a write surface and an attacker
         // who escapes the create gate could otherwise launder a send
         // through update + send_draft. Pin the gate at update time.
+        // Zod's parsed shape narrows the recipient lists once they
+        // appear, but at runtime the optional() field is elided.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         requirePairedRecipients([...(args.to ?? []), ...(args.cc ?? []), ...(args.bcc ?? [])]);
 
         // Mirror sendOrDraftEmail's `from` resolution path so an agent

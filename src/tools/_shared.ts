@@ -62,6 +62,10 @@ export function pullToolMeta(name: string): {
  * `ListToolsRequestSchema` filter in the legacy dispatcher. Returns
  * `true` when the tool was actually registered, `false` when skipped.
  */
+// `O` is intentionally generic so callers can pass an inferred
+// `ZodRawShape` literal and have it widened to `ZodRawShape` in the
+// handler signature without an explicit cast at the call site.
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
 export function defineTool<S extends ZodRawShape, O extends ZodRawShape = ZodRawShape>(
   server: McpServer,
   name: string,
