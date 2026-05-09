@@ -342,6 +342,9 @@ export interface AuthenticateOpts {
 }
 
 export async function authenticate(opts: AuthenticateOpts): Promise<void> {
+  /* v8 ignore next 3 -- default log is exercised end-to-end via the
+     real CLI (`gmail-mcp auth`) but every unit test injects an explicit
+     `log` to capture the listener-startup + token-exchange lines. */
   const log =
     opts.log ??
     ((msg: string, ...rest: unknown[]) => {
