@@ -1,0 +1,51 @@
+#!/usr/bin/env sh
+# Pre-push gate.
+#
+# Runs the same checks GitHub Actions enforces, locally and BEFORE the
+# push lands on origin. Failure blocks the push.
+#
+# Bypass with `git push --no-verify` ONLY when the hook is wrong
+# (rare). The bypass is recorded in the local reflog.
+
+set -e
+
+echo "[husky] format check..."
+npm run --silent format:check
+
+echo "[husky] lint..."
+npm run --silent lint
+
+echo "[husky] typecheck..."
+npm run --silent typecheck
+
+echo "[husky] tests..."
+npm run --silent test
+
+echo "[husky] audit (high+)..."
+npm audit --audit-level=high
+
+echo "[husky] commit hygiene (signature + subject <=72 chars)..."
+last_subject=$(git log -1 --format='%s')
+last_sig=$(git log -1 --format='%G?')
+
+case "$last_sig" in
+  G|U|E)
+    # G = good signature; U = good but unknown trust;
+    # E = expired key (signature still cryptographically valid).
+    ;;
+  *)
+    printf '[husky] last commit signature is "%s" (expected G/U/E).\n' "$last_sig"
+    printf '        Configure SSH signing or set commit.gpgsign=true.\n'
+    exit 1
+    ;;
+esac
+
+subject_len=${#last_subject}
+if [ "$subject_len" -gt 72 ]; then
+  printf '[husky] last commit subject is %d chars (>72):\n' "$subject_len"
+  printf '        %s\n' "$last_subject"
+  printf '        Shorten the subject and `git commit --amend`.\n'
+  exit 1
+fi
+
+echo "[husky] all checks passed -> pushing"

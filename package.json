@@ -18,6 +18,7 @@
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "prepare": "husky",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-version.mjs && git add server.json src/server.ts"
   },
@@ -79,6 +80,7 @@
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.7.0",
     "gaxios": "^7.1.4",
+    "husky": "^9.1.7",
     "lockfile-lint": "^5.0.0",
     "prettier": "^3.8.3",
     "tsup": "^8.5.1",
