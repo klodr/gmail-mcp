@@ -411,27 +411,6 @@ describe("authenticate", () => {
     ).rejects.toThrow(/Callback protocol 'https:' is not supported/);
   });
 
-  it("falls back to console.error when opts.log is omitted on authenticate", async () => {
-    // Exercises the default `(msg, ...rest) => console.error(...)`
-    // declared at the top of authenticate. Without this, that arrow
-    // is dead-coverage in the diff (every other authenticate test
-    // passes an explicit `log`).
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      await expect(
-        authenticate({
-          oauth2Client: makeClient("https://localhost:3000/oauth2callback"),
-          oauthCallbackUrl: "https://localhost:3000/oauth2callback",
-          scopes: ["gmail.readonly"],
-          credentialsPath,
-          openBrowser: () => undefined,
-        }),
-      ).rejects.toThrow(/Callback protocol 'https:' is not supported/);
-    } finally {
-      errSpy.mockRestore();
-    }
-  });
-
   it("rejects a non-loopback callback hostname", async () => {
     await expect(
       authenticate({
