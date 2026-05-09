@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4](https://github.com/klodr/gmail-mcp/compare/v1.1.3...v1.1.4) (2026-05-09)
+
+
+### Fixed
+
+* **husky:** node codepoint count instead of locale-dependent wc -m ([#136](https://github.com/klodr/gmail-mcp/issues/136)) ([8b75d6d](https://github.com/klodr/gmail-mcp/commit/8b75d6dc647c99efa4e32f82b7d4693370b20104))
+
+
+### Changed
+
+* **eslint:** add eslint-plugin-import-x (flat/recommended) ([#135](https://github.com/klodr/gmail-mcp/issues/135)) ([674937c](https://github.com/klodr/gmail-mcp/commit/674937cc1ee0a05c1979c968c8d39ce3fead9df8))
+* **eslint:** add eslint-plugin-promise (flat/recommended) ([#132](https://github.com/klodr/gmail-mcp/issues/132)) ([bb50202](https://github.com/klodr/gmail-mcp/commit/bb50202d7f70c755b77a65af6e1d15b405906d98))
+* **eslint:** switch to tseslint.configs.strict ([#133](https://github.com/klodr/gmail-mcp/issues/133)) ([90ea15a](https://github.com/klodr/gmail-mcp/commit/90ea15a8d83d02eaf9fb9e3f297e1957f49c7e76))
+* **eslint:** switch to tseslint.configs.strictTypeChecked ([#134](https://github.com/klodr/gmail-mcp/issues/134)) ([221e729](https://github.com/klodr/gmail-mcp/commit/221e729d6666dddf91bcd36ab1efb21a0ef53404))
+* **husky:** pre-push gate format+lint+typecheck+test+audit ([#131](https://github.com/klodr/gmail-mcp/issues/131)) ([0dfbe55](https://github.com/klodr/gmail-mcp/commit/0dfbe55ff54b3ac526d26d6e4de75bfa01d2fddc))
+* **lockfile-lint:** fail-fast on unsupported lockfile shape ([#130](https://github.com/klodr/gmail-mcp/issues/130)) ([0857041](https://github.com/klodr/gmail-mcp/commit/085704166932daf317c9ca501ea3daf552f1a694))
+* **lockfile-lint:** use npm ci + npx instead of pinned tarball ([#127](https://github.com/klodr/gmail-mcp/issues/127)) ([b5ea36b](https://github.com/klodr/gmail-mcp/commit/b5ea36ba9498efadec673cc51509d9e85ebab9d3))
+* **release-please:** expose chore + ci in CHANGELOG sections ([#138](https://github.com/klodr/gmail-mcp/issues/138)) ([41e403f](https://github.com/klodr/gmail-mcp/commit/41e403f5594e65410c121809d2d5284a5f7bea2a))
+* **release-please:** mint App token instead of GITHUB_TOKEN ([#128](https://github.com/klodr/gmail-mcp/issues/128)) ([5c47c0e](https://github.com/klodr/gmail-mcp/commit/5c47c0e0c7bf465ba57bab71257fe42b9a318574))
+
 ## [1.1.3](https://github.com/klodr/gmail-mcp/compare/v1.1.2...v1.1.3) (2026-05-08)
 
 
