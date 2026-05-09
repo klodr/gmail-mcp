@@ -279,7 +279,7 @@ export function registerThreadTools(
             const date = getH(headers, "date");
 
             // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- payload may be omitted on some Gmail response shapes
-          const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
+            const { text, html } = extractEmailContent((msg.payload as GmailMessagePart) || {});
             const body = pickBodyAnnotated(text, html).body;
 
             const attachments = msg.payload
