@@ -52,7 +52,14 @@ jobs:
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
             const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
-            if (!lock.packages || typeof lock.packages !== "object") {
+            if (
+              !lock ||
+              typeof lock !== "object" ||
+              Array.isArray(lock) ||
+              !lock.packages ||
+              typeof lock.packages !== "object" ||
+              Array.isArray(lock.packages)
+            ) {
               console.error("package-lock.json format unsupported: missing top-level \"packages\" object (lockfile v1 or v2 without packages?). Regenerate with `npm install` on npm v7+.");
               process.exit(1);
             }
