@@ -42,15 +42,49 @@ jobs:
   release-please:
     name: release-please
     runs-on: ubuntu-latest
-    # Skip on a workflow_run that didn't succeed — re-running release-please
-    # against a known-failed CI/Docker/CodeQL run would loop forever (the
-    # tag-creation call needs every required status check at `success`).
-    # `workflow_dispatch` invocations always pass through.
+    # Skip immediately if the upstream workflow that triggered THIS run
+    # didn't succeed. The full multi-workflow gate is below; this is just
+    # a fast-fail to avoid spinning up the runner for an obviously-bad
+    # state. `workflow_dispatch` invocations always pass through.
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     permissions:
+      actions: read         # the gate step below reads workflow-runs of OTHER workflows on this SHA
       contents: write
       pull-requests: write
     steps:
+      # `on: workflow_run` with multiple workflows fires the downstream
+      # job once per upstream workflow completion (per GitHub Actions
+      # docs). The job-level `if:` above only validates the conclusion
+      # of THE triggering upstream — not all of them. Without an
+      # explicit cross-workflow gate, the FIRST upstream to succeed
+      # would fire release-please before the others reach `success`,
+      # the tag-creation call would still race the ruleset.
+      #
+      # This step polls the workflow-runs for the head SHA and asserts
+      # every required upstream is `success` before letting release-
+      # please run. The runs of the OTHER upstreams may still be
+      # `in_progress` at the moment we are triggered — the gate output
+      # will be `false` and the release-please step is skipped. Once
+      # the LAST upstream completes and triggers us, all three are
+      # `success` and the gate passes.
+      - name: Gate until all required upstream workflows succeeded for this SHA
+        id: checks-gate
+        if: github.event_name == 'workflow_run'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.0.1
+        with:
+          script: |
+            const required = ["CI", "CodeQL Advanced", "Docker build"];
+            const sha = context.payload.workflow_run.head_sha;
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, head_sha: sha, per_page: 100 },
+            );
+            const ok = required.every((name) =>
+              runs.some((r) => r.name === name && r.conclusion === "success"),
+            );
+            core.info(`SHA ${sha}: required=${JSON.stringify(required)} all-success=${ok}`);
+            core.setOutput("ready", ok ? "true" : "false");
+
       # Mint a short-lived GitHub App installation token. Pushing the
       # release PR + the release tag with this token (instead of the
       # default GITHUB_TOKEN) makes the downstream `release.yml` workflow
@@ -59,12 +93,14 @@ jobs:
       # treats App-installation tokens as human-equivalent.
       - name: Mint release-please App token
         id: app-token
+        if: github.event_name == 'workflow_dispatch' || steps.checks-gate.outputs.ready == 'true'
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
           app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
 
       - name: release-please
+        if: github.event_name == 'workflow_dispatch' || steps.checks-gate.outputs.ready == 'true'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ steps.app-token.outputs.token }}
