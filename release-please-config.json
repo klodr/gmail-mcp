@@ -17,8 +17,8 @@
     { "type": "refactor", "section": "Changed", "hidden": false },
     { "type": "revert", "section": "Fixed", "hidden": false },
     { "type": "docs", "section": "Documentation", "hidden": false },
-    { "type": "chore", "section": "Changed", "hidden": true },
-    { "type": "ci", "section": "Changed", "hidden": true },
+    { "type": "chore", "section": "Changed", "hidden": false },
+    { "type": "ci", "section": "Changed", "hidden": false },
     { "type": "test", "section": "Changed", "hidden": true },
     { "type": "build", "section": "Changed", "hidden": true }
   ],
