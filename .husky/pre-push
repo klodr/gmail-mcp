@@ -1,0 +1,83 @@
+#!/usr/bin/env sh
+# Pre-push gate.
+#
+# Runs the same checks GitHub Actions enforces, locally and BEFORE the
+# push lands on origin. Failure blocks the push.
+#
+# Bypass with `git push --no-verify` ONLY when the hook is wrong
+# (rare). The bypass is recorded in the local reflog.
+
+set -e
+
+remote="$1"
+# url="$2"  # unused
+
+z40=0000000000000000000000000000000000000000
+
+# 1. Per-commit hygiene (signature + subject length) for every NEW
+#    commit in each pushed ref. Pre-push gives one ref update per line
+#    on stdin: `<local_ref> <local_sha> <remote_ref> <remote_sha>`.
+#    Walking only HEAD would let a multi-commit push smuggle through
+#    earlier commits with a bad signature or an overlong subject.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$local_sha" = "$z40" ]; then
+    # Branch deletion — nothing to validate.
+    continue
+  fi
+
+  if [ "$remote_sha" = "$z40" ]; then
+    # New branch — check commits not reachable from any other ref
+    # already on this remote (avoids re-checking ancestors of main).
+    range_args="$local_sha --not --remotes=$remote"
+  else
+    range_args="$remote_sha..$local_sha"
+  fi
+
+  for sha in $(git rev-list $range_args); do
+    subject=$(git log -1 --format='%s' "$sha")
+    sig=$(git log -1 --format='%G?' "$sha")
+
+    case "$sig" in
+      G|U|E)
+        # G = good signature; U = good but unknown trust;
+        # E = expired key (signature still cryptographically valid).
+        ;;
+      *)
+        printf '[husky] commit %s signature is "%s" (expected G/U/E).\n' "$sha" "$sig"
+        printf '        subject: %s\n' "$subject"
+        printf '        Configure SSH signing or set commit.gpgsign=true.\n'
+        exit 1
+        ;;
+    esac
+
+    # Count characters (not bytes) so emoji / accented subjects don't
+    # mis-flag. POSIX `${#var}` counts bytes in dash; `wc -m` with
+    # `C.UTF-8` (the universally available UTF-8 locale on Linux,
+    # macOS, and Alpine + musl-locales) counts code points portably.
+    subject_len=$(printf '%s' "$subject" | LC_ALL=C.UTF-8 wc -m | tr -d '[:space:]')
+    if [ "$subject_len" -gt 72 ]; then
+      printf '[husky] commit %s subject is %d chars (>72):\n' "$sha" "$subject_len"
+      printf '        %s\n' "$subject"
+      printf '        Shorten the subject and amend the commit.\n'
+      exit 1
+    fi
+  done
+done
+
+# 2. Tree-wide checks (run once, not per-commit).
+echo "[husky] format check..."
+npm run --silent format:check
+
+echo "[husky] lint..."
+npm run --silent lint
+
+echo "[husky] typecheck..."
+npm run --silent typecheck
+
+echo "[husky] tests..."
+npm run --silent test
+
+echo "[husky] audit (high+)..."
+npm audit --audit-level=high
+
+echo "[husky] all checks passed -> pushing"
