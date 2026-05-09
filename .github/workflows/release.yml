@@ -213,11 +213,33 @@ jobs:
             --repo "${{ github.repository }}" \
             --clobber
 
-      # --ignore-scripts: `npm prune --omit=dev` above removed tsc + tsup,
-      # which would break the `prepublishOnly: npm run build` lifecycle
-      # hook if npm publish re-ran it here. The explicit build earlier in
-      # this job already produced a fresh dist/, so skipping lifecycle
-      # scripts at publish time is safe and correct.
+      # `npm prune --omit=dev` above removed tsup + husky (both devDeps),
+      # so any lifecycle script that references them now fails:
+      #   - `prepublishOnly: npm run build` would re-run tsup
+      #   - `prepare: husky` would re-run husky (`husky: not found`)
+      #
+      # `--ignore-scripts` is documented to skip lifecycle scripts at
+      # publish time, but in practice npm 10.9 still runs `prepare`
+      # during the pack/publish prep. Stripping those keys from
+      # `package.json` is the robust fix.
+      #
+      # NOTE: npm always includes `package.json` in the tarball
+      # regardless of the `files` field, so the *published* manifest
+      # will lack `prepare`/`prepublishOnly`. That divergence from the
+      # repository source is intentional and harmless: consumers do
+      # not run `prepare` on installed packages (it only fires for the
+      # package owner's local install / publish cycle). Husky is a
+      # dev-only tool — keeping `prepare: husky` in the published
+      # manifest would only mislead consumers who try to inspect it.
+      - name: Strip prepare + prepublishOnly before publish
+        # `|| true` tolerates an absent key — `npm pkg delete` exits
+        # non-zero when the key is missing, which would block the job
+        # if a future commit removes one of these scripts from
+        # package.json.
+        run: |
+          npm pkg delete scripts.prepare || true
+          npm pkg delete scripts.prepublishOnly || true
+
       - name: Publish to npm
         run: npm publish --access public --provenance --ignore-scripts
         env:
