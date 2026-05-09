@@ -65,6 +65,10 @@ export function registerDownloadTools(
           content = Buffer.from(rawResponse!.data.raw || "", "base64url").toString("utf-8");
         } else {
           const emailContent = extractEmailContent(
+            // The cast widens `payload` to non-nullable but Gmail can
+            // omit the field on some response shapes (esp. metadata
+            // formats). Keep the runtime fallback.
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
             (fullResponse.data.payload as GmailMessagePart) || {},
           );
           if (format === "json") {

@@ -141,13 +141,22 @@ export function parseTimeoutMs(
  * exits before reaching the transport).
  */
 export async function runServer(opts: RunServerOpts): Promise<void> {
-  /* v8 ignore next 2 -- trivial pass-through defaults; tests
+  /* v8 ignore start -- trivial pass-through defaults; tests
      always inject log + exit. The default arrow bodies are
      `console.error(...)` and `process.exit(code)` — calling either
      from a unit test would corrupt test output (the former) or
      kill the runner (the latter). */
-  const log = opts.log ?? ((msg: string, ...rest: unknown[]) => console.error(msg, ...rest));
-  const exit = opts.exit ?? ((code: number) => process.exit(code));
+  const log =
+    opts.log ??
+    ((msg: string, ...rest: unknown[]) => {
+      console.error(msg, ...rest);
+    });
+  const exit =
+    opts.exit ??
+    ((code: number) => {
+      process.exit(code);
+    });
+  /* v8 ignore stop */
 
   const CONFIG_DIR = path.join(os.homedir(), ".gmail-mcp");
   /* v8 ignore start -- env-var-vs-default fallback branches for the

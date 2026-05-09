@@ -2,7 +2,7 @@
 
 import { runServer } from "./runtime.js";
 
-runServer({ argv: process.argv, env: process.env }).catch((error) => {
+runServer({ argv: process.argv, env: process.env }).catch((error: unknown) => {
   console.error("Server error:", error);
   process.exit(1);
 });

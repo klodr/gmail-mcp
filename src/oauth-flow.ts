@@ -158,8 +158,16 @@ export class InvalidOAuthKeysError extends Error {
 }
 
 export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResult {
-  const log = opts.log ?? ((msg: string, ...rest: unknown[]) => console.error(msg, ...rest));
-  const exit = opts.exitOnInvalidKeys ?? ((code: number) => process.exit(code));
+  const log =
+    opts.log ??
+    ((msg: string, ...rest: unknown[]) => {
+      console.error(msg, ...rest);
+    });
+  const exit =
+    opts.exitOnInvalidKeys ??
+    ((code: number) => {
+      process.exit(code);
+    });
 
   try {
     if (!opts.skipConfigDirCreate && !fs.existsSync(opts.configDir)) {
@@ -334,7 +342,14 @@ export interface AuthenticateOpts {
 }
 
 export async function authenticate(opts: AuthenticateOpts): Promise<void> {
-  const log = opts.log ?? ((msg: string, ...rest: unknown[]) => console.error(msg, ...rest));
+  /* v8 ignore next 3 -- default log is exercised end-to-end via the
+     real CLI (`gmail-mcp auth`) but every unit test injects an explicit
+     `log` to capture the listener-startup + token-exchange lines. */
+  const log =
+    opts.log ??
+    ((msg: string, ...rest: unknown[]) => {
+      console.error(msg, ...rest);
+    });
   const launchBrowser = opts.openBrowser ?? open;
 
   const parsed = new URL(opts.oauthCallbackUrl);
@@ -457,7 +472,13 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         // client holding the connection open keeps `close()`'s
         // callback hanging and the promise never settles.
         const finalize = (settle: () => void): void => {
-          httpServer.close(() => settle());
+          httpServer.close(() => {
+            settle();
+          });
+          // `@types/node` types `closeAllConnections` as non-optional
+          // but it was added in Node 18.2 and can be undefined under
+          // older runtime. Keep the optional chain.
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           httpServer.closeAllConnections?.();
         };
 
@@ -468,7 +489,9 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
           // port is released and a subsequent drive-by request
           // cannot keep executing the handler against an
           // already-settled promise.
-          finalize(() => reject(new Error("No code provided")));
+          finalize(() => {
+            reject(new Error("No code provided"));
+          });
           return;
         }
 
@@ -495,13 +518,13 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         ) {
           res.writeHead(400);
           res.end("Invalid state");
-          finalize(() =>
+          finalize(() => {
             reject(
               new Error(
                 "OAuth state mismatch: refusing to exchange the authorization code. The callback may have been initiated by a different OAuth flow.",
               ),
-            ),
-          );
+            );
+          });
           return;
         }
 
@@ -533,7 +556,9 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
           // listener before rejecting so the port is released and
           // a subsequent request cannot keep firing against the
           // settled promise.
-          finalize(() => reject(error instanceof Error ? error : new Error(String(error))));
+          finalize(() => {
+            reject(error instanceof Error ? error : new Error(String(error)));
+          });
         }
       })();
     });

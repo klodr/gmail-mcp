@@ -64,7 +64,8 @@ export function parseEmailAddresses(headerValue: string): string[] {
     for (const entry of strict) {
       if (entry.type === "mailbox") {
         out.push(entry.address);
-      } else if (entry.type === "group") {
+      } else {
+        // The discriminated-union narrows to `group` here.
         for (const member of entry.addresses) {
           out.push(member.address);
         }
@@ -96,7 +97,7 @@ function splitOnUnquotedCommas(headerValue: string): string[] {
   let buf = "";
   let inQuotes = false;
   for (let i = 0; i < headerValue.length; i++) {
-    const ch = headerValue[i];
+    const ch = headerValue[i] ?? "";
     if (ch === '"' && headerValue[i - 1] !== "\\") {
       inQuotes = !inQuotes;
       buf += ch;

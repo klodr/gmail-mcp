@@ -8,7 +8,7 @@
  * `console.error`, and `open` are never touched.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import http from "node:http";
 import {
   mkdtempSync,
@@ -354,6 +354,36 @@ describe("loadCredentials", () => {
     // `error.message` with `error` (which on JSON.parse failures
     // includes a position pointer that may show partial content).
     expect(captured).not.toContain("this is not json");
+  });
+
+  it("falls back to console.error + process.exit when opts.log + opts.exitOnInvalidKeys are omitted", () => {
+    // Exercises the default callbacks declared at the top of
+    // loadCredentials: `(msg, ...rest) => console.error(msg, ...rest)`
+    // and `(code) => process.exit(code)`. Without this, those default
+    // arrows are dead-coverage in the diff (every other test passes
+    // both `log` and `exitOnInvalidKeys` to capture the side-effects).
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    writeFileSync(oauthPath, JSON.stringify({ unknown: "shape" }));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+    try {
+      // `loadCredentials` re-throws `InvalidOAuthKeysError` after
+      // calling `exit(1)`, which is what reaches the test runner once
+      // `process.exit` is stubbed to a no-op.
+      expect(() =>
+        loadCredentials({
+          oauthPath,
+          credentialsPath,
+          configDir,
+          skipConfigDirCreate: true,
+        }),
+      ).toThrow(InvalidOAuthKeysError);
+      expect(errSpy).toHaveBeenCalled();
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      errSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
   });
 });
 
