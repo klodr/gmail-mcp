@@ -50,7 +50,10 @@ while read local_ref local_sha remote_ref remote_sha; do
         ;;
     esac
 
-    subject_len=${#subject}
+    # Count characters (not bytes) so emoji / accented subjects don't
+    # mis-flag. POSIX `${#var}` counts bytes in dash; `wc -m` with a
+    # UTF-8 locale counts code points portably across macOS and Linux.
+    subject_len=$(printf '%s' "$subject" | LC_ALL=en_US.UTF-8 wc -m | tr -d '[:space:]')
     if [ "$subject_len" -gt 72 ]; then
       printf '[husky] commit %s subject is %d chars (>72):\n' "$sha" "$subject_len"
       printf '        %s\n' "$subject"
