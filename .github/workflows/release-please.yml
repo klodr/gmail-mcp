@@ -17,7 +17,17 @@ name: release-please
 # Reference: https://github.com/googleapis/release-please-action
 
 on:
-  push:
+  # Wait for the workflows that produce the required-status-checks
+  # listed in the `tags` ruleset (CI → Lint & Format + Build & Test
+  # matrix, CodeQL Advanced → Analyze matrix, Docker build → Build
+  # Docker image). Triggering on `push: branches: [main]` instead
+  # would race those workflows and the GitHub Release tag-creation
+  # call would be rejected with `6 of 7 required status checks have
+  # not succeeded` because the squash commit is fresh and the checks
+  # are still pending.
+  workflow_run:
+    workflows: ["CI", "CodeQL Advanced", "Docker build"]
+    types: [completed]
     branches: [main]
   workflow_dispatch: {}
 
@@ -32,6 +42,11 @@ jobs:
   release-please:
     name: release-please
     runs-on: ubuntu-latest
+    # Skip on a workflow_run that didn't succeed — re-running release-please
+    # against a known-failed CI/Docker/CodeQL run would loop forever (the
+    # tag-creation call needs every required status check at `success`).
+    # `workflow_dispatch` invocations always pass through.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: write
       pull-requests: write
