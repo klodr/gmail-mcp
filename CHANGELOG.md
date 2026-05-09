@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5](https://github.com/klodr/gmail-mcp/compare/v1.1.4...v1.1.5) (2026-05-09)
+
+
+### Changed
+
+* **release-please:** chain on workflow_run instead of racing CI ([#139](https://github.com/klodr/gmail-mcp/issues/139)) ([d622b1b](https://github.com/klodr/gmail-mcp/commit/d622b1bfa04c62915a9b3b40209181e91e77fe91))
+* **release:** re-publish 1.1.5 after husky strip-prepare fix ([#141](https://github.com/klodr/gmail-mcp/issues/141)) ([f1bca07](https://github.com/klodr/gmail-mcp/commit/f1bca07506cd2393daf3b40d4491eb74fa043a2d))
+* **release:** strip prepare + prepublishOnly before npm publish ([#140](https://github.com/klodr/gmail-mcp/issues/140)) ([53335ce](https://github.com/klodr/gmail-mcp/commit/53335cee64370d8942f8d9c520edf8c83ce5b705))
+
 ## [1.1.4](https://github.com/klodr/gmail-mcp/compare/v1.1.3...v1.1.4) (2026-05-09)
 
 
