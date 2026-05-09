@@ -36,5 +36,5 @@ mcp-config.json
 gcp-oauth.keys.json
 .calendar-mcp/
 credentials.json
-.calendar-server-credentials.json 
+.calendar-server-credentials.json
 .gcp-oauth.keys.json
