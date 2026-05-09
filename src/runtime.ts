@@ -212,6 +212,10 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
     try {
       await authenticate({
         oauth2Client,
+        // The mode dispatch above guarantees `oauthCallbackUrl` is set
+        // when entering the `auth` branch, but TS can't follow the
+        // narrowing through the dispatch table.
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         oauthCallbackUrl: oauthCallbackUrl!,
         scopes,
         credentialsPath: CREDENTIALS_PATH,

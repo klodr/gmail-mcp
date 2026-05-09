@@ -58,6 +58,10 @@ export function registerDownloadTools(
 
         let content: string;
         if (format === "eml") {
+          // `rawResponse` is fetched only on the `eml` branch above,
+          // so it is defined here. TS's narrowing across the if/else
+          // doesn't reach the parallel fetch.
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           content = Buffer.from(rawResponse!.data.raw || "", "base64url").toString("utf-8");
         } else {
           const emailContent = extractEmailContent(

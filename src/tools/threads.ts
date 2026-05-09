@@ -153,6 +153,9 @@ export function registerThreadTools(
         threads.map(async (thread) => {
           const detail = await gmail.users.threads.get({
             userId: "me",
+            // Gmail's `threads.list` always returns `id` on each item;
+            // the type marks it optional out of an abundance of caution.
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             id: thread.id!,
             format: "metadata",
             metadataHeaders: ["Subject", "From", "Date"],
@@ -213,6 +216,9 @@ export function registerThreadTools(
           threads.map(async (thread) => {
             const detail = await gmail.users.threads.get({
               userId: "me",
+              // Gmail's `threads.list` always returns `id` on each item;
+              // the type marks it optional out of an abundance of caution.
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
               id: thread.id!,
               format: "metadata",
               metadataHeaders: ["Subject", "From", "Date"],
@@ -252,6 +258,9 @@ export function registerThreadTools(
         threads.map(async (thread) => {
           const threadDetail = await gmail.users.threads.get({
             userId: "me",
+            // Gmail's `threads.list` always returns `id` on each item;
+            // the type marks it optional out of an abundance of caution.
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             id: thread.id!,
             format: "full",
           });
