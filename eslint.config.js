@@ -4,6 +4,7 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import promise from "eslint-plugin-promise";
+import importX from "eslint-plugin-import-x";
 import prettier from "eslint-config-prettier";
 
 const __dirname = import.meta.dirname;
@@ -24,6 +25,8 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   promise.configs["flat/recommended"],
+  importX.flatConfigs.recommended,
+  importX.flatConfigs.typescript,
   prettier,
   {
     languageOptions: {
@@ -36,6 +39,12 @@ export default tseslint.config(
       // High-value additions over `recommendedTypeChecked`:
       eqeqeq: ["error", "always"],
       "no-console": ["warn", { allow: ["error", "warn"] }],
+
+      // TS already resolves imports via the compiler — if a path is
+      // wrong, `tsc --noEmit` and vitest both fail. `import-x` cannot
+      // follow `exports` maps with `./*` wildcards (the MCP SDK uses
+      // them for `./server/mcp.js`), so disable to avoid false reports.
+      "import-x/no-unresolved": "off",
       // The recommendedTypeChecked preset already enables:
       // - @typescript-eslint/no-floating-promises
       // - @typescript-eslint/await-thenable
