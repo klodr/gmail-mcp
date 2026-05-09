@@ -50,11 +50,13 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         ;;
     esac
 
-    # Count characters (not bytes) so emoji / accented subjects don't
-    # mis-flag. POSIX `${#var}` counts bytes in dash; `wc -m` with
-    # `C.UTF-8` (the universally available UTF-8 locale on Linux,
-    # macOS, and Alpine + musl-locales) counts code points portably.
-    subject_len=$(printf '%s' "$subject" | LC_ALL=C.UTF-8 wc -m | tr -d '[:space:]')
+    # Count Unicode code points so emoji / accented subjects don't
+    # mis-flag. POSIX `${#var}` counts bytes in dash, and `wc -m`
+    # depends on a UTF-8 locale (`C.UTF-8` is missing on stock macOS
+    # and not guaranteed on Alpine without musl-locales). Node is
+    # already required by every other check in this hook, so use its
+    # codepoint-aware iterator instead.
+    subject_len=$(env SUBJECT="$subject" node -e 'console.log(Array.from(process.env.SUBJECT ?? "").length)')
     if [ "$subject_len" -gt 72 ]; then
       printf '[husky] commit %s subject is %d chars (>72):\n' "$sha" "$subject_len"
       printf '        %s\n' "$subject"
