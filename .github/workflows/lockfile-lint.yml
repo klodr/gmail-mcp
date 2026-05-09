@@ -52,8 +52,12 @@ jobs:
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
             const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+            if (!lock.packages || typeof lock.packages !== "object") {
+              console.error("package-lock.json format unsupported: missing top-level \"packages\" object (lockfile v1 or v2 without packages?). Regenerate with `npm install` on npm v7+.");
+              process.exit(1);
+            }
             const bad = [];
-            for (const [name, meta] of Object.entries(lock.packages ?? {})) {
+            for (const [name, meta] of Object.entries(lock.packages)) {
               if (!name || !meta || meta.link) continue;
               if (meta.resolved && !meta.resolved.startsWith("https://registry.npmjs.org/")) {
                 bad.push(name + ": resolved=" + meta.resolved);
@@ -66,7 +70,7 @@ jobs:
               console.error("package-lock preflight failed:\n" + bad.join("\n"));
               process.exit(1);
             }
-            console.log("preflight OK: " + Object.keys(lock.packages ?? {}).length + " entries");
+            console.log("preflight OK: " + Object.keys(lock.packages).length + " entries");
           '
 
       - name: Install dependencies (locked, no scripts)
