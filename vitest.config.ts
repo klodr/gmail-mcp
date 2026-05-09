@@ -10,6 +10,13 @@ export default defineConfig({
     // absent from `package.json#files`, so it never ships to npm.
     reporters: ["default", ["junit", { outputFile: "test-results.junit.xml" }]],
     coverage: {
+      provider: "v8",
+      // `lcov` is what codecov-action consumes; `text` keeps the
+      // human-readable per-file summary in CI logs. Default v8
+      // reporters omit lcov, which silently breaks the codecov
+      // upload step when `disable_search: true` points at
+      // `coverage/lcov.info` explicitly.
+      reporter: ["text", "lcov"],
       // Include every source file so untested ones show as 0% rather
       // than being silently omitted from the report. v8 coverage
       // otherwise hides files that no test imports, which makes it
