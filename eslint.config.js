@@ -3,6 +3,7 @@
 
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import promise from "eslint-plugin-promise";
 import prettier from "eslint-config-prettier";
 
 const __dirname = import.meta.dirname;
@@ -22,6 +23,7 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.strict,
+  promise.configs["flat/recommended"],
   prettier,
   {
     languageOptions: {
