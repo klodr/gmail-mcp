@@ -1,0 +1,271 @@
+/**
+ * End-to-end coverage for the four registerThreadTools handlers
+ * (modify_thread, get_thread, list_inbox_threads, get_inbox_with_threads).
+ * Drives them through the full MCP roundtrip via InMemoryTransport so
+ * every branch in src/tools/threads.ts gets exercised — particularly the
+ * ones the schema-only thread-tools.test.ts file misses (54.54% branches
+ * before this suite).
+ */
+
+import { describe, it, expect, vi } from "vitest";
+import type { gmail_v1 } from "googleapis";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createServer } from "./server.js";
+
+interface ParsedToolPayload {
+  threadId?: string;
+  messageCount?: number;
+  resultCount?: number;
+  threads?: Array<{ messageCount?: number; threadId?: string }>;
+  messages?: Array<{ messageId: string; subject: string; body: string }>;
+}
+
+function makeMessage(id: string, threadId: string, format: string | undefined): unknown {
+  if (format === "minimal") {
+    return { id, threadId, labelIds: ["INBOX"] };
+  }
+  return {
+    id,
+    threadId,
+    labelIds: ["INBOX"],
+    payload: {
+      mimeType: "text/plain",
+      headers: [
+        { name: "Subject", value: `Subject for ${id}` },
+        { name: "From", value: "alice@example.com" },
+        { name: "To", value: "bob@example.com" },
+        { name: "Date", value: "Wed, 01 Jan 2025 00:00:00 +0000" },
+      ],
+      body: { data: Buffer.from("hello world").toString("base64url") },
+    },
+  };
+}
+
+function makeMockGmail(): {
+  gmail: gmail_v1.Gmail;
+  modifySpy: ReturnType<typeof vi.fn>;
+  getSpy: ReturnType<typeof vi.fn>;
+  listSpy: ReturnType<typeof vi.fn>;
+} {
+  const modifySpy = vi.fn(() => Promise.resolve({ data: {} }));
+  const getSpy = vi.fn((params: { id: string; format?: string }) =>
+    Promise.resolve({
+      data: { messages: [makeMessage("m1", params.id, params.format)] },
+    }),
+  );
+  const listSpy = vi.fn(() =>
+    Promise.resolve({
+      data: { threads: [{ id: "t1", snippet: "snippet", historyId: "h1" }] },
+    }),
+  );
+
+  const gmail = {
+    users: {
+      threads: {
+        modify: modifySpy,
+        get: getSpy,
+        list: listSpy,
+      },
+    },
+  } as unknown as gmail_v1.Gmail;
+  return { gmail, modifySpy, getSpy, listSpy };
+}
+
+async function makeClient(gmail: gmail_v1.Gmail): Promise<{
+  client: Client;
+  close: () => Promise<void>;
+}> {
+  // Modify scope covers the read scopes too (Google's hierarchy). All
+  // four thread tools register under this combined surface.
+  const server = createServer({
+    gmail,
+    authorizedScopes: ["gmail.modify"],
+  });
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "threads-handlers-test", version: "0.0.0" });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  return {
+    client,
+    close: async () => {
+      await Promise.all([client.close(), server.close()]);
+    },
+  };
+}
+
+function parseTextPayload(out: {
+  structuredContent?: Record<string, unknown>;
+  content: Array<{ type: string; text?: string }>;
+}): ParsedToolPayload {
+  // Prefer structuredContent — the MCP middleware wraps the text channel
+  // in `<untrusted-tool-output>…</untrusted-tool-output>` fences so a
+  // bare JSON.parse on .content[0].text would always reject. The
+  // structuredContent channel carries the same payload, already typed.
+  if (out.structuredContent) return out.structuredContent as ParsedToolPayload;
+  const text = out.content.find((c) => c.type === "text")?.text;
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as ParsedToolPayload;
+  } catch {
+    return {};
+  }
+}
+
+describe("registerThreadTools — handler-level coverage", () => {
+  it("modify_thread: forwards addLabelIds + removeLabelIds in the request body", async () => {
+    const { gmail, modifySpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "modify_thread",
+        arguments: { threadId: "t-123", addLabelIds: ["INBOX"], removeLabelIds: ["SPAM"] },
+      });
+      expect(modifySpy).toHaveBeenCalledOnce();
+      const call = modifySpy.mock.calls[0]?.[0] as {
+        userId: string;
+        id: string;
+        requestBody: Record<string, unknown>;
+      };
+      expect(call.userId).toBe("me");
+      expect(call.id).toBe("t-123");
+      expect(call.requestBody).toEqual({ addLabelIds: ["INBOX"], removeLabelIds: ["SPAM"] });
+      // Response carries the success text.
+      const text = (out.content as Array<{ text: string }>)[0]?.text ?? "";
+      expect(text).toMatch(/Thread t-123 labels updated successfully/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("modify_thread: omits unset label arrays from the request body", async () => {
+    const { gmail, modifySpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      await client.callTool({
+        name: "modify_thread",
+        arguments: { threadId: "t-456" },
+      });
+      const call = modifySpy.mock.calls[0]?.[0] as { requestBody: Record<string, unknown> };
+      // Both branches of the `if (args.X)` guards take the false path.
+      expect(call.requestBody).toEqual({});
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_thread: defaults to 'full' format and returns body + headers", async () => {
+    const { gmail, getSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_thread",
+        arguments: { threadId: "t-789" },
+      });
+      const call = getSpy.mock.calls[0]?.[0] as { format: string };
+      // The `args.format || "full"` fallback fires when format is omitted.
+      expect(call.format).toBe("full");
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threadId).toBe("t-789");
+      expect(payload.messageCount).toBe(1);
+      expect(payload.messages?.[0]?.subject).toBe("Subject for m1");
+      // Body is filled because format !== "minimal".
+      expect(payload.messages?.[0]?.body.length ?? 0).toBeGreaterThan(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_thread: with format=minimal skips body extraction and attachments scan", async () => {
+    const { gmail, getSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_thread",
+        arguments: { threadId: "t-999", format: "minimal" },
+      });
+      const call = getSpy.mock.calls[0]?.[0] as { format: string };
+      expect(call.format).toBe("minimal");
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      // Body is empty because the `if (args.format !== "minimal")`
+      // branch is skipped.
+      expect(payload.messages?.[0]?.body).toBe("");
+    } finally {
+      await close();
+    }
+  });
+
+  it("list_inbox_threads: uses default query 'in:inbox' and maxResults=50", async () => {
+    const { gmail, listSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "list_inbox_threads",
+        arguments: {},
+      });
+      const call = listSpy.mock.calls[0]?.[0] as { q: string; maxResults: number };
+      // Both `args.X || default` branches exercise the false (undefined) path.
+      expect(call.q).toBe("in:inbox");
+      expect(call.maxResults).toBe(50);
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.resultCount).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it("list_inbox_threads: forwards custom query + maxResults through to the API", async () => {
+    const { gmail, listSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      await client.callTool({
+        name: "list_inbox_threads",
+        arguments: { query: "from:alice@example.com", maxResults: 5 },
+      });
+      const call = listSpy.mock.calls[0]?.[0] as { q: string; maxResults: number };
+      expect(call.q).toBe("from:alice@example.com");
+      expect(call.maxResults).toBe(5);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads: expandThreads=false returns metadata-only summaries", async () => {
+    const { gmail, listSpy, getSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: false },
+      });
+      // The list happens once for the index, then `format: "metadata"`
+      // get for each thread summary.
+      expect(listSpy).toHaveBeenCalledOnce();
+      const getCall = getSpy.mock.calls[0]?.[0] as { format: string };
+      expect(getCall.format).toBe("metadata");
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.resultCount).toBe(1);
+      // No messages array on a summary.
+      expect(payload.threads?.[0]?.messageCount).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads: expandThreads=true returns full message content", async () => {
+    const { gmail, getSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: true },
+      });
+      const getCall = getSpy.mock.calls[0]?.[0] as { format: string };
+      // Expand path uses `format: "full"` for each thread fetch.
+      expect(getCall.format).toBe("full");
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.messageCount).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+});
