@@ -111,12 +111,18 @@ describe("loadCredentials — sameByRealpath short-circuit (oauth-flow.ts:194-19
     // Act — point the loader at the symlink AS dst, the real file
     // AS src; the realpath check should detect the equivalence and
     // skip the copy (the call must not throw a copy-related error).
+    // `log: () => {}` swallows the routine startup messages so the
+    // CodeQL "clear-text logging" rule doesn't trip on the test's
+    // OAuth-named paths flowing into the default console.error sink.
     const result = loadCredentials({
       oauthPath: symlinkOAuth,
       credentialsPath,
       configDir,
       localOAuthPath: realOAuth,
       skipConfigDirCreate: true,
+      log: () => {
+        /* swallow */
+      },
     });
 
     // The OAuth client is constructed from the keys read at oauthPath
