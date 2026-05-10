@@ -23,9 +23,10 @@ reviews:
   abort_on_close: true
 
   auto_title_instructions: |
-    Use conventional commit format: type(scope): description.
+    Use Conventional Commits format: <type>[(<scope>)]: <subject>.
     Types: feat, fix, docs, ci, chore, refactor, test, perf, build, style, revert.
     Scope is optional (e.g. `chore: ...` is valid).
+    Subject must be in imperative mood, lowercase, no trailing period.
     Cap the entire title (including type and optional scope) at 72 characters.
 
   high_level_summary_instructions: |
