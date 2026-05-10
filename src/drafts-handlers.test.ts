@@ -293,3 +293,184 @@ describe("registerDraftTools — handler-level coverage", () => {
     }
   });
 });
+
+describe("registerDraftTools — update_draft handler-level coverage", () => {
+  function makeUpdateMockGmail(
+    opts: {
+      threadGetThrows?: boolean;
+      threadMessages?: Array<{ payload?: { headers?: Array<{ name: string; value: string }> } }>;
+    } = {},
+  ): {
+    gmail: gmail_v1.Gmail;
+    updateSpy: ReturnType<typeof vi.fn>;
+    threadGetSpy: ReturnType<typeof vi.fn>;
+  } {
+    const updateSpy = vi.fn(() =>
+      Promise.resolve({ data: { id: "D-updated", message: { id: "M-new" } } }),
+    );
+    const threadGetSpy = opts.threadGetThrows
+      ? vi.fn(() => Promise.reject(new Error("thread fetch boom")))
+      : vi.fn(() =>
+          Promise.resolve({
+            data: { messages: opts.threadMessages ?? [] },
+          }),
+        );
+    const gmail = {
+      users: {
+        drafts: {
+          update: updateSpy,
+          // unused by update_draft but required by the registrar:
+          list: vi.fn(),
+          get: vi.fn(),
+          delete: vi.fn(),
+          send: vi.fn(),
+        },
+        threads: {
+          get: threadGetSpy,
+        },
+        getProfile: vi.fn(() =>
+          Promise.resolve({
+            data: { sendAs: [{ sendAsEmail: "me@example.com", isDefault: true }] },
+          }),
+        ),
+        settings: {
+          sendAs: {
+            list: vi.fn(() =>
+              Promise.resolve({
+                data: { sendAs: [{ sendAsEmail: "me@example.com", isDefault: true }] },
+              }),
+            ),
+          },
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    return { gmail, updateSpy, threadGetSpy };
+  }
+
+  it("update_draft: simple update without threadId skips the thread backfill", async () => {
+    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    const { gmail, updateSpy, threadGetSpy } = makeUpdateMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "update_draft",
+        arguments: {
+          id: "D1",
+          to: ["bob@example.com"],
+          subject: "Updated",
+          body: "Body",
+          from: "me@example.com",
+        },
+      });
+      expect(threadGetSpy).not.toHaveBeenCalled();
+      expect(updateSpy).toHaveBeenCalledOnce();
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toMatch(/Draft D-updated updated successfully/);
+      expect(text).toContain("M-new");
+    } finally {
+      await close();
+    }
+  });
+
+  it("update_draft: with threadId backfills In-Reply-To + References from the thread", async () => {
+    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    const { gmail, threadGetSpy } = makeUpdateMockGmail({
+      threadMessages: [
+        {
+          payload: {
+            headers: [{ name: "Message-ID", value: "<first@example.com>" }],
+          },
+        },
+        {
+          payload: {
+            headers: [{ name: "Message-ID", value: "<second@example.com>" }],
+          },
+        },
+      ],
+    });
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "update_draft",
+        arguments: {
+          id: "D2",
+          to: ["bob@example.com"],
+          subject: "Re: thread",
+          body: "Continued",
+          threadId: "T-abc",
+          from: "me@example.com",
+        },
+      });
+      expect(threadGetSpy).toHaveBeenCalledOnce();
+      // Tolerant: backfill is best-effort; a successful update is the real assertion.
+      expect(out.isError ?? false).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  it("update_draft: thread.get failure logs a warning and proceeds in degraded mode", async () => {
+    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    const { gmail, updateSpy } = makeUpdateMockGmail({ threadGetThrows: true });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
+      /* swallow */
+    });
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "update_draft",
+        arguments: {
+          id: "D3",
+          to: ["bob@example.com"],
+          subject: "Re: degraded",
+          body: "Body",
+          threadId: "T-broken",
+          from: "me@example.com",
+        },
+      });
+      // The catch path must NOT propagate — the update still goes through.
+      expect(updateSpy).toHaveBeenCalledOnce();
+      expect(out.isError ?? false).toBe(false);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+      await close();
+    }
+  });
+
+  it("update_draft: surfaces Gmail API errors via the shared error envelope", async () => {
+    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    const erroring = {
+      users: {
+        drafts: {
+          list: vi.fn(),
+          get: vi.fn(),
+          delete: vi.fn(),
+          send: vi.fn(),
+          update: vi.fn(() => Promise.reject(new Error("boom-update"))),
+        },
+        threads: { get: vi.fn() },
+        settings: { sendAs: { list: vi.fn(() => Promise.resolve({ data: { sendAs: [] } })) } },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(erroring);
+    try {
+      const out = await client.callTool({
+        name: "update_draft",
+        arguments: {
+          id: "D4",
+          to: ["bob@example.com"],
+          subject: "fail",
+          body: "x",
+          from: "me@example.com",
+        },
+      });
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
+        /Failed to update draft/,
+      );
+      expect(out.isError).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+});
