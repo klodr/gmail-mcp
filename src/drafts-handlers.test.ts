@@ -365,6 +365,51 @@ describe("registerDraftTools — update_draft handler-level coverage", () => {
     return { gmail, updateSpy, threadGetSpy };
   }
 
+  it("update_draft: response without id/message falls back to args.id + 'unknown' (drafts.ts:236)", async () => {
+    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+    const updateSpy = vi.fn(() => Promise.resolve({ data: {} }));
+    const gmail = {
+      users: {
+        drafts: {
+          update: updateSpy,
+          list: vi.fn(),
+          get: vi.fn(),
+          delete: vi.fn(),
+          send: vi.fn(),
+        },
+        threads: { get: vi.fn() },
+        settings: {
+          sendAs: {
+            list: vi.fn(() =>
+              Promise.resolve({
+                data: { sendAs: [{ sendAsEmail: "me@example.com", isDefault: true }] },
+              }),
+            ),
+          },
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "update_draft",
+        arguments: {
+          id: "D-x",
+          to: ["bob@example.com"],
+          subject: "S",
+          body: "B",
+          from: "me@example.com",
+        },
+      });
+      // Both nullish-coalesce branches fire: response.data.id undefined → args.id;
+      // response.data.message?.id undefined → "unknown".
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toMatch(/Draft D-x updated successfully \(new messageId: unknown\)/);
+    } finally {
+      await close();
+    }
+  });
+
   it("update_draft: simple update without threadId skips the thread backfill", async () => {
     delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     const { gmail, updateSpy, threadGetSpy } = makeUpdateMockGmail();
