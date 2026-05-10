@@ -413,4 +413,177 @@ describe("registerThreadTools — handler-level coverage", () => {
       await close();
     }
   });
+
+  it("get_inbox_with_threads expandThreads=false: aggregates 3+ threads with mixed message counts", async () => {
+    // Multiple threads, each with a different number of messages — exercises
+    // the Promise.all map branches across more than one element so the
+    // `messages[messages.length - 1]` index walking + the per-thread
+    // `latestMessage?.payload?.headers` chain run on real data, not just
+    // the single-thread default.
+    const buildMsg = (id: string): unknown => ({
+      id,
+      threadId: id.split("-")[0],
+      payload: {
+        headers: [
+          { name: "Subject", value: `S-${id}` },
+          { name: "From", value: `from-${id}@example.com` },
+          { name: "Date", value: "Wed, 01 Jan 2025 00:00:00 +0000" },
+        ],
+      },
+    });
+    const threadFixtures: Record<string, unknown[]> = {
+      t1: [buildMsg("t1-a")],
+      t2: [buildMsg("t2-a"), buildMsg("t2-b")],
+      t3: [buildMsg("t3-a"), buildMsg("t3-b"), buildMsg("t3-c")],
+    };
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn((p: { id: string }) =>
+            Promise.resolve({ data: { messages: threadFixtures[p.id] ?? [] } }),
+          ),
+          list: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                threads: [
+                  { id: "t1", snippet: "snip-1", historyId: "h1" },
+                  { id: "t2", snippet: "snip-2", historyId: "h2" },
+                  { id: "t3", snippet: "snip-3", historyId: "h3" },
+                ],
+              },
+            }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: false },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.resultCount).toBe(3);
+      expect(payload.threads?.[0]?.messageCount).toBe(1);
+      expect(payload.threads?.[1]?.messageCount).toBe(2);
+      expect(payload.threads?.[2]?.messageCount).toBe(3);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads expandThreads=true: aggregates messages with attachments + decoded body", async () => {
+    // Single thread with two messages, one bearing an attachment in a
+    // multipart payload. Exercises the messages.map(msg => ...)
+    // walker + the collectAttachmentsForThread branch that finds an
+    // attachment + the attachments.map projection at the end.
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                messages: [
+                  {
+                    id: "m1",
+                    threadId: "T-rich",
+                    payload: {
+                      mimeType: "text/plain",
+                      headers: [
+                        { name: "Subject", value: "First" },
+                        { name: "Date", value: "Wed, 01 Jan 2025 00:00:00 +0000" },
+                      ],
+                      body: { data: Buffer.from("text body").toString("base64url") },
+                    },
+                  },
+                  {
+                    id: "m2",
+                    threadId: "T-rich",
+                    payload: {
+                      mimeType: "multipart/mixed",
+                      headers: [{ name: "Subject", value: "Second w/ attachment" }],
+                      parts: [
+                        {
+                          mimeType: "text/plain",
+                          body: { data: Buffer.from("body").toString("base64url") },
+                        },
+                        {
+                          filename: "doc.pdf",
+                          mimeType: "application/pdf",
+                          body: { attachmentId: "ATT-99", size: 2048 },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+          ),
+          list: vi.fn(() =>
+            Promise.resolve({ data: { threads: [{ id: "T-rich", snippet: "rich" }] } }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: true },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.messageCount).toBe(2);
+    } finally {
+      await close();
+    }
+  });
+
+  it("list_inbox_threads: aggregates 3 threads with their latestMessage headers", async () => {
+    const buildMsg = (id: string): unknown => ({
+      id,
+      payload: {
+        headers: [
+          { name: "Subject", value: `S-${id}` },
+          { name: "From", value: `from-${id}@example.com` },
+          { name: "Date", value: "Wed, 01 Jan 2025 00:00:00 +0000" },
+        ],
+      },
+    });
+    const threadFixtures: Record<string, unknown[]> = {
+      t1: [buildMsg("t1-a")],
+      t2: [buildMsg("t2-a"), buildMsg("t2-b")],
+    };
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn((p: { id: string }) =>
+            Promise.resolve({ data: { messages: threadFixtures[p.id] ?? [] } }),
+          ),
+          list: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                threads: [
+                  { id: "t1", snippet: "s1", historyId: "h1" },
+                  { id: "t2", snippet: "s2", historyId: "h2" },
+                ],
+              },
+            }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({ name: "list_inbox_threads", arguments: {} });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.resultCount).toBe(2);
+      expect(payload.threads?.[0]?.messageCount).toBe(1);
+      expect(payload.threads?.[1]?.messageCount).toBe(2);
+    } finally {
+      await close();
+    }
+  });
 });
