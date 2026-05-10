@@ -129,8 +129,11 @@ describe("registerThreadTools — handler-level coverage", () => {
       expect(call.userId).toBe("me");
       expect(call.id).toBe("t-123");
       expect(call.requestBody).toEqual({ addLabelIds: ["INBOX"], removeLabelIds: ["SPAM"] });
-      // Response carries the success text.
-      const text = (out.content as Array<{ text: string }>)[0]?.text ?? "";
+      // Response carries the success text. Find the text content by
+      // type rather than index — order is incidental, type isn't.
+      const text =
+        (out.content as Array<{ type: string; text?: string }>).find((c) => c.type === "text")
+          ?.text ?? "";
       expect(text).toMatch(/Thread t-123 labels updated successfully/);
     } finally {
       await close();
