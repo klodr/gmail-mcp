@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src \"*.json\"",
+    "lint": "eslint src \"**/*.{json,jsonc,json5}\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
