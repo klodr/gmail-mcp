@@ -414,6 +414,77 @@ describe("registerThreadTools — handler-level coverage", () => {
     }
   });
 
+  it("get_inbox_with_threads: forwards custom query + maxResults (lines 213-215 truthy branches)", async () => {
+    const { gmail, listSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: {
+          query: "from:bob@example.com",
+          maxResults: 7,
+          expandThreads: false,
+        },
+      });
+      const call = listSpy.mock.calls[0]?.[0] as { q: string; maxResults: number };
+      expect(call.q).toBe("from:bob@example.com");
+      expect(call.maxResults).toBe(7);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads: handles empty threads array (data.threads || [] line 217)", async () => {
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(),
+          // data.threads omitted -> `|| []` fires.
+          list: vi.fn(() => Promise.resolve({ data: {} })),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: {},
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.resultCount).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads expandThreads=false: thread.snippet/historyId fall back to '' (236-238)", async () => {
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() => Promise.resolve({ data: { messages: [] } })),
+          list: vi.fn(() =>
+            // snippet + historyId omitted from the thread entry -> the
+            // `thread.snippet || ""` and `thread.historyId || ""` defaults fire.
+            Promise.resolve({ data: { threads: [{ id: "t-bare" }] } }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: false },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.threadId).toBe("t-bare");
+    } finally {
+      await close();
+    }
+  });
+
   it("get_inbox_with_threads expandThreads=false: aggregates 3+ threads with mixed message counts", async () => {
     // Multiple threads, each with a different number of messages — exercises
     // the Promise.all map branches across more than one element so the
