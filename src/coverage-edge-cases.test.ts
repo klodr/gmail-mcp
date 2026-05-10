@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { safeWriteFile } from "./utl.js";
-import { parseEmailAddress } from "./email-export.js";
+import { parseEmailAddress, parseEmailAddresses, gmailMessageToJson } from "./email-export.js";
 import { loadCredentials } from "./oauth-flow.js";
 
 describe("safeWriteFile — zero-byte write guard (utl.ts:135-138)", () => {
@@ -146,5 +146,67 @@ describe("parseEmailAddress — invalid-input fallback (email-export.ts:55)", ()
 
   it("returns empty pair on empty-string input (early-return guard)", () => {
     expect(parseEmailAddress("")).toEqual({ name: "", email: "" });
+  });
+});
+
+describe("parseEmailAddresses — list parsing edge cases (email-export.ts:62-73)", () => {
+  it("returns [] on undefined input (early-return guard)", () => {
+    expect(parseEmailAddresses(undefined)).toEqual([]);
+  });
+
+  it("returns [] on empty-string input", () => {
+    expect(parseEmailAddresses("")).toEqual([]);
+  });
+
+  it("returns [] when the parser yields null (unparseable input)", () => {
+    // emailAddresses.parseAddressList rejects garbage outright.
+    expect(parseEmailAddresses("@@@@@,,,@@@@@")).toEqual([]);
+  });
+
+  it("filters out non-mailbox entries (groups) and keeps only mailboxes", () => {
+    // RFC 5322 lets a list mix mailboxes and groups; we only want the
+    // mailboxes. The filter narrows the discriminated union.
+    const out = parseEmailAddresses("Alice <alice@example.com>, Bob <bob@example.com>");
+    expect(out).toEqual([
+      { name: "Alice", email: "alice@example.com" },
+      { name: "Bob", email: "bob@example.com" },
+    ]);
+  });
+});
+
+describe("gmailMessageToJson — invalid-date fallback (email-export.ts:88-92)", () => {
+  it("keeps the original date string when Date parsing fails (try/catch)", () => {
+    const out = gmailMessageToJson(
+      {
+        id: "m1",
+        threadId: "t1",
+        payload: {
+          headers: [
+            { name: "Date", value: "not-a-date-at-all" },
+            { name: "Subject", value: "S" },
+          ],
+        },
+      },
+      { text: "", html: "" },
+      [],
+    );
+    // The catch path preserves the raw header value rather than throwing.
+    expect(out.date).toBe("not-a-date-at-all");
+    expect(out.messageId).toBe("m1");
+  });
+
+  it("normalises a valid date header to ISO 8601", () => {
+    const out = gmailMessageToJson(
+      {
+        id: "m2",
+        threadId: "t2",
+        payload: {
+          headers: [{ name: "Date", value: "Fri, 01 Jan 2027 12:34:56 +0000" }],
+        },
+      },
+      { text: "", html: "" },
+      [],
+    );
+    expect(out.date).toBe("2027-01-01T12:34:56.000Z");
   });
 });
