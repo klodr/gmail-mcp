@@ -96,11 +96,14 @@ jobs:
           # still scoped per-upload; OIDC just removes the long-lived
           # secret from the round-trip.
           use_oidc: true
-          # Point the uploader directly at vitest's lcov output and
-          # skip its multi-language search heuristics — silences the
-          # xcrun / gcov / coverage.py "not installed" warnings that
-          # are irrelevant for a Node/TypeScript project.
-          files: ./coverage/lcov.info
+          # Upload BOTH the lcov rollup AND the v8-native JSON report.
+          # The lcov upload satisfies the basic coverage check; the
+          # JSON carries branch-level detail codecov uses to compute
+          # accurate indirect-changes (without it, codecov reports
+          # phantom regressions on files the PR doesn't touch).
+          # `disable_search: true` skips the multi-language probe that
+          # would otherwise warn about missing xcrun / gcov / coverage.py.
+          files: ./coverage/lcov.info,./coverage/coverage-final.json
           disable_search: true
 
       - name: Upload test results to Codecov (Test Analytics)
