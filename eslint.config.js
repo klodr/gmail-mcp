@@ -5,6 +5,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import promise from "eslint-plugin-promise";
 import importX from "eslint-plugin-import-x";
+import jsonc from "eslint-plugin-jsonc";
 import prettier from "eslint-config-prettier";
 
 const __dirname = import.meta.dirname;
@@ -20,15 +21,37 @@ export default tseslint.config(
       "scripts/",
       "*.mjs",
       "*.config.*",
+      // package-lock.json is npm-managed; linting it would just churn
+      // on every dependency update for no practical benefit.
+      "package-lock.json",
     ],
   },
-  js.configs.recommended,
-  ...tseslint.configs.strictTypeChecked,
-  promise.configs["flat/recommended"],
-  importX.flatConfigs.recommended,
-  importX.flatConfigs.typescript,
+  // Type-aware rules + JS recommended only fire on TS/JS source — the
+  // type-checked tseslint configs require `parserOptions.projectService`
+  // and the TS parser, neither of which can handle `.json` / `.jsonc`.
+  // Keeping this block scoped lets the JSON files fall through to the
+  // jsonc preset below.
+  {
+    files: ["**/*.{ts,mts,cts,tsx,js,mjs,cjs}"],
+    extends: [
+      js.configs.recommended,
+      ...tseslint.configs.strictTypeChecked,
+      promise.configs["flat/recommended"],
+      importX.flatConfigs.recommended,
+      importX.flatConfigs.typescript,
+    ],
+  },
+  // JSON / JSONC / JSON5 linting via eslint-plugin-jsonc — `recommended-with-jsonc`
+  // applies the JSONC parser to plain `.json` too, so trailing commas in tsconfig
+  // and similar tooling files don't trip the strict JSON parser.
+  ...jsonc.configs["flat/recommended-with-jsonc"],
   prettier,
   {
+    // Scope the type-aware project options + project rules to TS source
+    // only — these settings only make sense for files the TS compiler
+    // actually owns. The block above already restricts the rule set
+    // itself; this block scopes the language options accordingly.
+    files: ["**/*.{ts,mts,cts,tsx}"],
     languageOptions: {
       parserOptions: {
         projectService: true,
