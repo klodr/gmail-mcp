@@ -23,9 +23,11 @@ reviews:
   abort_on_close: true
 
   auto_title_instructions: |
-    Use conventional commit format: type(scope): description.
+    Use Conventional Commits format: <type>[(<scope>)]: <subject>.
     Types: feat, fix, docs, ci, chore, refactor, test, perf, build, style, revert.
-    Keep under 72 chars.
+    Scope is optional (e.g. `chore: ...` is valid).
+    Subject must be in imperative mood, lowercase, no trailing period.
+    Cap the entire title (including type and optional scope) at 72 characters.
 
   high_level_summary_instructions: |
     Concise bullet-point list of user-facing changes.
@@ -50,9 +52,11 @@ reviews:
       # blocks non-conforming titles from merging).
       mode: error
       requirements: |
-        Conventional commit format: type(scope): description.
+        Conventional Commits format: <type>[(<scope>)]: <subject>.
         Allowed types: feat, fix, docs, ci, chore, refactor, test, perf, build, style, revert.
-        Scope is optional. Total length ≤ 72 chars.
+        Scope is optional (e.g. `chore: ...` is valid without scope).
+        Subject must be in imperative mood, lowercase, no trailing period.
+        Total title length (including type/scope) must be <= 72 characters.
     # Do not let CodeRabbit's own review satisfy a pending human-reviewer
     # request. If a human is explicitly asked to review, only that human's
     # review counts — the bot cannot auto-approve around them.
