@@ -21,6 +21,7 @@ import path from "node:path";
 import { safeWriteFile } from "./utl.js";
 import { parseEmailAddress, parseEmailAddresses, gmailMessageToJson } from "./email-export.js";
 import { loadCredentials } from "./oauth-flow.js";
+import { toMcpTools, toolDefinitions } from "./tools.js";
 
 describe("safeWriteFile — zero-byte write guard (utl.ts:135-138)", () => {
   let tmpDir: string;
@@ -208,5 +209,21 @@ describe("gmailMessageToJson — invalid-date fallback (email-export.ts:88-92)",
       [],
     );
     expect(out.date).toBe("2027-01-01T12:34:56.000Z");
+  });
+});
+
+describe("toMcpTools — JSON schema projection (tools.ts:1140)", () => {
+  it("maps every tool definition to the MCP wire shape with a JSON-schema inputSchema", () => {
+    const wire = toMcpTools(toolDefinitions);
+    expect(wire).toHaveLength(toolDefinitions.length);
+    // Pin the contract: each entry has a name + description + inputSchema +
+    // annotations. The inputSchema is the JSON-schema projection — must
+    // declare `type: "object"` per the MCP spec.
+    for (const t of wire) {
+      expect(typeof t.name).toBe("string");
+      expect(t.name.length).toBeGreaterThan(0);
+      expect(typeof t.description).toBe("string");
+      expect((t.inputSchema as { type: string }).type).toBe("object");
+    }
   });
 });
