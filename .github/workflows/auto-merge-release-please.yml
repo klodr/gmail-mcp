@@ -9,8 +9,13 @@ name: Auto-merge release-please PR
 # App-token mint live inside the reusable workflow on klodr/.github.
 
 on:
+  # release-please-app keeps the PR perpetually updated as new
+  # conventional-commit PRs land on main — those updates fire
+  # `synchronize`, not `opened`. Re-arming auto-merge on every
+  # event is idempotent (gh pr merge --auto is a no-op if already
+  # armed), so we just listen for everything that mutates the PR.
   pull_request:
-    types: [opened]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: read
