@@ -70,7 +70,13 @@ jobs:
       # failed test runs still upload their JUnit report — that's the
       # case where the flaky-test dashboard is most useful. `!cancelled()`
       # keeps us from pushing phantom results for a cancelled workflow.
+      #
+      # `continue-on-error: true` at the step level catches wrapper /
+      # runtime failures that bypass codecov-action's `fail_ci_if_error`
+      # input — together they make the analytics upload truly best-effort
+      # so a transient codecov outage cannot BLOCK the merge gate.
       - if: ${{ always() && matrix.node == '22' && !cancelled() }}
+        continue-on-error: true
         uses: klodr/.github/.github/actions/codecov-test-analytics@cfc709297722fd29bb9e66a3d0f13529ba4d6295 # main @ 2026-05-10
         with:
           slug: klodr/gmail-mcp
