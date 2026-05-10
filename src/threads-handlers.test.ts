@@ -540,6 +540,140 @@ describe("registerThreadTools — handler-level coverage", () => {
     }
   });
 
+  it("get_inbox_with_threads expandThreads=true: aggregates messages with attachments + body decoding", async () => {
+    // Hits the messages.map branch where each message carries an
+    // attachment (attachments.map projection runs), and one message has
+    // explicit cc/bcc + html body for full header coverage.
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                messages: [
+                  {
+                    id: "m1",
+                    threadId: "T-att",
+                    payload: {
+                      mimeType: "multipart/mixed",
+                      headers: [
+                        { name: "Subject", value: "S1" },
+                        { name: "From", value: "from@example.com" },
+                        { name: "To", value: "to@example.com" },
+                        { name: "Cc", value: "cc@example.com" },
+                        { name: "Bcc", value: "bcc@example.com" },
+                        { name: "Date", value: "Wed, 01 Jan 2025 00:00:00 +0000" },
+                      ],
+                      parts: [
+                        {
+                          mimeType: "text/plain",
+                          body: { data: Buffer.from("body").toString("base64url") },
+                        },
+                        {
+                          filename: "att.pdf",
+                          mimeType: "application/pdf",
+                          body: { attachmentId: "ATT-1", size: 1024 },
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            }),
+          ),
+          list: vi.fn(() =>
+            Promise.resolve({ data: { threads: [{ id: "T-att", snippet: "att" }] } }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: true },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.messageCount).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads expandThreads=true: thread.id/msg.id/msg.threadId fall back to '' when missing", async () => {
+    // Force the `thread.id || ""` (line 311), `msg.id || ""` and
+    // `msg.threadId || ""` (293-294) defaults to fire by responding
+    // with parts that don't include those fields.
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                messages: [
+                  {
+                    // id + threadId deliberately omitted -> the `|| ""`
+                    // defaults fire.
+                    payload: {
+                      headers: [{ name: "Subject", value: "S-bare" }],
+                    },
+                  },
+                ],
+              },
+            }),
+          ),
+          list: vi.fn(() =>
+            Promise.resolve({
+              // thread.id is "" — falsy enough to trip `thread.id || ""`
+              // but defined so the `thread.id!` assertion in get() doesn't crash.
+              data: { threads: [{ id: "", snippet: "" }] },
+            }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: true },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.messageCount).toBe(1);
+      expect(payload.threads?.[0]?.threadId).toBe("");
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads expandThreads=true: threadDetail without messages array falls back to [] (line 271)", async () => {
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          // No messages property in threadDetail.data -> `|| []` fires.
+          get: vi.fn(() => Promise.resolve({ data: {} })),
+          list: vi.fn(() =>
+            Promise.resolve({ data: { threads: [{ id: "t-no-msg", snippet: "no msgs" }] } }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: true },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.messageCount).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
   it("list_inbox_threads: aggregates 3 threads with their latestMessage headers", async () => {
     const buildMsg = (id: string): unknown => ({
       id,
