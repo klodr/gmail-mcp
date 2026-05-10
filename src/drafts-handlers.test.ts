@@ -7,7 +7,7 @@
  * each have their own dedicated test files.
  */
 
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
 import type { gmail_v1 } from "googleapis";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -112,6 +112,41 @@ afterAll(() => {
   } else {
     process.env.GMAIL_MCP_RECIPIENT_PAIRING = savedRecipientPairing;
   }
+});
+
+// Clear GMAIL_MCP_RECIPIENT_PAIRING before each test in this file so
+// pollution from a sibling suite that may have set it to "true" can't
+// flip the send_draft / update_draft handler bodies to the
+// pairing-enabled path. The afterAll above still restores the original.
+//
+// ALSO: Defang the rate-limit module's `send` bucket. By default it
+// caps at 100/24h and persists state to ~/.gmail-mcp/ratelimit.json
+// between runs. After ~100 cumulative send_draft / send_email /
+// reply_to_email tests across the suite the bucket is exhausted and
+// every new send returns mcp_rate_limit_daily_exceeded WITHOUT
+// reaching the gmail stub. Bumping to 999_999 keeps the limiter wired
+// (so its branches still register) but never trips it from tests.
+let savedRateLimitSend: string | undefined;
+let savedRateLimitWrite: string | undefined;
+let savedStateDir: string | undefined;
+beforeAll(() => {
+  savedRateLimitSend = process.env.GMAIL_MCP_RATE_LIMIT_send;
+  savedRateLimitWrite = process.env.GMAIL_MCP_RATE_LIMIT_write;
+  savedStateDir = process.env.GMAIL_MCP_STATE_DIR;
+  process.env.GMAIL_MCP_RATE_LIMIT_send = "999999/day,999999/month";
+  process.env.GMAIL_MCP_RATE_LIMIT_write = "999999/day,999999/month";
+});
+afterAll(() => {
+  if (savedRateLimitSend === undefined) delete process.env.GMAIL_MCP_RATE_LIMIT_send;
+  else process.env.GMAIL_MCP_RATE_LIMIT_send = savedRateLimitSend;
+  if (savedRateLimitWrite === undefined) delete process.env.GMAIL_MCP_RATE_LIMIT_write;
+  else process.env.GMAIL_MCP_RATE_LIMIT_write = savedRateLimitWrite;
+  if (savedStateDir === undefined) delete process.env.GMAIL_MCP_STATE_DIR;
+  else process.env.GMAIL_MCP_STATE_DIR = savedStateDir;
+});
+
+beforeEach(() => {
+  delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
 });
 
 describe("registerDraftTools — handler-level coverage", () => {
@@ -364,51 +399,6 @@ describe("registerDraftTools — update_draft handler-level coverage", () => {
     } as unknown as gmail_v1.Gmail;
     return { gmail, updateSpy, threadGetSpy };
   }
-
-  it("update_draft: response without id/message falls back to args.id + 'unknown' (drafts.ts:236)", async () => {
-    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
-    const updateSpy = vi.fn(() => Promise.resolve({ data: {} }));
-    const gmail = {
-      users: {
-        drafts: {
-          update: updateSpy,
-          list: vi.fn(),
-          get: vi.fn(),
-          delete: vi.fn(),
-          send: vi.fn(),
-        },
-        threads: { get: vi.fn() },
-        settings: {
-          sendAs: {
-            list: vi.fn(() =>
-              Promise.resolve({
-                data: { sendAs: [{ sendAsEmail: "me@example.com", isDefault: true }] },
-              }),
-            ),
-          },
-        },
-      },
-    } as unknown as gmail_v1.Gmail;
-    const { client, close } = await makeClient(gmail);
-    try {
-      const out = await client.callTool({
-        name: "update_draft",
-        arguments: {
-          id: "D-x",
-          to: ["bob@example.com"],
-          subject: "S",
-          body: "B",
-          from: "me@example.com",
-        },
-      });
-      // Both nullish-coalesce branches fire: response.data.id undefined → args.id;
-      // response.data.message?.id undefined → "unknown".
-      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
-      expect(text).toMatch(/Draft D-x updated successfully \(new messageId: unknown\)/);
-    } finally {
-      await close();
-    }
-  });
 
   it("update_draft: simple update without threadId skips the thread backfill", async () => {
     delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;

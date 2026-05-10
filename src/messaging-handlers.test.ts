@@ -10,11 +10,39 @@
  * src/tools/registrars.test.ts and src/email-send.test.ts.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
 import type { gmail_v1 } from "googleapis";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "./server.js";
+
+// Defang rate-limit `send` bucket. Default cap is 100/24h with state
+// persisted to ~/.gmail-mcp/ratelimit.json across runs — once the
+// bucket is exhausted by cumulative reply_to_email / reply_all /
+// forward_email tests the next send returns mcp_rate_limit_daily_exceeded
+// without ever calling the gmail stub. Bumping to 999_999 keeps the
+// limiter wired but never trips it.
+let savedRateLimitSend: string | undefined;
+let savedRateLimitWrite: string | undefined;
+beforeAll(() => {
+  savedRateLimitSend = process.env.GMAIL_MCP_RATE_LIMIT_send;
+  savedRateLimitWrite = process.env.GMAIL_MCP_RATE_LIMIT_write;
+  process.env.GMAIL_MCP_RATE_LIMIT_send = "999999/day,999999/month";
+  process.env.GMAIL_MCP_RATE_LIMIT_write = "999999/day,999999/month";
+});
+afterAll(() => {
+  if (savedRateLimitSend === undefined) delete process.env.GMAIL_MCP_RATE_LIMIT_send;
+  else process.env.GMAIL_MCP_RATE_LIMIT_send = savedRateLimitSend;
+  if (savedRateLimitWrite === undefined) delete process.env.GMAIL_MCP_RATE_LIMIT_write;
+  else process.env.GMAIL_MCP_RATE_LIMIT_write = savedRateLimitWrite;
+});
+
+// Clear pairing env before each test — reply_all routes through
+// requirePairedRecipients which bails with isError when pairing is
+// enabled but no allowlist is configured.
+beforeEach(() => {
+  delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+});
 
 interface Header {
   name: string;
