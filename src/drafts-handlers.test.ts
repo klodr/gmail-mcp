@@ -240,6 +240,20 @@ describe("registerDraftTools — handler-level coverage", () => {
     }
   });
 
+  it("get_draft: forwards Zod-defaulted format='full' when caller omits it (drafts.ts:110)", async () => {
+    const { gmail, getSpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      await client.callTool({ name: "get_draft", arguments: { id: "D-x" } });
+      const call = getSpy.mock.calls[0]?.[0] as { format?: string };
+      // Zod's `.default("full")` populates the field at parse time, so
+      // the API gets the default explicitly rather than undefined.
+      expect(call.format).toBe("full");
+    } finally {
+      await close();
+    }
+  });
+
   it("get_draft: returns the API error envelope when the Gmail call rejects", async () => {
     const erroring = {
       users: {
