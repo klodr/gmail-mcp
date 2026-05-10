@@ -213,6 +213,85 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
   });
 });
 
+describe("registerMessagingTools — reply_all handler-level coverage", () => {
+  it("reply_all builds To from From + Cc list (excluding self), succeeds", async () => {
+    // reply_all branches: builds replyTo from From, replyCc from To+Cc minus self.
+    // Hits messaging.ts:189-211 (the construct + return + cc.length > 0 branch).
+    const { gmail, sendSpy } = makeMockGmail([
+      { name: "From", value: "alice@example.com" },
+      { name: "To", value: "me@example.com, charlie@example.com" },
+      { name: "Cc", value: "dave@example.com" },
+      { name: "Subject", value: "All-hands" },
+      { name: "Message-ID", value: "<all-hands@example.com>" },
+    ]);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_all",
+        arguments: { messageId: "M-ra", body: "everyone, here is my reply" },
+      });
+      expect(sendSpy).toHaveBeenCalledOnce();
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toContain("Reply-all sent successfully!");
+      expect(text).toContain("To: alice@example.com");
+      // CC includes the original Cc + remaining To minus self
+      // (CC: charlie + dave). The exact format is implementation detail
+      // but both must appear when replyCc.length > 0.
+      expect(text).toMatch(/CC:.*charlie@example\.com/);
+      expect(text).toMatch(/CC:.*dave@example\.com/);
+      expect(text).toContain("Subject: Re: All-hands");
+    } finally {
+      await close();
+    }
+  });
+
+  it("reply_all with no recipients to broadcast omits CC line in success text", async () => {
+    // Source has only From: alice + To: me. After dedup of `me`, replyCc is [].
+    // The `replyCc.length > 0 ? ... : undefined` ternary on emailArgs.cc takes
+    // the false branch, AND the success-text Cc segment is skipped (210).
+    const { gmail } = makeMockGmail([
+      { name: "From", value: "alice@example.com" },
+      { name: "To", value: "me@example.com" },
+      { name: "Subject", value: "Solo" },
+      { name: "Message-ID", value: "<solo@example.com>" },
+    ]);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_all",
+        arguments: { messageId: "M-solo", body: "ack" },
+      });
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toContain("Reply-all sent successfully!");
+      expect(text).not.toContain("CC:");
+    } finally {
+      await close();
+    }
+  });
+
+  it("reply_all throws when no recipient can be determined", async () => {
+    // No From / To / Cc → buildReplyAllRecipients returns to=[].
+    // The `if (replyTo.length === 0) throw` branch fires.
+    const { gmail } = makeMockGmail([
+      { name: "Subject", value: "Headerless reply-all" },
+      { name: "Message-ID", value: "<noh@example.com>" },
+    ]);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_all",
+        arguments: { messageId: "M-empty", body: "x" },
+      });
+      expect(out.isError).toBe(true);
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
+        /Could not determine recipient for reply/,
+      );
+    } finally {
+      await close();
+    }
+  });
+});
+
 describe("registerMessagingTools — forward_email", () => {
   it("forwards a message with To only and reports success text", async () => {
     const { gmail, sendSpy } = makeMockGmail([
