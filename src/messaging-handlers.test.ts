@@ -166,6 +166,51 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       await close();
     }
   });
+
+  it("fails with the multi-Sender error when Sender has 2+ mailboxes (no Reply-To)", async () => {
+    const { gmail } = makeMockGmail([
+      { name: "From", value: "alice@example.com" },
+      { name: "Sender", value: "shared-a@example.com, shared-b@example.com" },
+      { name: "Subject", value: "Ambiguous Sender" },
+      { name: "Message-ID", value: "<as@example.com>" },
+    ]);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_to_email",
+        arguments: { messageId: "M-ms", body: "ignored" },
+      });
+      expect(out.isError).toBe(true);
+      // The 275-276 reason branch — multi-mailbox Sender header.
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
+        /multiple Sender: mailboxes/,
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it("fails with the multi-From error when From has 2+ mailboxes and no Reply-To/Sender disambiguator", async () => {
+    const { gmail } = makeMockGmail([
+      { name: "From", value: "alice@example.com, bob@example.com" },
+      { name: "Subject", value: "Co-authored no Sender" },
+      { name: "Message-ID", value: "<mf@example.com>" },
+    ]);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_to_email",
+        arguments: { messageId: "M-mf", body: "ignored" },
+      });
+      expect(out.isError).toBe(true);
+      // The 279 reason branch — multi-From with no Reply-To / Sender disambiguator.
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
+        /multiple From: mailboxes/,
+      );
+    } finally {
+      await close();
+    }
+  });
 });
 
 describe("registerMessagingTools — forward_email", () => {

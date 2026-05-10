@@ -311,4 +311,39 @@ describe("registerMessageTools — handler-level coverage", () => {
       await close();
     }
   });
+
+  it("batch_modify_emails: surfaces per-id failures with the truncated-id list", async () => {
+    // Reject every modify call to force the failure-rendering branch.
+    const modifySpy = vi.fn(() => Promise.reject(new Error("simulated modify failure")));
+    const gmail = {
+      users: {
+        messages: {
+          delete: vi.fn(),
+          get: vi.fn(),
+          list: vi.fn(),
+          modify: modifySpy,
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "batch_modify_emails",
+        arguments: {
+          messageIds: ["aaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb"],
+          addLabelIds: ["X"],
+        },
+      });
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      // The 230-238 failure branch must render: "Failed to process: N"
+      // + "Failed message IDs:" + the truncated id list.
+      expect(text).toMatch(/Failed to process: 2/);
+      expect(text).toContain("Failed message IDs");
+      expect(text).toContain("simulated modify failure");
+      // 16-char truncation prefix should appear with the "..." suffix.
+      expect(text).toMatch(/aaaaaaaaaaaaaaaa\.\.\./);
+    } finally {
+      await close();
+    }
+  });
 });
