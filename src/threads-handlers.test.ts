@@ -268,4 +268,146 @@ describe("registerThreadTools — handler-level coverage", () => {
       await close();
     }
   });
+
+  it("get_thread: handles a message with a missing payload (optional-chain branches)", async () => {
+    // Force the `msg.payload?.headers` and `(msg.payload as ...) || {}`
+    // and `msg.payload ? collectAttachmentsForThread(...) : []` branches
+    // to all take the false / fallback path simultaneously.
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                messages: [
+                  {
+                    id: "m-bare",
+                    threadId: "t-bare",
+                    labelIds: ["INBOX"],
+                    // payload deliberately omitted.
+                  },
+                ],
+              },
+            }),
+          ),
+          list: vi.fn(),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_thread",
+        arguments: { threadId: "t-bare" },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threadId).toBe("t-bare");
+      expect(payload.messageCount).toBe(1);
+      // Empty headers map to "" via getH; body falls back to "" via the
+      // pickBodyAnnotated of an empty extractEmailContent result.
+      expect(payload.messages?.[0]?.subject).toBe("");
+    } finally {
+      await close();
+    }
+  });
+
+  it("list_inbox_threads: handles a thread whose detail.data.messages is empty (latestMessage undefined)", async () => {
+    // Force the `latestMessage?.payload?.headers` optional chain to take
+    // the undefined path. The summary still emits "" for from/subject/date.
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() =>
+            Promise.resolve({
+              // No messages -> latestMessage = undefined -> headers branch
+              // hits the optional-chain fallback.
+              data: { messages: [] },
+            }),
+          ),
+          list: vi.fn(() =>
+            Promise.resolve({
+              data: { threads: [{ id: "t-empty", snippet: "snip", historyId: "h0" }] },
+            }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "list_inbox_threads",
+        arguments: {},
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.resultCount).toBe(1);
+      expect(payload.threads?.[0]?.messageCount).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads expandThreads=false: handles empty messages list (latestMessage undefined)", async () => {
+    // Same shape as above but for the no-expand summary path so the
+    // 230-258 branch family also gets the empty-thread treatment.
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() => Promise.resolve({ data: { messages: [] } })),
+          list: vi.fn(() =>
+            Promise.resolve({
+              data: { threads: [{ id: "t-x", snippet: "x", historyId: "hx" }] },
+            }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: false },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.messageCount).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
+  it("get_inbox_with_threads expandThreads=true: handles a message with no payload (every fallback fires)", async () => {
+    // Expand path with a payload-less message — exercises the optional
+    // chain on payload?.headers AND the `msg.payload ? ... : []`
+    // attachments branch in the false direction.
+    const gmail = {
+      users: {
+        threads: {
+          modify: vi.fn(),
+          get: vi.fn(() =>
+            Promise.resolve({
+              data: {
+                messages: [{ id: "m-bare", threadId: "t-bare", labelIds: [] }],
+              },
+            }),
+          ),
+          list: vi.fn(() =>
+            Promise.resolve({ data: { threads: [{ id: "t-bare", snippet: "" }] } }),
+          ),
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "get_inbox_with_threads",
+        arguments: { expandThreads: true },
+      });
+      const payload = parseTextPayload(out as { content: Array<{ type: string; text?: string }> });
+      expect(payload.threads?.[0]?.messageCount).toBe(1);
+    } finally {
+      await close();
+    }
+  });
 });
