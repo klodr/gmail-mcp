@@ -98,6 +98,14 @@ jobs:
         with:
           client-id: ${{ secrets.RELEASE_PLEASE_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          # Scope the minted token to the strict set release-please needs
+          # (per googleapis/release-please-action docs). Without these,
+          # the token inherits every permission granted to the app
+          # installation — too broad for a workflow whose only job is
+          # opening release PRs and tagging releases.
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: release-please
         if: github.event_name == 'workflow_dispatch' || steps.checks-gate.outputs.ready == 'true'
