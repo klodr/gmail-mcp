@@ -23,11 +23,13 @@ updates:
       production-dependencies:
         dependency-type: "production"
     commit-message:
-      # No `include: "scope"` — it would duplicate the type in the
-      # prefix ("deps(deps): …" / "deps-dev(deps-dev): …") since we
-      # already encode prod vs dev in `prefix` / `prefix-development`.
-      prefix: "deps"
-      prefix-development: "deps-dev"
+      # Conventional Commits: type=chore, scope=deps|deps-dev. The pre-merge
+      # title check enforces the type vocabulary (feat/fix/docs/chore/refactor/
+      # test/ci/build/perf/revert) — `deps:` and `deps-dev:` are not in the
+      # allowed list. No `include: "scope"`: it would chain the package name
+      # as a second scope ("chore(deps)(react): …"), which the linter rejects.
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
 
   - package-ecosystem: "github-actions"
     directory: "/"
