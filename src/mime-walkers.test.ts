@@ -169,3 +169,122 @@ describe("collectAttachmentsForThread depth cap", () => {
     ).not.toThrow();
   });
 });
+
+describe("extractEmailContent — text/html branch + ignored mimeTypes", () => {
+  it("decodes a top-level text/html body", () => {
+    // Hits the `else if (messagePart.mimeType === 'text/html')` arm.
+    const part = {
+      mimeType: "text/html",
+      body: { data: Buffer.from("<p>hello</p>", "utf8").toString("base64") },
+    };
+    const out = extractEmailContent(part);
+    expect(out.html).toBe("<p>hello</p>");
+    expect(out.text).toBe("");
+  });
+
+  it("returns empty content when the mimeType is neither text/plain nor text/html", () => {
+    // Both `if` arms fall through silently — the body's bytes get
+    // decoded but neither textContent nor htmlContent collects them.
+    const part = {
+      mimeType: "application/octet-stream",
+      body: { data: Buffer.from("ignored", "utf8").toString("base64") },
+    };
+    const out = extractEmailContent(part);
+    expect(out.text).toBe("");
+    expect(out.html).toBe("");
+  });
+
+  it("returns empty content when the body has no data field", () => {
+    // Skips the entire `if (messagePart.body && messagePart.body.data)`
+    // block via the right-hand falsy.
+    const out = extractEmailContent({ mimeType: "text/plain", body: {} });
+    expect(out.text).toBe("");
+    expect(out.html).toBe("");
+  });
+
+  it("aggregates text + html from nested parts (depth-1 recursion)", () => {
+    const root = {
+      mimeType: "multipart/alternative",
+      parts: [
+        { mimeType: "text/plain", body: { data: Buffer.from("PLAIN", "utf8").toString("base64") } },
+        {
+          mimeType: "text/html",
+          body: { data: Buffer.from("<b>HTML</b>", "utf8").toString("base64") },
+        },
+      ],
+    };
+    const out = extractEmailContent(root);
+    expect(out.text).toBe("PLAIN");
+    expect(out.html).toBe("<b>HTML</b>");
+  });
+});
+
+describe("extractAttachments — fallback defaults (filename / mimeType / size)", () => {
+  it("uses 'attachment-{id}' when filename is missing", () => {
+    const payload = {
+      mimeType: "multipart/mixed",
+      parts: [{ body: { attachmentId: "att-X", size: 1024 } }],
+    };
+    const out = extractAttachments(payload);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.filename).toBe("attachment-att-X");
+    expect(out[0]?.mimeType).toBe("application/octet-stream");
+    expect(out[0]?.size).toBe(1024);
+  });
+
+  it("uses size=0 when the body's size field is missing", () => {
+    const payload = {
+      mimeType: "multipart/mixed",
+      parts: [
+        {
+          filename: "doc.pdf",
+          mimeType: "application/pdf",
+          body: { attachmentId: "att-Y" },
+        },
+      ],
+    };
+    const out = extractAttachments(payload);
+    expect(out[0]?.size).toBe(0);
+  });
+
+  it("returns [] when the payload has no attachment-bearing parts", () => {
+    expect(extractAttachments({ mimeType: "text/plain", body: { data: "abc" } })).toEqual([]);
+  });
+});
+
+describe("collectAttachmentsForThread — fallback defaults (parallels extractAttachments)", () => {
+  it("uses 'attachment-{id}' / application/octet-stream / size=0 fallbacks", () => {
+    const payload = {
+      mimeType: "multipart/mixed",
+      parts: [{ body: { attachmentId: "att-Z" } }],
+    };
+    const out = collectAttachmentsForThread(payload, "test.walker");
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({
+      id: "att-Z",
+      filename: "attachment-att-Z",
+      mimeType: "application/octet-stream",
+      size: 0,
+    });
+  });
+
+  it("preserves explicit filename/mimeType/size when provided", () => {
+    const payload = {
+      mimeType: "multipart/mixed",
+      parts: [
+        {
+          filename: "report.csv",
+          mimeType: "text/csv",
+          body: { attachmentId: "att-K", size: 2048 },
+        },
+      ],
+    };
+    const out = collectAttachmentsForThread(payload, "test.walker");
+    expect(out[0]).toEqual({
+      id: "att-K",
+      filename: "report.csv",
+      mimeType: "text/csv",
+      size: 2048,
+    });
+  });
+});

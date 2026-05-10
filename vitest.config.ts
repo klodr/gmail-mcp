@@ -10,6 +10,15 @@ export default defineConfig({
     // absent from `package.json#files`, so it never ships to npm.
     reporters: ["default", ["junit", { outputFile: "test-results.junit.xml" }]],
     coverage: {
+      provider: "v8",
+      // `lcov` for codecov-action's primary upload; `json` (v8 native)
+      // carries the full branch + statement detail that codecov needs
+      // to compute indirect-changes accurately — without it, codecov
+      // sees only the lcov rollup and reports phantom regressions on
+      // files the PR doesn't touch (it has no branch-level diff to
+      // compare against, so it falls back to a coarser delta).
+      // `text` keeps the human-readable per-file summary in CI logs.
+      reporter: ["text", "lcov", "json"],
       // Include every source file so untested ones show as 0% rather
       // than being silently omitted from the report. v8 coverage
       // otherwise hides files that no test imports, which makes it

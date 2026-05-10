@@ -138,6 +138,77 @@ describe("sendOrDraftEmail — no attachments path", () => {
 // coverage. The dispatcher-level integration is best validated end-to-end
 // once the McpServer factory lands (PR #2 in the v1.0.0 plan).
 
+describe("sendOrDraftEmail — thread-header auto-resolve edge cases", () => {
+  beforeEach(() => {
+    _resetDefaultSenderCache();
+  });
+
+  it("when the thread has zero messages, no inReplyTo / references are backfilled", async () => {
+    // threadResponse.data.messages is [] — `if (threadMessages.length > 0)`
+    // takes the false branch. The send still proceeds without threading
+    // headers (degraded but not broken).
+    const { client, calls } = mockGmail({ threadGet: { messages: [] } });
+    await sendOrDraftEmail(
+      client,
+      "send",
+      baseArgs({ from: "me@example.com", threadId: "T-empty" }),
+    );
+    expect(calls.threadGet).toHaveLength(1);
+    const sendCall = calls.messageSend[0] as { requestBody: { raw?: string } };
+    const raw = Buffer.from(sendCall.requestBody.raw ?? "", "base64").toString("utf8");
+    expect(raw).not.toMatch(/In-Reply-To:/i);
+    expect(raw).not.toMatch(/References:/i);
+  });
+
+  it("when no thread message exposes a Message-ID header, no threading headers leak through", async () => {
+    // Every msg.payload.headers is present but has no `Message-ID` —
+    // the `messageIdHeader?.value` chain returns undefined for all,
+    // so `allMessageIds` stays []. The two `if` guards (lastMessageId
+    // / allMessageIds.length > 0) both take the false branch.
+    const { client, calls } = mockGmail({
+      threadGet: {
+        messages: [
+          { payload: { headers: [{ name: "Subject", value: "S1" }] } },
+          { payload: { headers: [{ name: "Subject", value: "S2" }] } },
+        ],
+      },
+    });
+    await sendOrDraftEmail(
+      client,
+      "send",
+      baseArgs({ from: "me@example.com", threadId: "T-no-msgid" }),
+    );
+    expect(calls.threadGet).toHaveLength(1);
+    const sendCall = calls.messageSend[0] as { requestBody: { raw?: string } };
+    const raw = Buffer.from(sendCall.requestBody.raw ?? "", "base64").toString("utf8");
+    expect(raw).not.toMatch(/In-Reply-To:/i);
+    expect(raw).not.toMatch(/References:/i);
+  });
+
+  it("when a thread message has no payload.headers, the optional chain falls back to []", async () => {
+    // msg.payload?.headers is undefined for the first message; the
+    // `|| []` fallback fires. The second message provides a valid
+    // Message-ID so the encode still produces threading headers.
+    const { client, calls } = mockGmail({
+      threadGet: {
+        messages: [
+          {} as { payload?: { headers?: Array<{ name: string; value: string }> } },
+          { payload: { headers: [{ name: "Message-ID", value: "<only@example.com>" }] } },
+        ],
+      },
+    });
+    await sendOrDraftEmail(
+      client,
+      "send",
+      baseArgs({ from: "me@example.com", threadId: "T-mixed" }),
+    );
+    const sendCall = calls.messageSend[0] as { requestBody: { raw?: string } };
+    const raw = Buffer.from(sendCall.requestBody.raw ?? "", "base64").toString("utf8");
+    expect(raw).toMatch(/In-Reply-To:\s*<only@example\.com>/i);
+    expect(raw).toMatch(/References:\s*<only@example\.com>/i);
+  });
+});
+
 describe("sendOrDraftEmail — thread-header auto-resolve", () => {
   beforeEach(() => {
     _resetDefaultSenderCache();

@@ -77,6 +77,14 @@ jobs:
         if: matrix.node == '22'
         run: npm run test:coverage
 
+      # Pre-mark the Codecov signing key as ultimate-trust so the
+      # subsequent `gpg --verify` inside codecov-action stops emitting
+      # "WARNING: This key is not certified with a trusted signature!".
+      # Cosmetic but misleading on a supply-chain audit log.
+      - name: Pre-trust Codecov GPG signing key
+        if: matrix.node == '22'
+        run: echo "27034E7FDB850E0BBC2C62FF806BB28AED779869:6:" | gpg --import-ownertrust
+
       - name: Upload coverage to Codecov
         if: matrix.node == '22'
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
@@ -88,6 +96,15 @@ jobs:
           # still scoped per-upload; OIDC just removes the long-lived
           # secret from the round-trip.
           use_oidc: true
+          # Upload BOTH the lcov rollup AND the v8-native JSON report.
+          # The lcov upload satisfies the basic coverage check; the
+          # JSON carries branch-level detail codecov uses to compute
+          # accurate indirect-changes (without it, codecov reports
+          # phantom regressions on files the PR doesn't touch).
+          # `disable_search: true` skips the multi-language probe that
+          # would otherwise warn about missing xcrun / gcov / coverage.py.
+          files: ./coverage/lcov.info,./coverage/coverage-final.json
+          disable_search: true
 
       - name: Upload test results to Codecov (Test Analytics)
         # Explicit `always()` bypasses the implicit `success()` check so
@@ -102,3 +119,4 @@ jobs:
           fail_ci_if_error: false
           slug: klodr/gmail-mcp
           use_oidc: true
+          disable_search: true
