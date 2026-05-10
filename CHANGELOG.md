@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7](https://github.com/klodr/gmail-mcp/compare/v1.1.6...v1.1.7) (2026-05-10)
+
+
+### Changed
+
+* add eslint-plugin-jsonc for JSON file linting ([#149](https://github.com/klodr/gmail-mcp/issues/149)) ([b210703](https://github.com/klodr/gmail-mcp/commit/b210703ccfe74e7b1e47e887534631cef5b4ac67))
+
 ## [1.1.6](https://github.com/klodr/gmail-mcp/compare/v1.1.5...v1.1.6) (2026-05-10)
 
 
