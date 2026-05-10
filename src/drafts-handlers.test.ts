@@ -7,7 +7,7 @@
  * each have their own dedicated test files.
  */
 
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { gmail_v1 } from "googleapis";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -96,57 +96,27 @@ function textOf(out: { content: Array<{ type: string; text?: string }> }): strin
   return out.content.find((c) => c.type === "text")?.text ?? "";
 }
 
-// Save/restore GMAIL_MCP_RECIPIENT_PAIRING across all tests in this
-// file. Several tests below `delete process.env.GMAIL_MCP_RECIPIENT_PAIRING`
-// to exercise the pairing-disabled short-circuit; without this guard
-// the deletion bleeds into sibling test files (vitest fileParallelism
-// defaults to true but the env is per-process so any in-process suite
-// scheduled later sees the wrong value). Snapshot once, restore once.
-let savedRecipientPairing: string | undefined;
-beforeAll(() => {
-  savedRecipientPairing = process.env.GMAIL_MCP_RECIPIENT_PAIRING;
-});
-afterAll(() => {
-  if (savedRecipientPairing === undefined) {
-    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
-  } else {
-    process.env.GMAIL_MCP_RECIPIENT_PAIRING = savedRecipientPairing;
-  }
-});
-
-// Clear GMAIL_MCP_RECIPIENT_PAIRING before each test in this file so
-// pollution from a sibling suite that may have set it to "true" can't
-// flip the send_draft / update_draft handler bodies to the
-// pairing-enabled path. The afterAll above still restores the original.
+// Use vi.stubEnv (vitest 2.x+) so each per-test mutation is scope-
+// managed and auto-reverted by `vi.unstubAllEnvs()` in afterEach.
+// This avoids the file-parallel race that the bare `process.env.X = ...`
+// + beforeAll/afterAll pattern would create — vi.stubEnv stubs are
+// tracked per worker and reverted cleanly regardless of test order.
 //
-// ALSO: Defang the rate-limit module's `send` bucket. By default it
-// caps at 100/24h and persists state to ~/.gmail-mcp/ratelimit.json
-// between runs. After ~100 cumulative send_draft / send_email /
-// reply_to_email tests across the suite the bucket is exhausted and
-// every new send returns mcp_rate_limit_daily_exceeded WITHOUT
-// reaching the gmail stub. Bumping to 999_999 keeps the limiter wired
-// (so its branches still register) but never trips it from tests.
-let savedRateLimitSend: string | undefined;
-let savedRateLimitWrite: string | undefined;
-let savedStateDir: string | undefined;
-beforeAll(() => {
-  savedRateLimitSend = process.env.GMAIL_MCP_RATE_LIMIT_send;
-  savedRateLimitWrite = process.env.GMAIL_MCP_RATE_LIMIT_write;
-  savedStateDir = process.env.GMAIL_MCP_STATE_DIR;
-  process.env.GMAIL_MCP_RATE_LIMIT_send = "999999/day,999999/month";
-  process.env.GMAIL_MCP_RATE_LIMIT_write = "999999/day,999999/month";
-});
-afterAll(() => {
-  if (savedRateLimitSend === undefined) delete process.env.GMAIL_MCP_RATE_LIMIT_send;
-  else process.env.GMAIL_MCP_RATE_LIMIT_send = savedRateLimitSend;
-  if (savedRateLimitWrite === undefined) delete process.env.GMAIL_MCP_RATE_LIMIT_write;
-  else process.env.GMAIL_MCP_RATE_LIMIT_write = savedRateLimitWrite;
-  if (savedStateDir === undefined) delete process.env.GMAIL_MCP_STATE_DIR;
-  else process.env.GMAIL_MCP_STATE_DIR = savedStateDir;
+// Two reasons to stub here:
+//   1. GMAIL_MCP_RECIPIENT_PAIRING — must be unset so send_draft /
+//      update_draft hit the pairing-disabled path.
+//   2. GMAIL_MCP_RATE_LIMIT_send / _write — defang the persistent
+//      ~/.gmail-mcp/ratelimit.json bucket so the cumulative
+//      send_draft / send_email / reply_to_email tests don't trip
+//      `mcp_rate_limit_daily_exceeded` after ~100 tests.
+beforeEach(() => {
+  vi.stubEnv("GMAIL_MCP_RECIPIENT_PAIRING", "");
+  vi.stubEnv("GMAIL_MCP_RATE_LIMIT_send", "999999/day,999999/month");
+  vi.stubEnv("GMAIL_MCP_RATE_LIMIT_write", "999999/day,999999/month");
 });
 
-beforeEach(() => {
-  delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("registerDraftTools — handler-level coverage", () => {
@@ -319,7 +289,6 @@ describe("registerDraftTools — handler-level coverage", () => {
   });
 
   it("send_draft: skips the pairing pre-flight when GMAIL_MCP_RECIPIENT_PAIRING is unset", async () => {
-    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     const { gmail, getSpy, sendSpy } = makeMockGmail();
     const { client, close } = await makeClient(gmail);
     try {
@@ -343,7 +312,7 @@ describe("registerDraftTools — handler-level coverage", () => {
     // requirePairedRecipients which throws on unallowed recipients).
     // We expect the call to fail because the test draft contains a
     // bcc address that's not in the empty allowlist.
-    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    vi.stubEnv("GMAIL_MCP_RECIPIENT_PAIRING", "true");
     const { gmail } = makeMockGmail();
     // Override get to return a full draft with multiple recipients.
     (gmail.users.drafts as { get: ReturnType<typeof vi.fn> }).get = vi.fn(() =>
@@ -455,7 +424,6 @@ describe("registerDraftTools — update_draft handler-level coverage", () => {
   }
 
   it("update_draft: simple update without threadId skips the thread backfill", async () => {
-    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     const { gmail, updateSpy, threadGetSpy } = makeUpdateMockGmail();
     const { client, close } = await makeClient(gmail);
     try {
@@ -480,7 +448,6 @@ describe("registerDraftTools — update_draft handler-level coverage", () => {
   });
 
   it("update_draft: with threadId backfills In-Reply-To + References from the thread", async () => {
-    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     const { gmail, threadGetSpy } = makeUpdateMockGmail({
       threadMessages: [
         {
@@ -517,7 +484,6 @@ describe("registerDraftTools — update_draft handler-level coverage", () => {
   });
 
   it("update_draft: thread.get failure logs a warning and proceeds in degraded mode", async () => {
-    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     const { gmail, updateSpy } = makeUpdateMockGmail({ threadGetThrows: true });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       /* swallow */
@@ -546,7 +512,6 @@ describe("registerDraftTools — update_draft handler-level coverage", () => {
   });
 
   it("update_draft: surfaces Gmail API errors via the shared error envelope", async () => {
-    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
     const erroring = {
       users: {
         drafts: {

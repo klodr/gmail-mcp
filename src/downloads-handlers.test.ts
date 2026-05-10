@@ -6,7 +6,7 @@
  * branches that the helper-level suite cannot reach.
  */
 
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -84,25 +84,26 @@ function textOf(out: { content: Array<{ type: string; text?: string }> }): strin
 
 describe("download_attachment — handler-level coverage", () => {
   let tmpDir: string;
-  let savedDownloadDir: string | undefined;
 
   beforeAll(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmail-dl-"));
-    // The download jail check rejects any savePath outside the
-    // configured download dir. Set once for the whole file (env vars
-    // are process-scope so per-test mutation would race under
-    // vitest's default file-parallel runner).
-    savedDownloadDir = process.env.GMAIL_MCP_DOWNLOAD_DIR;
-    process.env.GMAIL_MCP_DOWNLOAD_DIR = tmpDir;
   });
 
   afterAll(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    if (savedDownloadDir === undefined) {
-      delete process.env.GMAIL_MCP_DOWNLOAD_DIR;
-    } else {
-      process.env.GMAIL_MCP_DOWNLOAD_DIR = savedDownloadDir;
-    }
+  });
+
+  // Vitest's `vi.stubEnv` is scope-managed: the env mutation is
+  // tracked per test and `vi.unstubAllEnvs()` in afterEach cleanly
+  // reverts every stub regardless of order. This avoids the
+  // file-parallel race of bare `process.env.X = ...` because each
+  // worker only sees its own stubbed value within the test.
+  beforeEach(() => {
+    vi.stubEnv("GMAIL_MCP_DOWNLOAD_DIR", tmpDir);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("uses the supplied filename and writes the attachment bytes to savePath", async () => {
