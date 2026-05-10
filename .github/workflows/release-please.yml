@@ -70,7 +70,7 @@ jobs:
       - name: Gate until all required upstream workflows succeeded for this SHA
         id: checks-gate
         if: github.event_name == 'workflow_run'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.0.1
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
         with:
           script: |
             const required = ["CI", "CodeQL Advanced", "Docker build"];
@@ -96,7 +96,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || steps.checks-gate.outputs.ready == 'true'
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
-          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          client-id: ${{ secrets.RELEASE_PLEASE_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
 
       - name: release-please
