@@ -1,0 +1,23 @@
+name: Auto-merge release-please PR
+
+# Arms `--squash --auto --delete-branch` on the perpetually-updated PR
+# opened by release-please-app[bot]. Once required CI checks go green
+# the PR self-merges, which fires release.yml downstream (signed
+# artifact + npm publish with provenance).
+#
+# Caller is intentionally minimal — the filter on the bot login and the
+# App-token mint live inside the reusable workflow on klodr/.github.
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  call:
+    uses: klodr/.github/.github/workflows/reusable-auto-merge-release-please.yml@a44b6ecf0876fde506bbf289b69a3da1efc5f5d1
+    secrets:
+      RELEASE_PLEASE_CLIENT_ID: ${{ secrets.RELEASE_PLEASE_CLIENT_ID }}
+      RELEASE_PLEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
