@@ -330,7 +330,7 @@ describe("registerDraftTools — handler-level coverage", () => {
     // We expect the call to fail because the test draft contains a
     // bcc address that's not in the empty allowlist.
     process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
-    const { gmail, getSpy } = makeMockGmail();
+    const { gmail } = makeMockGmail();
     // Override get to return a full draft with multiple recipients.
     (gmail.users.drafts as { get: ReturnType<typeof vi.fn> }).get = vi.fn(() =>
       Promise.resolve({
