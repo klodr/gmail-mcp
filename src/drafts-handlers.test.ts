@@ -7,7 +7,7 @@
  * each have their own dedicated test files.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import type { gmail_v1 } from "googleapis";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -95,6 +95,24 @@ async function makeClient(gmail: gmail_v1.Gmail): Promise<{
 function textOf(out: { content: Array<{ type: string; text?: string }> }): string {
   return out.content.find((c) => c.type === "text")?.text ?? "";
 }
+
+// Save/restore GMAIL_MCP_RECIPIENT_PAIRING across all tests in this
+// file. Several tests below `delete process.env.GMAIL_MCP_RECIPIENT_PAIRING`
+// to exercise the pairing-disabled short-circuit; without this guard
+// the deletion bleeds into sibling test files (vitest fileParallelism
+// defaults to true but the env is per-process so any in-process suite
+// scheduled later sees the wrong value). Snapshot once, restore once.
+let savedRecipientPairing: string | undefined;
+beforeAll(() => {
+  savedRecipientPairing = process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+});
+afterAll(() => {
+  if (savedRecipientPairing === undefined) {
+    delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+  } else {
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = savedRecipientPairing;
+  }
+});
 
 describe("registerDraftTools — handler-level coverage", () => {
   it("list_drafts: forwards pagination + query + includeSpamTrash", async () => {
