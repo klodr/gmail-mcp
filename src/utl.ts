@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { randomBytes } from "crypto";
 import emailAddresses from "email-addresses";
-import nodemailer from "nodemailer";
+import { createTransport } from "nodemailer";
 
 // Env-var names for the two jails. Hoisted to constants so a future
 // rename is a single-line change and the names cannot drift between
@@ -541,7 +541,7 @@ export async function createEmailWithNodemailer(
   });
 
   // Create a nodemailer transporter (we won't actually send, just generate the message)
-  const transporter = nodemailer.createTransport({
+  const transporter = createTransport({
     streamTransport: true,
     newline: "unix",
     buffer: true,
