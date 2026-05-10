@@ -128,11 +128,11 @@ For every new commit being pushed:
 
 Then once per push:
 
-3. `npm run format:check`
-4. `npm run lint`
-5. `npm run typecheck`
-6. `npm run test`
-7. `npm audit --audit-level=high`
+1. `npm run format:check`
+2. `npm run lint`
+3. `npm run typecheck`
+4. `npm run test`
+5. `npm audit --audit-level=high`
 
 Bypass with `git push --no-verify` only when the hook itself is wrong
 (rare). The bypass is recorded in the local reflog.
@@ -155,7 +155,7 @@ Bypass with `git push --no-verify` only when the hook itself is wrong
 
 ## Source layout (highlights)
 
-```
+```text
 src/
   index.ts              stdio entry point (excluded from coverage)
   server.ts             MCP server wiring
