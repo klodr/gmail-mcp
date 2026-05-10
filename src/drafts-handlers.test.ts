@@ -323,6 +323,46 @@ describe("registerDraftTools — handler-level coverage", () => {
     }
   });
 
+  it("send_draft: with GMAIL_MCP_RECIPIENT_PAIRING=true runs the pairing pre-flight (drafts.ts:318-339)", async () => {
+    // Pairing enabled with no allowlist -> the recipient gate is run
+    // (drafts.get with format:full + per-header collection +
+    // requirePairedRecipients which throws on unallowed recipients).
+    // We expect the call to fail because the test draft contains a
+    // bcc address that's not in the empty allowlist.
+    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+    const { gmail, getSpy } = makeMockGmail();
+    // Override get to return a full draft with multiple recipients.
+    (gmail.users.drafts as { get: ReturnType<typeof vi.fn> }).get = vi.fn(() =>
+      Promise.resolve({
+        data: {
+          id: "D-paired",
+          message: {
+            payload: {
+              headers: [
+                { name: "To", value: "alice@example.com, alice2@example.com" },
+                { name: "Cc", value: "carol@example.com" },
+                { name: "Bcc", value: "evil@attacker.com" },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "send_draft",
+        arguments: { id: "D-paired" },
+      });
+      // drafts.get IS called now (the cost-saving short-circuit is bypassed).
+      expect((gmail.users.drafts as { get: ReturnType<typeof vi.fn> }).get).toHaveBeenCalledOnce();
+      // Pairing rejects -> error envelope.
+      expect(out.isError).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
   it("send_draft: surfaces Gmail API errors via the shared error envelope", async () => {
     const erroring = {
       users: {
