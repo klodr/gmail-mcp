@@ -21,7 +21,7 @@
     "prepare": "husky",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-version.mjs && git add server.json src/server.ts",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#coverage\" \"#dist\" \"#CHANGELOG.md\""
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#dist\""
   },
   "files": [
     "dist",

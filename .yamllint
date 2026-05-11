@@ -1,4 +1,4 @@
-# yamllint config — relaxed pour klodr/* (workflows GH Actions friendly)
+# yamllint config — relaxed for klodr/* (workflows GH Actions friendly)
 extends: default
 
 rules:
