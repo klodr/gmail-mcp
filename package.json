@@ -108,20 +108,20 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,mts}": [
-      "eslint --max-warnings=0 --no-warn-ignored",
-      "prettier --write"
+      "prettier --write",
+      "eslint --max-warnings=0 --no-warn-ignored"
     ],
     "*.{json,jsonc,json5}": [
-      "eslint --max-warnings=0 --no-warn-ignored",
-      "prettier --write"
+      "prettier --write",
+      "eslint --max-warnings=0 --no-warn-ignored"
     ],
     "*.{yml,yaml}": [
-      "yamllint",
-      "prettier --write"
+      "prettier --write",
+      "yamllint"
     ],
     "*.md": [
-      "markdownlint-cli2",
-      "prettier --write"
+      "prettier --write",
+      "markdownlint-cli2"
     ]
   }
 }
