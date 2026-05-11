@@ -14,73 +14,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Job display names (`Lint & Format`, `Build & Test (Node 22)`,
-# `Build & Test (Node 24)`) are pinned by the main branch ruleset's
-# required-status-checks list. Any rename here must be matched by a
-# ruleset update or the merge gate stays BLOCKED.
 jobs:
-  lint:
-    name: Lint & Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: klodr/.github/.github/actions/setup-node-mcp@cfc709297722fd29bb9e66a3d0f13529ba4d6295 # main @ 2026-05-10
-        with:
-          node-version: "22"
-
-      - uses: klodr/.github/.github/actions/lint-format@cfc709297722fd29bb9e66a3d0f13529ba4d6295 # main @ 2026-05-10
-
-  build:
-    name: Build & Test (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
-    # `id-token: write` lets codecov-action upload coverage via OIDC
-    # without a long-lived `CODECOV_TOKEN` secret. This matters for
-    # Dependabot PRs in particular: Dependabot's restricted secret
-    # context cannot read `CODECOV_TOKEN`, so without OIDC the upload
-    # silently fails, codecov never posts the required status check,
-    # and the merge gate stays BLOCKED for every dependency PR.
+  ci:
+    uses: klodr/.github/.github/workflows/reusable-node-ci.yml@31517bee59b358945f7af0fdb3960085e0f3ec78
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ["22", "24"]
-    steps:
-      - uses: klodr/.github/.github/actions/setup-node-mcp@cfc709297722fd29bb9e66a3d0f13529ba4d6295 # main @ 2026-05-10
-        with:
-          node-version: ${{ matrix.node }}
-
-      - name: Build
-        run: npm run build
-
-      - name: Test
-        if: matrix.node != '22'
-        run: npm test
-
-      - name: Test with coverage (Node 22 only)
-        if: matrix.node == '22'
-        run: npm run test:coverage
-
-      - if: matrix.node == '22'
-        uses: klodr/.github/.github/actions/codecov-upload@cfc709297722fd29bb9e66a3d0f13529ba4d6295 # main @ 2026-05-10
-        with:
-          slug: klodr/gmail-mcp
-
-      # Explicit `always()` bypasses the implicit `success()` check so
-      # failed test runs still upload their JUnit report — that's the
-      # case where the flaky-test dashboard is most useful. `!cancelled()`
-      # keeps us from pushing phantom results for a cancelled workflow.
-      #
-      # `continue-on-error: true` at the step level catches wrapper /
-      # runtime failures that bypass codecov-action's `fail_ci_if_error`
-      # input — together they make the analytics upload truly best-effort
-      # so a transient codecov outage cannot BLOCK the merge gate.
-      - if: ${{ always() && matrix.node == '22' && !cancelled() }}
-        continue-on-error: true
-        uses: klodr/.github/.github/actions/codecov-test-analytics@cfc709297722fd29bb9e66a3d0f13529ba4d6295 # main @ 2026-05-10
-        with:
-          slug: klodr/gmail-mcp
-          files: ./test-results.junit.xml
-          # Test Analytics is best-effort — the dashboard is informational
-          # and a transient codecov outage shouldn't BLOCK the merge gate.
-          fail-on-error: "false"
+    with:
+      codecov-slug: "klodr/gmail-mcp"
