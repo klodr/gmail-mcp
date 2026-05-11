@@ -69,7 +69,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         #   N — no signature
         ;;
       *)
-        printf '[husky] commit %s signature is "%s" (expected G/U/E).
+        printf '[husky] commit %s signature is "%s" (expected G/U/X/Y).
 ' "$sha" "$sig"
         printf '        subject: %s
 ' "$subject"
