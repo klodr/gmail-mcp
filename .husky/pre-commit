@@ -32,4 +32,4 @@ if [ -n "$missing" ]; then
   printf '[husky]   (commits touching YAML files will fail until installed)\n'
 fi
 
-npx lint-staged
+npx --no -- lint-staged
