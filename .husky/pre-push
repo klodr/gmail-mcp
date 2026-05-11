@@ -20,6 +20,12 @@ remote="$1"
 
 z40=0000000000000000000000000000000000000000
 
+# Track whether any pushed commit modifies a workflow / action file.
+# Set inside the per-commit loop, used later to gate the pinact check
+# on the actual pushed range (vs the previously-incorrect
+# origin/main...HEAD diff which can miss or over-report changes).
+workflow_changed=0
+
 # 1. Per-commit hygiene (signature + subject length) for every NEW
 #    commit in each pushed ref. Pre-push gives one ref update per line
 #    on stdin: `<local_ref> <local_sha> <remote_ref> <remote_sha>`.
@@ -40,6 +46,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   for sha in $(git rev-list $range_args); do
+    if [ "$workflow_changed" -eq 0 ] \
+      && git show --pretty='' --name-only "$sha" \
+           | grep -qE '^\.github/(workflows|actions)/'; then
+      workflow_changed=1
+    fi
+
     subject=$(git log -1 --format='%s' "$sha")
     sig=$(git log -1 --format='%G?' "$sha")
 
@@ -49,9 +61,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         # E = expired key (signature still cryptographically valid).
         ;;
       *)
-        printf '[husky] commit %s signature is "%s" (expected G/U/E).\n' "$sha" "$sig"
-        printf '        subject: %s\n' "$subject"
-        printf '        Configure SSH signing or set commit.gpgsign=true.\n'
+        printf '[husky] commit %s signature is "%s" (expected G/U/E).
+' "$sha" "$sig"
+        printf '        subject: %s
+' "$subject"
+        printf '        Configure SSH signing or set commit.gpgsign=true.
+'
         exit 1
         ;;
     esac
@@ -64,9 +79,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # codepoint-aware iterator instead.
     subject_len=$(env SUBJECT="$subject" node -e 'console.log(Array.from(process.env.SUBJECT ?? "").length)')
     if [ "$subject_len" -gt 72 ]; then
-      printf '[husky] commit %s subject is %d chars (>72):\n' "$sha" "$subject_len"
-      printf '        %s\n' "$subject"
-      printf '        Shorten the subject and amend the commit.\n'
+      printf '[husky] commit %s subject is %d chars (>72):
+' "$sha" "$subject_len"
+      printf '        %s
+' "$subject"
+      printf '        Shorten the subject and amend the commit.
+'
       exit 1
     fi
   done
@@ -77,9 +95,27 @@ done
 #    works on TS repos (format/typecheck) and pure-JS repos (no
 #    prettier, no tsc) without copy/paste divergence.
 
+# Fail-explicit if package.json is missing or invalid JSON. Without
+# this, has_script would silently return false on every step (require
+# throws → exit non-zero), letting a misconfigured push proceed even
+# when no scripts are runnable. Block here so the developer fixes the
+# manifest before push.
+if ! node -e "require('./package.json')" 2>/dev/null; then
+  printf '[husky] package.json missing or invalid JSON — aborting push.
+'
+  printf '        Fix the manifest, or use `git push --no-verify` only if
+'
+  printf '        you are intentionally bypassing the hook.
+'
+  exit 1
+fi
+
 has_script() {
-  # Fast existence check via node, avoids spawning npm just to query.
-  node -e "process.exit(!!require('./package.json').scripts['$1'] ? 0 : 1)" 2>/dev/null
+  # Existence check via node, avoids spawning npm just to query.
+  # `require('./package.json')` cannot throw here because the
+  # fail-explicit guard above already validated the file. Returns 0
+  # if the script exists, 1 otherwise.
+  node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts['$1'] ? 0 : 1)"
 }
 
 if has_script format:check; then
@@ -102,19 +138,22 @@ if has_script test; then
   npm run --silent test
 fi
 
-# 3. Pin-check actions if pinact is installed and any workflow file
-#    is staged in this push. Skip silently otherwise — not every dev
-#    has pinact installed locally; CI catches it via actions-pinned.yml.
-if command -v pinact >/dev/null 2>&1; then
-  if git diff --name-only origin/main...HEAD 2>/dev/null \
-       | grep -qE '^\.github/(workflows|actions)/'; then
-    echo "[husky] pinact check..."
-    pinact run --check || {
-      printf '\n[husky] Actions not pinned or invalid SHA.\n'
-      printf '        Fix locally with: pinact run\n'
-      exit 1
-    }
-  fi
+# 3. Pin-check actions if pinact is installed AND any pushed commit
+#    modified a workflow / action file. Skip silently otherwise —
+#    not every dev has pinact installed locally; CI catches it via
+#    actions-pinned.yml. The flag was set inside the per-commit loop
+#    above against the actual pushed range (not origin/main...HEAD,
+#    which can miss or over-report depending on branch divergence).
+if [ "$workflow_changed" -eq 1 ] && command -v pinact >/dev/null 2>&1; then
+  echo "[husky] pinact check..."
+  pinact run --check || {
+    printf '
+[husky] Actions not pinned or invalid SHA.
+'
+    printf '        Fix locally with: pinact run
+'
+    exit 1
+  }
 fi
 
 echo "[husky] audit (high+)..."
