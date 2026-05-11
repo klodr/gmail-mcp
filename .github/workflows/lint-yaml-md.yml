@@ -12,8 +12,3 @@ permissions:
 jobs:
   lint:
     uses: klodr/.github/.github/workflows/reusable-lint-yaml-md.yml@26b7f93b5a39c544f4414ada76cd2c79d9732bbd
-    with:
-      # Exclude CHANGELOG.md (release-please format uses dash bullets,
-      # different from our `*` style enforced by markdownlint MD004) and
-      # generated dirs.
-      markdownlint-globs: "**/*.md #node_modules #coverage #dist #CHANGELOG.md"
