@@ -56,9 +56,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     sig=$(git log -1 --format='%G?' "$sha")
 
     case "$sig" in
-      G|U|E)
-        # G = good signature; U = good but unknown trust;
-        # E = expired key (signature still cryptographically valid).
+      G|U|X|Y)
+        # `git log --format=%G?` legend:
+        #   G — good signature
+        #   U — good signature with unknown trust
+        #   X — good signature, expired
+        #   Y — good signature made by an expired key
+        # Rejected:
+        #   B — bad signature
+        #   R — good signature made by a revoked key
+        #   E — signature cannot be checked (e.g. missing public key)
+        #   N — no signature
         ;;
       *)
         printf '[husky] commit %s signature is "%s" (expected G/U/E).
