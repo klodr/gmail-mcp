@@ -21,4 +21,4 @@ jobs:
       contents: read
       id-token: write
     with:
-      codecov-slug: 'klodr/gmail-mcp'
+      codecov-slug: "klodr/gmail-mcp"
