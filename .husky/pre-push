@@ -1,11 +1,17 @@
 #!/usr/bin/env sh
-# Pre-push gate.
+# Pre-push gate (klodr/* template).
 #
 # Runs the same checks GitHub Actions enforces, locally and BEFORE the
 # push lands on origin. Failure blocks the push.
 #
 # Bypass with `git push --no-verify` ONLY when the hook is wrong
 # (rare). The bypass is recorded in the local reflog.
+#
+# This template is the source of truth at:
+#   klodr/.github -> .github/templates/husky/pre-push
+# Copy verbatim into each consumer repo. Drift is detected by a
+# periodic diff sweep (no automatic propagation — each repo owns its
+# .husky/ directory).
 
 set -e
 
@@ -13,6 +19,12 @@ remote="$1"
 # url="$2"  # unused
 
 z40=0000000000000000000000000000000000000000
+
+# Track whether any pushed commit modifies a workflow / action file.
+# Set inside the per-commit loop, used later to gate the pinact check
+# on the actual pushed range (vs the previously-incorrect
+# origin/main...HEAD diff which can miss or over-report changes).
+workflow_changed=0
 
 # 1. Per-commit hygiene (signature + subject length) for every NEW
 #    commit in each pushed ref. Pre-push gives one ref update per line
@@ -34,18 +46,35 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   for sha in $(git rev-list $range_args); do
+    if [ "$workflow_changed" -eq 0 ] \
+      && git show --pretty='' --name-only "$sha" \
+           | grep -qE '^\.github/(workflows|actions)/'; then
+      workflow_changed=1
+    fi
+
     subject=$(git log -1 --format='%s' "$sha")
     sig=$(git log -1 --format='%G?' "$sha")
 
     case "$sig" in
-      G|U|E)
-        # G = good signature; U = good but unknown trust;
-        # E = expired key (signature still cryptographically valid).
+      G|U|X|Y)
+        # `git log --format=%G?` legend:
+        #   G — good signature
+        #   U — good signature with unknown trust
+        #   X — good signature, expired
+        #   Y — good signature made by an expired key
+        # Rejected:
+        #   B — bad signature
+        #   R — good signature made by a revoked key
+        #   E — signature cannot be checked (e.g. missing public key)
+        #   N — no signature
         ;;
       *)
-        printf '[husky] commit %s signature is "%s" (expected G/U/E).\n' "$sha" "$sig"
-        printf '        subject: %s\n' "$subject"
-        printf '        Configure SSH signing or set commit.gpgsign=true.\n'
+        printf '[husky] commit %s signature is "%s" (expected G/U/X/Y).
+' "$sha" "$sig"
+        printf '        subject: %s
+' "$subject"
+        printf '        Configure SSH signing or set commit.gpgsign=true.
+'
         exit 1
         ;;
     esac
@@ -58,26 +87,82 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # codepoint-aware iterator instead.
     subject_len=$(env SUBJECT="$subject" node -e 'console.log(Array.from(process.env.SUBJECT ?? "").length)')
     if [ "$subject_len" -gt 72 ]; then
-      printf '[husky] commit %s subject is %d chars (>72):\n' "$sha" "$subject_len"
-      printf '        %s\n' "$subject"
-      printf '        Shorten the subject and amend the commit.\n'
+      printf '[husky] commit %s subject is %d chars (>72):
+' "$sha" "$subject_len"
+      printf '        %s
+' "$subject"
+      printf '        Shorten the subject and amend the commit.
+'
       exit 1
     fi
   done
 done
 
 # 2. Tree-wide checks (run once, not per-commit).
-echo "[husky] format check..."
-npm run --silent format:check
+#    Each is gated on its npm script existing, so the same template
+#    works on TS repos (format/typecheck) and pure-JS repos (no
+#    prettier, no tsc) without copy/paste divergence.
 
-echo "[husky] lint..."
-npm run --silent lint
+# Fail-explicit if package.json is missing or invalid JSON. Without
+# this, has_script would silently return false on every step (require
+# throws → exit non-zero), letting a misconfigured push proceed even
+# when no scripts are runnable. Block here so the developer fixes the
+# manifest before push.
+if ! node -e "require('./package.json')" 2>/dev/null; then
+  printf '[husky] package.json missing or invalid JSON — aborting push.
+'
+  printf '        Fix the manifest, or use `git push --no-verify` only if
+'
+  printf '        you are intentionally bypassing the hook.
+'
+  exit 1
+fi
 
-echo "[husky] typecheck..."
-npm run --silent typecheck
+has_script() {
+  # Existence check via node, avoids spawning npm just to query.
+  # `require('./package.json')` cannot throw here because the
+  # fail-explicit guard above already validated the file. Returns 0
+  # if the script exists, 1 otherwise.
+  node -e "process.exit(require('./package.json').scripts && require('./package.json').scripts['$1'] ? 0 : 1)"
+}
 
-echo "[husky] tests..."
-npm run --silent test
+if has_script format:check; then
+  echo "[husky] format check..."
+  npm run --silent format:check
+fi
+
+if has_script lint; then
+  echo "[husky] lint..."
+  npm run --silent lint
+fi
+
+if has_script typecheck; then
+  echo "[husky] typecheck..."
+  npm run --silent typecheck
+fi
+
+if has_script test; then
+  echo "[husky] tests..."
+  npm run --silent test
+fi
+
+# 3. Pin-check actions if pinact is installed AND any pushed commit
+#    modified a workflow / action file. Skip silently otherwise —
+#    not every dev has pinact installed locally; CI catches it via
+#    actions-pinned.yml. The flag was set inside the per-commit loop
+#    above against the actual pushed range (not origin/main...HEAD,
+#    which can miss or over-report depending on branch divergence).
+if [ "$workflow_changed" -eq 1 ] && command -v pinact >/dev/null 2>&1; then
+  echo "[husky] pinact check..."
+  pinact run --check || {
+    printf '
+[husky] Actions not pinned or invalid SHA.
+'
+    printf '        Fix locally with: pinact run
+'
+    exit 1
+  }
+fi
 
 echo "[husky] audit (high+)..."
 npm audit --audit-level=high
