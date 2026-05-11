@@ -108,16 +108,20 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,mts}": [
-      "eslint --max-warnings=0 --no-warn-ignored"
+      "eslint --max-warnings=0 --no-warn-ignored",
+      "prettier --write"
     ],
     "*.{json,jsonc,json5}": [
-      "eslint --max-warnings=0 --no-warn-ignored"
+      "eslint --max-warnings=0 --no-warn-ignored",
+      "prettier --write"
     ],
     "*.{yml,yaml}": [
-      "yamllint"
+      "yamllint",
+      "prettier --write"
     ],
     "*.md": [
-      "markdownlint-cli2"
+      "markdownlint-cli2",
+      "prettier --write"
     ]
   }
 }
