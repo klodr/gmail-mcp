@@ -1,0 +1,14 @@
+name: Lint YAML & Markdown
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: klodr/.github/.github/workflows/reusable-lint-yaml-md.yml@26b7f93b5a39c544f4414ada76cd2c79d9732bbd
