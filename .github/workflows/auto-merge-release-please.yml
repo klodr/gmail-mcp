@@ -27,7 +27,7 @@ jobs:
     # but matching here means the secrets are only forwarded for the one
     # event that needs them, and human/dependabot PRs short-circuit early.
     if: ${{ github.event.pull_request.user.login == 'klodr-release-please[bot]' }}
-    uses: klodr/.github/.github/workflows/reusable-auto-merge-release-please.yml@a44b6ecf0876fde506bbf289b69a3da1efc5f5d1
+    uses: klodr/.github/.github/workflows/reusable-auto-merge-release-please.yml@5a3a5093bc93bc2a682b5a0cb438149af2516f4c
     secrets:
       RELEASE_PLEASE_CLIENT_ID: ${{ secrets.RELEASE_PLEASE_CLIENT_ID }}
       RELEASE_PLEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
