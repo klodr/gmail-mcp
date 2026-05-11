@@ -1,1 +1,35 @@
+#!/usr/bin/env sh
+# Pre-commit template (klodr/* convention).
+#
+# Source of truth: klodr/.github -> .github/templates/husky/pre-commit
+# Copy verbatim into each consumer repo's .husky/pre-commit.
+#
+# Two responsibilities:
+#   1. Warn (non-blocking) when a system-level CLI invoked by lint-staged
+#      is missing on PATH. lint-staged would otherwise fail with a
+#      cryptic "<tool>: command not found" mid-commit.
+#   2. Run `lint-staged`.
+#
+# System deps used by the klodr/* lint-staged configs:
+#   - yamllint  (Python; brew or pip — NOT an npm package)
+#
+# If any of these are missing, print install hints and continue. We do
+# not exit non-zero on missing tooling because lint-staged will skip
+# the YAML hook silently if no YAML files are staged, and we don't
+# want every commit on every machine to be blocked on a tool that may
+# not be needed for this particular commit. The hook itself will fail
+# loudly when YAML is actually staged and the tool is missing.
+
+missing=""
+for tool in yamllint; do
+  command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+done
+
+if [ -n "$missing" ]; then
+  printf '[husky] WARN — missing system tooling:%s\n' "$missing"
+  printf '[husky]   macOS:  brew install%s\n' "$missing"
+  printf '[husky]   Linux:  pip install --user%s\n' "$missing"
+  printf '[husky]   (commits touching YAML files will fail until installed)\n'
+fi
+
 npx lint-staged
