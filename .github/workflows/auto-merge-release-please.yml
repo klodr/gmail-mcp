@@ -1,7 +1,7 @@
 name: Auto-merge release-please PR
 
 # Arms `--squash --auto --delete-branch` on the perpetually-updated PR
-# opened by release-please-app[bot]. Once required CI checks go green
+# opened by klodr-release-please[bot]. Once required CI checks go green
 # the PR self-merges, which fires release.yml downstream (signed
 # artifact + npm publish with provenance).
 #
@@ -26,7 +26,7 @@ jobs:
     # the reusable workflow. The reusable also has its own bot-login filter,
     # but matching here means the secrets are only forwarded for the one
     # event that needs them, and human/dependabot PRs short-circuit early.
-    if: ${{ github.event.pull_request.user.login == 'release-please-app[bot]' }}
+    if: ${{ github.event.pull_request.user.login == 'klodr-release-please[bot]' }}
     uses: klodr/.github/.github/workflows/reusable-auto-merge-release-please.yml@a44b6ecf0876fde506bbf289b69a3da1efc5f5d1
     secrets:
       RELEASE_PLEASE_CLIENT_ID: ${{ secrets.RELEASE_PLEASE_CLIENT_ID }}
