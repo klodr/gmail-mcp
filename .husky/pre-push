@@ -1,11 +1,17 @@
 #!/usr/bin/env sh
-# Pre-push gate.
+# Pre-push gate (klodr/* template).
 #
 # Runs the same checks GitHub Actions enforces, locally and BEFORE the
 # push lands on origin. Failure blocks the push.
 #
 # Bypass with `git push --no-verify` ONLY when the hook is wrong
 # (rare). The bypass is recorded in the local reflog.
+#
+# This template is the source of truth at:
+#   klodr/.github -> .github/templates/husky/pre-push
+# Copy verbatim into each consumer repo. Drift is detected by a
+# periodic diff sweep (no automatic propagation — each repo owns its
+# .husky/ directory).
 
 set -e
 
@@ -67,17 +73,49 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 done
 
 # 2. Tree-wide checks (run once, not per-commit).
-echo "[husky] format check..."
-npm run --silent format:check
+#    Each is gated on its npm script existing, so the same template
+#    works on TS repos (format/typecheck) and pure-JS repos (no
+#    prettier, no tsc) without copy/paste divergence.
 
-echo "[husky] lint..."
-npm run --silent lint
+has_script() {
+  # Fast existence check via node, avoids spawning npm just to query.
+  node -e "process.exit(!!require('./package.json').scripts['$1'] ? 0 : 1)" 2>/dev/null
+}
 
-echo "[husky] typecheck..."
-npm run --silent typecheck
+if has_script format:check; then
+  echo "[husky] format check..."
+  npm run --silent format:check
+fi
 
-echo "[husky] tests..."
-npm run --silent test
+if has_script lint; then
+  echo "[husky] lint..."
+  npm run --silent lint
+fi
+
+if has_script typecheck; then
+  echo "[husky] typecheck..."
+  npm run --silent typecheck
+fi
+
+if has_script test; then
+  echo "[husky] tests..."
+  npm run --silent test
+fi
+
+# 3. Pin-check actions if pinact is installed and any workflow file
+#    is staged in this push. Skip silently otherwise — not every dev
+#    has pinact installed locally; CI catches it via actions-pinned.yml.
+if command -v pinact >/dev/null 2>&1; then
+  if git diff --name-only origin/main...HEAD 2>/dev/null \
+       | grep -qE '^\.github/(workflows|actions)/'; then
+    echo "[husky] pinact check..."
+    pinact run --check || {
+      printf '\n[husky] Actions not pinned or invalid SHA.\n'
+      printf '        Fix locally with: pinact run\n'
+      exit 1
+    }
+  fi
+fi
 
 echo "[husky] audit (high+)..."
 npm audit --audit-level=high
