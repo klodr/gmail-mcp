@@ -10,7 +10,7 @@
 // bottom calls `syncVersion(process.cwd-derived root)` when the file is
 // executed directly via `node scripts/sync-version.mjs`.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -97,16 +97,31 @@ export function syncVersion(rootDir) {
   });
 
   // 3. Atomic write phase — both payloads have been built and
-  // validated, so it is safe to commit them to disk. Writing both
-  // here (instead of writing server.json in step 1) means a regex
-  // miss in step 2 throws BEFORE any file mutates, so a failed
-  // `npm version` does not leave server.json one version ahead of
-  // src/server.ts. fs.writeFileSync is not transactional across
-  // multiple files, but ordering server.json before src/server.ts
-  // gives the next reader at least a self-consistent server.json
-  // even if the second write is interrupted.
-  writeFileSync(serverJsonPath, serverJsonOutput);
-  writeFileSync(tsPath, updatedTs);
+  // validated, so it is safe to commit them to disk. Stage both
+  // outputs to temp files first; only after both temp writes
+  // succeed do we rename them into place. POSIX renameSync on the
+  // same filesystem is atomic, so a permission/disk error during
+  // the second writeFileSync no longer leaves the repo with a
+  // bumped server.json and a stale src/server.ts.
+  const serverJsonTmp = `${serverJsonPath}.tmp`;
+  const tsTmp = `${tsPath}.tmp`;
+  try {
+    writeFileSync(serverJsonTmp, serverJsonOutput);
+    writeFileSync(tsTmp, updatedTs);
+  } catch (err) {
+    // Either temp write failed; clean up any partial tmp and
+    // re-throw. The real files have NOT been touched yet.
+    try {
+      unlinkSync(serverJsonTmp);
+    } catch {}
+    try {
+      unlinkSync(tsTmp);
+    } catch {}
+    throw err;
+  }
+  // Both tmp files exist and are consistent — promote in place.
+  renameSync(serverJsonTmp, serverJsonPath);
+  renameSync(tsTmp, tsPath);
 
   return v;
 }

@@ -224,15 +224,11 @@ describe("syncVersion", () => {
     writeFixture({
       pkgVersion: "0.31.0",
       tsContent:
-        [
-          'export const VERSION = "0.0.0"; // x-release-please-version   ',
-        ].join("\n") + "\n",
+        ['export const VERSION = "0.0.0"; // x-release-please-version   '].join("\n") + "\n",
     });
     syncVersion(scratch);
     const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
-    expect(ts).toContain(
-      'export const VERSION = "0.31.0"; // x-release-please-version   ',
-    );
+    expect(ts).toContain('export const VERSION = "0.31.0"; // x-release-please-version   ');
   });
 
   it("does not rewrite VERSION-like patterns inside comments or string literals", () => {
