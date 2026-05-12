@@ -58,7 +58,8 @@ export function syncVersion(rootDir) {
   // forward, src/server.ts still on the old literal — which then
   // smuggles a mismatched-metadata release into npm).
   const serverJsonPath = join(rootDir, "server.json");
-  const server = JSON.parse(readFileSync(serverJsonPath, "utf8"));
+  const serverJsonOriginal = readFileSync(serverJsonPath, "utf8");
+  const server = JSON.parse(serverJsonOriginal);
   server.version = v;
   for (const p of server.packages ?? []) {
     if (p.identifier === pkg.name) p.version = v;
@@ -120,8 +121,24 @@ export function syncVersion(rootDir) {
     throw err;
   }
   // Both tmp files exist and are consistent — promote in place.
+  // The two renames are best-effort atomic individually, but the
+  // window between them is not. If the second rename throws, the
+  // first has already shipped the new server.json while src/server.ts
+  // still holds the old literal — exactly the half-applied state this
+  // step is meant to prevent. Restore the original bytes on the
+  // promoted file before re-throwing so the caller sees a clean repo.
   renameSync(serverJsonTmp, serverJsonPath);
-  renameSync(tsTmp, tsPath);
+  try {
+    renameSync(tsTmp, tsPath);
+  } catch (err) {
+    try {
+      writeFileSync(serverJsonPath, serverJsonOriginal);
+    } catch {}
+    try {
+      unlinkSync(tsTmp);
+    } catch {}
+    throw err;
+  }
 
   return v;
 }
