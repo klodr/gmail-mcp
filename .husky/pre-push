@@ -31,7 +31,7 @@ workflow_changed=0
 #    on stdin: `<local_ref> <local_sha> <remote_ref> <remote_sha>`.
 #    Walking only HEAD would let a multi-commit push smuggle through
 #    earlier commits with a bad signature or an overlong subject.
-while read -r local_ref local_sha remote_ref remote_sha; do
+while read -r _local_ref local_sha _remote_ref remote_sha; do
   if [ "$local_sha" = "$z40" ]; then
     # Branch deletion — nothing to validate.
     continue
@@ -69,12 +69,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         #   N — no signature
         ;;
       *)
-        printf '[husky] commit %s signature is "%s" (expected G/U/X/Y).
-' "$sha" "$sig"
-        printf '        subject: %s
-' "$subject"
-        printf '        Configure SSH signing or set commit.gpgsign=true.
-'
+        printf '[husky] commit %s signature is "%s" (expected G/U/X/Y).\n' "$sha" "$sig"
+        printf '        subject: %s\n' "$subject"
+        printf '        Configure SSH signing or set commit.gpgsign=true.\n'
+        printf '        See `git log --format=%%G?` legend for status meanings.\n'
         exit 1
         ;;
     esac
@@ -87,12 +85,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     # codepoint-aware iterator instead.
     subject_len=$(env SUBJECT="$subject" node -e 'console.log(Array.from(process.env.SUBJECT ?? "").length)')
     if [ "$subject_len" -gt 72 ]; then
-      printf '[husky] commit %s subject is %d chars (>72):
-' "$sha" "$subject_len"
-      printf '        %s
-' "$subject"
-      printf '        Shorten the subject and amend the commit.
-'
+      printf '[husky] commit %s subject is %d chars (>72):\n' "$sha" "$subject_len"
+      printf '        %s\n' "$subject"
+      printf '        Shorten the subject and amend the commit.\n'
       exit 1
     fi
   done
@@ -109,12 +104,9 @@ done
 # when no scripts are runnable. Block here so the developer fixes the
 # manifest before push.
 if ! node -e "require('./package.json')" 2>/dev/null; then
-  printf '[husky] package.json missing or invalid JSON — aborting push.
-'
-  printf '        Fix the manifest, or use `git push --no-verify` only if
-'
-  printf '        you are intentionally bypassing the hook.
-'
+  printf '[husky] package.json missing or invalid JSON — aborting push.\n'
+  printf '        Fix the manifest, or use `git push --no-verify` only if\n'
+  printf '        you are intentionally bypassing the hook.\n'
   exit 1
 fi
 
@@ -155,16 +147,17 @@ fi
 if [ "$workflow_changed" -eq 1 ] && command -v pinact >/dev/null 2>&1; then
   echo "[husky] pinact check..."
   pinact run --check || {
-    printf '
-[husky] Actions not pinned or invalid SHA.
-'
-    printf '        Fix locally with: pinact run
-'
+    printf '\n[husky] Actions not pinned or invalid SHA.\n'
+    printf '        Fix locally with: pinact run\n'
     exit 1
   }
 fi
 
-echo "[husky] audit (high+)..."
-npm audit --audit-level=high
+# `npm audit` is intentionally NOT run here. Its result depends on
+# live registry advisory state — a transient network blip or a
+# brand-new transitive advisory can block a push that's otherwise
+# clean. The same audit runs in CI (server-side, where intermittent
+# failures retry naturally) via the Dependabot / OSV-Scanner workflows.
+# Keeping the local hook deterministic: same inputs → same outcome.
 
 echo "[husky] all checks passed -> pushing"
