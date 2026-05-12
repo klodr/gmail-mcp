@@ -51,14 +51,19 @@ export function syncVersion(rootDir) {
   }
   const v = pkg.version;
 
-  // 1. server.json
+  // 1. Prepare the new server.json payload (do NOT write yet — see
+  // step 3 for the atomic write phase. Writing server.json before
+  // step 2 validates src/server.ts would leave the repo in a
+  // partially bumped state if step 2 throws — server.json shipped
+  // forward, src/server.ts still on the old literal — which then
+  // smuggles a mismatched-metadata release into npm).
   const serverJsonPath = join(rootDir, "server.json");
   const server = JSON.parse(readFileSync(serverJsonPath, "utf8"));
   server.version = v;
   for (const p of server.packages ?? []) {
     if (p.identifier === pkg.name) p.version = v;
   }
-  writeFileSync(serverJsonPath, JSON.stringify(server, null, 2) + "\n");
+  const serverJsonOutput = JSON.stringify(server, null, 2) + "\n";
 
   // 2. src/server.ts — the exported `VERSION` constant (mirrors mercury / faxdrop)
   const tsPath = join(rootDir, "src", "server.ts");
@@ -84,6 +89,17 @@ export function syncVersion(rootDir) {
     // append rather than the string "undefined".
     return `${prefix}"${v}"${semi}${comment ?? ""}`;
   });
+
+  // 3. Atomic write phase — both payloads have been built and
+  // validated, so it is safe to commit them to disk. Writing both
+  // here (instead of writing server.json in step 1) means a regex
+  // miss in step 2 throws BEFORE any file mutates, so a failed
+  // `npm version` does not leave server.json one version ahead of
+  // src/server.ts. fs.writeFileSync is not transactional across
+  // multiple files, but ordering server.json before src/server.ts
+  // gives the next reader at least a self-consistent server.json
+  // even if the second write is interrupted.
+  writeFileSync(serverJsonPath, serverJsonOutput);
   writeFileSync(tsPath, updatedTs);
 
   return v;

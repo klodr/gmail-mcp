@@ -118,6 +118,27 @@ describe("syncVersion", () => {
     );
   });
 
+  it("does not partially write when src/server.ts validation fails (atomic on error)", () => {
+    // Pin the atomic-write contract: when `syncVersion` throws on a
+    // regex miss in step 2, NEITHER file must have been mutated. The
+    // previous shape wrote server.json in step 1 before validating
+    // src/server.ts in step 2, so a failed `npm version` would leave
+    // server.json bumped while src/server.ts kept the old literal —
+    // a half-applied bump that would smuggle mismatched metadata
+    // into the next release if the operator missed the throw.
+    writeFixture({
+      pkgVersion: "9.9.9",
+      tsContent: 'export const NOT_VERSION = "0.0.0";\n',
+    });
+    const serverJsonBefore = readFileSync(join(scratch, "server.json"), "utf8");
+    expect(() => syncVersion(scratch)).toThrow(/did not find the VERSION constant/);
+    const serverJsonAfter = readFileSync(join(scratch, "server.json"), "utf8");
+    // Byte-exact equality — even a re-serialisation with the same
+    // content (rewriting the bumped object) would defeat the
+    // atomicity contract because a later step could still throw.
+    expect(serverJsonAfter).toBe(serverJsonBefore);
+  });
+
   it("returns the version string for the caller (CLI uses it in the success log)", () => {
     writeFixture({ pkgVersion: "0.42.0" });
     const v = syncVersion(scratch);
