@@ -9,21 +9,17 @@
 #      both from PATH and from the local node_modules/.bin. Otherwise
 #      lint-staged dies mid-commit with a cryptic
 #      "<tool>: command not found".
-#   2. Run `lint-staged` via `npx --no` so a stale/missing node_modules
-#      fails loudly instead of silently fetching an unpinned version.
+#   2. Run `lint-staged` via the local binary path (NOT npx). Some npm
+#      versions still attempt a registry fetch on `npx --no` despite
+#      the --no flag; calling the binary directly removes any
+#      ambiguity and guarantees the lockfile-pinned version is what
+#      runs. Fails loudly if node_modules is stale or missing.
 #
 # Tooling used by the klodr/* lint-staged configs:
 #   - yamllint  → provided by the npm package `yaml-lint` (devDep) which
 #                 installs a `yamllint` binary at
 #                 node_modules/.bin/yamllint. Falls back to a system
 #                 install (brew install yamllint) if you prefer.
-#
-# If any of these are missing, print install hints and continue. We do
-# not exit non-zero on missing tooling because lint-staged will skip
-# the YAML hook silently if no YAML files are staged, and we don't
-# want every commit on every machine to be blocked on a tool that may
-# not be needed for this particular commit. The hook itself will fail
-# loudly when YAML is actually staged and the tool is missing.
 
 missing=""
 for tool in yamllint; do
@@ -34,10 +30,21 @@ for tool in yamllint; do
 done
 
 if [ -n "$missing" ]; then
-  printf '[husky] WARN — missing tooling (PATH + ./node_modules/.bin):%s\n' "$missing"
-  printf '[husky]   npm install                 (preferred — provided as yaml-lint devDep)\n'
-  printf '[husky]   macOS:  brew install%s\n' "$missing"
-  printf '[husky]   Linux:  pip install --user%s\n' "$missing"
+  printf '[husky] WARN — missing tooling (PATH + ./node_modules/.bin):%s
+' "$missing"
+  printf '[husky]   npm install                 (preferred — provided as yaml-lint devDep)
+'
+  printf '[husky]   macOS:  brew install%s
+' "$missing"
+  printf '[husky]   Linux:  pip install --user%s
+' "$missing"
 fi
 
-npx --no -- lint-staged
+if [ ! -x "./node_modules/.bin/lint-staged" ]; then
+  printf '[husky] lint-staged is not installed locally.
+' >&2
+  printf '        Run `npm install` (or `npm ci`) and re-commit.
+' >&2
+  exit 1
+fi
+./node_modules/.bin/lint-staged
