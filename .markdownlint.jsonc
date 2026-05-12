@@ -1,20 +1,18 @@
 {
   // markdownlint-cli2 — relaxed config for klodr/* MCP+plugin docs.
   // See https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+  // 5 rules disabled — all justified by content shape, not by author
+  // convenience. Everything else (MD012, MD028, MD029, MD036, MD049,
+  // MD050) is on; commit hooks + CI now reject the corresponding
+  // findings instead of letting them rot.
   "default": true,
-  "MD012": false, // multiple consecutive blank lines: cosmetic
   "MD013": false, // line-length: README has long URLs / badges
   "MD024": { "siblings_only": true }, // duplicate headings OK in CHANGELOG sections
-  "MD028": false, // blank line inside blockquote: useful for separating cite paragraphs
-  "MD029": false, // ordered list prefix: accept any style (1.1.1, 1.2.3, mixed)
   "MD033": false, // inline HTML allowed (badges, details/summary)
   "MD034": false, // bare URLs allowed (some places intentional)
-  "MD036": false, // emphasis as heading: false positives on snapshot dates etc.
   "MD041": false, // first line H1: badges/comments may precede
   "MD046": { "style": "fenced" }, // code block style: fenced
-  "MD049": false, // emphasis style: asterisk OR underscore
-  "MD050": false, // strong style: asterisk OR underscore
-  "MD060": false, // table column alignment: compact OR aligned, both OK
+  "MD060": false, // table column alignment: too many existing tables in compact-but-unaligned style
   "globs": ["**/*.md"],
   "ignores": ["node_modules/**", "coverage/**", "CHANGELOG.md"],
 }

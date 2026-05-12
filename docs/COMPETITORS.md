@@ -1,6 +1,6 @@
 # Competitors & ecosystem snapshot
 
-_Snapshot: 2026-04-27_
+Snapshot taken on **2026-04-27**.
 
 ## Why this page exists
 
