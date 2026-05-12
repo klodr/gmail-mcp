@@ -2,17 +2,45 @@
 // against a tempdir-rooted fixture (package.json + server.json +
 // src/server.ts) so the real repo files are never touched.
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncVersion } from "./sync-version.mjs";
+
+// Mock `node:fs#renameSync` so the rollback test can simulate a
+// failure on the second promotion rename. The hoisted mock is a pass-
+// through by default (`failOn === -1`); the rollback test flips
+// `renameState.failOn = 2` to make the second observed renameSync
+// throw, then resets it in `afterEach`. Every other consumer of
+// `node:fs` keeps the real implementation.
+const renameState = { count: 0, failOn: -1 };
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    default: actual,
+    renameSync: (from, to) => {
+      renameState.count += 1;
+      if (renameState.count === renameState.failOn) {
+        const err = new Error("simulated rename failure on src/server.ts");
+        err.code = "EACCES";
+        throw err;
+      }
+      return actual.renameSync(from, to);
+    },
+  };
+});
 
 let scratch;
 
 beforeEach(() => {
   scratch = mkdtempSync(join(tmpdir(), "sync-version-test-"));
   mkdirSync(join(scratch, "src"), { recursive: true });
+  // Reset the rename-mock state on every test so a previous test
+  // leaving `failOn` set cannot leak into the next one.
+  renameState.count = 0;
+  renameState.failOn = -1;
 });
 
 afterEach(() => {
@@ -118,6 +146,59 @@ describe("syncVersion", () => {
     );
   });
 
+  it("does not partially write when src/server.ts validation fails (atomic on error)", () => {
+    // Pin the atomic-write contract: when `syncVersion` throws on a
+    // regex miss in step 2, NEITHER file must have been mutated. The
+    // previous shape wrote server.json in step 1 before validating
+    // src/server.ts in step 2, so a failed `npm version` would leave
+    // server.json bumped while src/server.ts kept the old literal —
+    // a half-applied bump that would smuggle mismatched metadata
+    // into the next release if the operator missed the throw.
+    writeFixture({
+      pkgVersion: "9.9.9",
+      tsContent: 'export const NOT_VERSION = "0.0.0";\n',
+    });
+    const serverJsonBefore = readFileSync(join(scratch, "server.json"), "utf8");
+    const tsBefore = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    expect(() => syncVersion(scratch)).toThrow(/did not find the VERSION constant/);
+    const serverJsonAfter = readFileSync(join(scratch, "server.json"), "utf8");
+    const tsAfter = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    // Byte-exact equality — even a re-serialisation with the same
+    // content (rewriting the bumped object) would defeat the
+    // atomicity contract because a later step could still throw.
+    // Both files are checked so the contract covers the full "neither
+    // file mutates on failure" invariant, not just server.json.
+    expect(serverJsonAfter).toBe(serverJsonBefore);
+    expect(tsAfter).toBe(tsBefore);
+  });
+
+  it("restores server.json to original bytes when the src/server.ts rename throws", () => {
+    // Pin the rollback contract on the second rename. The atomic-write
+    // phase stages both payloads to .tmp files and renames them in
+    // sequence; the first rename ships server.json forward, the
+    // second ships src/server.ts. If the second rename throws (EACCES,
+    // ENOSPC, EROFS, a cross-device move because the operator
+    // symlinked src/ elsewhere, …), server.json is left bumped while
+    // src/server.ts still holds the old literal — exactly the
+    // half-applied state this PR is meant to prevent.
+    // The hoisted vi.mock above intercepts renameSync; flip
+    // `renameState.failOn = 2` so the second observed call throws,
+    // then assert both files were rolled back to their original bytes.
+    writeFixture({ pkgVersion: "9.9.9" });
+    const serverJsonBefore = readFileSync(join(scratch, "server.json"), "utf8");
+    const tsBefore = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    renameState.failOn = 2;
+    expect(() => syncVersion(scratch)).toThrow(/simulated rename failure/);
+    const serverJsonAfter = readFileSync(join(scratch, "server.json"), "utf8");
+    const tsAfter = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    // The rollback writes the original bytes back to serverJsonPath
+    // after rename #1 has shipped the bumped tmp forward. Both files
+    // must end byte-identical to their pre-syncVersion state.
+    expect(renameState.count).toBe(2);
+    expect(serverJsonAfter).toBe(serverJsonBefore);
+    expect(tsAfter).toBe(tsBefore);
+  });
+
   it("returns the version string for the caller (CLI uses it in the success log)", () => {
     writeFixture({ pkgVersion: "0.42.0" });
     const v = syncVersion(scratch);
@@ -151,6 +232,70 @@ describe("syncVersion", () => {
     writeFixture();
     writeFileSync(join(scratch, "package.json"), pkgJson);
     expect(() => syncVersion(scratch)).toThrow(/package\.json#name/);
+  });
+
+  it.each([
+    [
+      "with semicolon",
+      'export const VERSION = "0.0.0"; // x-release-please-version',
+      'export const VERSION = "0.31.0"; // x-release-please-version',
+    ],
+    [
+      "without semicolon",
+      'export const VERSION = "0.0.0" // x-release-please-version',
+      'export const VERSION = "0.31.0" // x-release-please-version',
+    ],
+  ])("preserves the release-please marker (%s)", (_label, before, after) => {
+    // Pin the trailing-comment branch — release-please's
+    // `extra-files: generic` matcher looks for the
+    // `// x-release-please-version` annotation on the same line as
+    // the version literal. Without this support, sync-version would
+    // strip the annotation on every bump, breaking release-please's
+    // version-detection on the next release. The optional-`;` capture
+    // in the regex is exercised by the no-semicolon row.
+    writeFixture({
+      pkgVersion: "0.31.0",
+      tsContent: [before, 'export const OTHER = "kept";'].join("\n") + "\n",
+    });
+    syncVersion(scratch);
+    const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    expect(ts).toContain(after);
+    // The companion declaration on the next line must be untouched.
+    expect(ts).toContain('export const OTHER = "kept";');
+  });
+
+  it("tolerates trailing whitespace on the VERSION declaration line", () => {
+    // Pin the trailing-whitespace branch — some editors / autosave
+    // tooling pad lines with a stray space or tab before EOL. A
+    // strict `$` anchor without a `[ \t]*` capture would treat that
+    // padded line as a non-match and the script would throw "did not
+    // find the VERSION constant". Cover both `;<spaces>` and
+    // `;<comment><spaces>` forms.
+    writeFixture({
+      pkgVersion: "0.31.0",
+      tsContent:
+        [
+          'export const VERSION = "0.0.0";   ', // padded with spaces
+          'export const KEPT = "kept";',
+        ].join("\n") + "\n",
+    });
+    syncVersion(scratch);
+    const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    // Trailing whitespace is preserved verbatim so reformatters that
+    // intentionally pad the line stay byte-stable across the rewrite.
+    expect(ts).toContain('export const VERSION = "0.31.0";   ');
+    expect(ts).toContain('export const KEPT = "kept";');
+  });
+
+  it("tolerates trailing whitespace after the release-please marker", () => {
+    writeFixture({
+      pkgVersion: "0.31.0",
+      tsContent:
+        ['export const VERSION = "0.0.0"; // x-release-please-version   '].join("\n") + "\n",
+    });
+    syncVersion(scratch);
+    const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    expect(ts).toContain('export const VERSION = "0.31.0"; // x-release-please-version   ');
   });
 
   it("does not rewrite VERSION-like patterns inside comments or string literals", () => {
