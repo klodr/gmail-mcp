@@ -16,7 +16,7 @@ export default tseslint.config(
       "dist/",
       "coverage/",
       "node_modules/",
-      "src/**/*.test.ts",
+      "test/",
       "src/evals/",
       "scripts/",
       "*.mjs",

@@ -2,6 +2,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // `test/**/*.test.ts` is the unit suite; `scripts/**/*.test.mjs`
+    // is the tempdir-driven smoke for `sync-version.mjs` (it shells out
+    // to `node` directly via execSync in fixtures). Both are needed for
+    // accurate coverage rollup — without the `.mjs` entry, vitest skips
+    // `sync-version.mjs` and reports it as 0%.
+    include: ["test/**/*.test.ts", "scripts/**/*.test.mjs"],
     exclude: ["dist/**", "node_modules/**"],
     // `default` keeps vitest's standard human-readable console output;
     // `junit` emits a `test-results.junit.xml` that Codecov's Test
@@ -30,7 +36,6 @@ export default defineConfig({
       // stdio frame. The orchestration the shim wraps lives in
       // `runtime.ts` and is covered there.
       exclude: [
-        "src/**/*.test.ts",
         "src/index.ts",
         // Vitest's `include` for tests is separate from coverage
         // `include`; this `exclude` ensures the tempdir-driven
