@@ -153,6 +153,29 @@ describe("syncVersion", () => {
     expect(() => syncVersion(scratch)).toThrow(/package\.json#name/);
   });
 
+  it("preserves a trailing line comment on the VERSION declaration (release-please marker)", () => {
+    // Pin the trailing-comment branch — release-please's
+    // `extra-files: generic` matcher looks for the
+    // `// x-release-please-version` annotation on the same line as
+    // the version literal. Without this support, sync-version would
+    // strip the annotation on every bump, breaking release-please's
+    // version-detection on the next release. Cover both with-comment
+    // and without-comment forms in the same fixture.
+    writeFixture({
+      pkgVersion: "0.31.0",
+      tsContent:
+        [
+          'export const VERSION = "0.0.0"; // x-release-please-version',
+          'export const OTHER = "kept";',
+        ].join("\n") + "\n",
+    });
+    syncVersion(scratch);
+    const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    expect(ts).toContain('export const VERSION = "0.31.0"; // x-release-please-version');
+    // The companion declaration on the next line must be untouched.
+    expect(ts).toContain('export const OTHER = "kept";');
+  });
+
   it("does not rewrite VERSION-like patterns inside comments or string literals", () => {
     // Pin the anchored regex (`^(\\s*export const VERSION = )"..."(;?)$/m`)
     // — without the `^...$/m` anchors, the previous unanchored

@@ -65,17 +65,25 @@ export function syncVersion(rootDir) {
   const ts = readFileSync(tsPath, "utf8");
   // Anchor to a real declaration line — start-of-line + optional
   // indentation + the exact `export const VERSION = "..."` token
-  // sequence + an optional trailing semicolon. The previous
+  // sequence + an optional trailing semicolon + an optional trailing
+  // line comment (e.g. ` // x-release-please-version`). The previous
   // unanchored shape `(export const VERSION = )"[^"]*"` would
   // happily rewrite a comment like
   // `// Old: export const VERSION = "0.0.0"` or a string literal
   // containing the same byte sequence, silently corrupting the
-  // file. The `m` flag makes `^` match every line start.
-  const re = /^(\s*export const VERSION = )"[^"]*"(;?)$/m;
+  // file. The `m` flag makes `^` match every line start. The
+  // trailing-comment capture group preserves the release-please
+  // marker (and any other annotation) verbatim across the rewrite.
+  const re = /^(\s*export const VERSION = )"[^"]*"(;?)(\s*\/\/.*)?$/m;
   if (!re.test(ts)) {
     throw new Error("sync-version: did not find the VERSION constant in src/server.ts");
   }
-  const updatedTs = ts.replace(re, `$1"${v}"$2`);
+  const updatedTs = ts.replace(re, (_match, prefix, semi, comment) => {
+    // `comment` is `undefined` when the source line has no trailing
+    // comment; coerce to empty string so the rewrite is a no-op
+    // append rather than the string "undefined".
+    return `${prefix}"${v}"${semi}${comment ?? ""}`;
+  });
   writeFileSync(tsPath, updatedTs);
 
   return v;
