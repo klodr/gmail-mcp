@@ -41,3 +41,10 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gitleaks-action v2.3.9 declares `runs.using: node20`, which
+          # GitHub will force to node24 by default starting 2026-06-02
+          # and remove node20 entirely 2026-09-16. Opt into node24 now
+          # to silence the deprecation warning and validate compatibility
+          # before the forced flip. Upstream has not cut a node24 release
+          # since v2.3.9 (2025-04-17); revisit when a successor lands.
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"

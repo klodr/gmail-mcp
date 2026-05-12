@@ -17,11 +17,19 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
-permissions:
-  contents: read
-
 jobs:
   call:
+    # The reusable workflow needs to arm `gh pr merge --auto` (writes the
+    # PR's auto-merge field via the PullRequest GraphQL mutation) and
+    # delete the branch on merge — hence `contents: write` (branch delete)
+    # and `pull-requests: write` (auto-merge field). The reusable's
+    # `permissions:` ceiling cannot exceed what the caller grants here,
+    # so the caller grant must match exactly. Job-level (not workflow-
+    # level) so any future job added to this file cannot accidentally
+    # inherit write scope.
+    permissions:
+      contents: write
+      pull-requests: write
     # Defense-in-depth: gate secrets at the caller before they're passed to
     # the reusable workflow. The reusable also has its own bot-login filter,
     # but matching here means the secrets are only forwarded for the one

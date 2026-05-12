@@ -45,7 +45,7 @@ reviews:
     docstrings:
       # The codebase deliberately keeps comments to non-obvious WHY only.
       # MCP tool descriptions live in Zod .describe() calls, not JSDoc.
-      mode: off
+      mode: "off"
     title:
       # Enforce conventional-commit format + 72-char cap (matches the
       # auto_title_instructions above — this is the gate that actually
