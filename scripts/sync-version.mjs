@@ -10,7 +10,7 @@
 // bottom calls `syncVersion(process.cwd-derived root)` when the file is
 // executed directly via `node scripts/sync-version.mjs`.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -51,32 +51,109 @@ export function syncVersion(rootDir) {
   }
   const v = pkg.version;
 
-  // 1. server.json
+  // 1. Prepare the new server.json payload (do NOT write yet — see
+  // step 3 for the atomic write phase. Writing server.json before
+  // step 2 validates src/server.ts would leave the repo in a
+  // partially bumped state if step 2 throws — server.json shipped
+  // forward, src/server.ts still on the old literal — which then
+  // smuggles a mismatched-metadata release into npm).
   const serverJsonPath = join(rootDir, "server.json");
-  const server = JSON.parse(readFileSync(serverJsonPath, "utf8"));
+  const serverJsonOriginal = readFileSync(serverJsonPath, "utf8");
+  const server = JSON.parse(serverJsonOriginal);
   server.version = v;
   for (const p of server.packages ?? []) {
     if (p.identifier === pkg.name) p.version = v;
   }
-  writeFileSync(serverJsonPath, JSON.stringify(server, null, 2) + "\n");
+  const serverJsonOutput = JSON.stringify(server, null, 2) + "\n";
 
   // 2. src/server.ts — the exported `VERSION` constant (mirrors mercury / faxdrop)
   const tsPath = join(rootDir, "src", "server.ts");
   const ts = readFileSync(tsPath, "utf8");
   // Anchor to a real declaration line — start-of-line + optional
   // indentation + the exact `export const VERSION = "..."` token
-  // sequence + an optional trailing semicolon. The previous
+  // sequence + an optional trailing semicolon + an optional trailing
+  // line comment (e.g. ` // x-release-please-version`). The previous
   // unanchored shape `(export const VERSION = )"[^"]*"` would
   // happily rewrite a comment like
   // `// Old: export const VERSION = "0.0.0"` or a string literal
   // containing the same byte sequence, silently corrupting the
-  // file. The `m` flag makes `^` match every line start.
-  const re = /^(\s*export const VERSION = )"[^"]*"(;?)$/m;
+  // file. The `m` flag makes `^` match every line start. The
+  // trailing-comment capture group preserves the release-please
+  // marker (and any other annotation) verbatim across the rewrite.
+  // Tolerate trailing whitespace before EOL — a stray space after `;`
+  // (or after the release-please marker) is otherwise treated as a
+  // non-match and the script throws "did not find the VERSION
+  // constant". The trailing-whitespace capture is preserved verbatim
+  // so reformatters that intentionally pad the line stay byte-stable.
+  const re = /^(\s*export const VERSION = )"[^"]*"(;?)(\s*\/\/.*)?([ \t]*)$/m;
   if (!re.test(ts)) {
     throw new Error("sync-version: did not find the VERSION constant in src/server.ts");
   }
-  const updatedTs = ts.replace(re, `$1"${v}"$2`);
-  writeFileSync(tsPath, updatedTs);
+  const updatedTs = ts.replace(re, (_match, prefix, semi, comment, trailingWs) => {
+    // `comment` and `trailingWs` are `undefined` when the source line
+    // has no trailing comment / no trailing whitespace; coerce to
+    // empty string so the rewrite is a no-op append rather than the
+    // string "undefined".
+    return `${prefix}"${v}"${semi}${comment ?? ""}${trailingWs ?? ""}`;
+  });
+
+  // 3. Atomic write phase — both payloads have been built and
+  // validated, so it is safe to commit them to disk. Stage both
+  // outputs to temp files first; only after both temp writes
+  // succeed do we rename them into place. POSIX renameSync on the
+  // same filesystem is atomic, so a permission/disk error during
+  // the second writeFileSync no longer leaves the repo with a
+  // bumped server.json and a stale src/server.ts.
+  const serverJsonTmp = `${serverJsonPath}.tmp`;
+  const tsTmp = `${tsPath}.tmp`;
+  /* v8 ignore start -- defensive temp-write failure path: both
+     writeFileSync calls hit a tmpdir that was just successfully
+     mkdtemp'd, so EACCES/ENOSPC during this window would require a
+     concurrent permission flip or out-of-band disk pressure — not
+     reproducible from the test runner. The cleanup is "best effort"
+     anyway; the next syncVersion run would overwrite the tmp regardless. */
+  try {
+    writeFileSync(serverJsonTmp, serverJsonOutput);
+    writeFileSync(tsTmp, updatedTs);
+  } catch (err) {
+    // Either temp write failed; clean up any partial tmp and
+    // re-throw. The real files have NOT been touched yet.
+    try {
+      unlinkSync(serverJsonTmp);
+    } catch {}
+    try {
+      unlinkSync(tsTmp);
+    } catch {}
+    throw err;
+  }
+  /* v8 ignore stop */
+  // Both tmp files exist and are consistent — promote in place.
+  // The two renames are best-effort atomic individually, but the
+  // window between them is not. If the second rename throws, the
+  // first has already shipped the new server.json while src/server.ts
+  // still holds the old literal — exactly the half-applied state this
+  // step is meant to prevent. Restore the original bytes on the
+  // promoted file before re-throwing so the caller sees a clean repo.
+  renameSync(serverJsonTmp, serverJsonPath);
+  try {
+    renameSync(tsTmp, tsPath);
+  } catch (err) {
+    try {
+      writeFileSync(serverJsonPath, serverJsonOriginal);
+    } catch {
+      /* v8 ignore next -- defensive: failing to roll back is not
+         worse than not trying; swallow and re-throw the original
+         renameSync error so the operator sees the real cause. */
+    }
+    try {
+      unlinkSync(tsTmp);
+    } catch {
+      /* v8 ignore next -- tsTmp may have been moved by the failing
+         renameSync depending on which step inside it tripped; ENOENT
+         here is benign. */
+    }
+    throw err;
+  }
 
   return v;
 }
