@@ -21,6 +21,7 @@ concurrency:
 jobs:
   leak-detect:
     name: Leak detect
-    uses: klodr/.github/.github/workflows/reusable-leak-detect.yml@212a01a8716da2747951ec9e1ff88744c557e8b4
+    uses: klodr/.github/.github/workflows/reusable-leak-detect.yml@a2618fb7c675a9f6bbbd68f0f957dd5ffa1b5c10
     secrets:
-      leak-detect-pat: ${{ secrets.LEAK_DETECT_PAT }}
+      leak-detect-client-id: ${{ secrets.LEAK_DETECT_CLIENT_ID }}
+      leak-detect-app-private-key: ${{ secrets.LEAK_DETECT_APP_PRIVATE_KEY }}
