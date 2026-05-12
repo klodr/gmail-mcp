@@ -24,17 +24,13 @@ export default defineConfig({
       // otherwise hides files that no test imports, which makes it
       // easy to think we have better coverage than we do.
       include: ["src/**/*.ts", "scripts/**/*.mjs"],
-      // `src/index.ts` is the stdio CLI entry point — 7 lines that
-      // call `runServer({ argv, env })` and forward the rejection
-      // to `process.exit(1)`. Testing it requires booting a real
-      // `StdioServerTransport`, which deadlocks the test runner
-      // waiting for the next stdio frame. The orchestration the
-      // shim wraps lives in `runtime.ts` and is covered there.
-      // Mirrors the `klodr/faxdrop-mcp` and `klodr/mercury-invoicing-mcp`
-      // pattern.
+      // `src/index.ts` is the stdio CLI entry point — a thin shim that
+      // boots `StdioServerTransport`. Testing it requires booting a real
+      // transport, which deadlocks the test runner waiting for the next
+      // stdio frame. The orchestration the shim wraps lives in
+      // `runtime.ts` and is covered there.
       exclude: [
         "src/**/*.test.ts",
-        "src/**/*.d.ts",
         "src/index.ts",
         // Vitest's `include` for tests is separate from coverage
         // `include`; this `exclude` ensures the tempdir-driven
