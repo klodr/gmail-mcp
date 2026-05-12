@@ -1,0 +1,26 @@
+name: Leak detect (private patterns)
+
+# Scans the PR diff plus PR metadata (title, body, commit messages)
+# against the centrally-maintained pattern set. Catches accidental
+# disclosure of internal hostnames, infra slugs, PII regexes, etc.
+# that the public OSS scanners (gitleaks) don't know about.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  leak-detect:
+    name: Leak detect
+    uses: klodr/.github/.github/workflows/reusable-leak-detect.yml@212a01a8716da2747951ec9e1ff88744c557e8b4
+    secrets:
+      leak-detect-pat: ${{ secrets.LEAK_DETECT_PAT }}
