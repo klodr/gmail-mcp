@@ -21,6 +21,12 @@ concurrency:
 jobs:
   leak-detect:
     name: Leak detect
+    # Skip on PRs from forks: GitHub does not expose repository secrets
+    # to `pull_request` runs whose head repo differs from the base, so
+    # the GitHub App credentials would be empty and the job would hard-
+    # fail as a required check. Leak scanning of fork PRs is enforced
+    # post-merge by the maintainer-side push trigger on main.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     uses: klodr/.github/.github/workflows/reusable-leak-detect.yml@a2618fb7c675a9f6bbbd68f0f957dd5ffa1b5c10
     secrets:
       leak-detect-client-id: ${{ secrets.LEAK_DETECT_CLIENT_ID }}
