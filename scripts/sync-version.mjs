@@ -79,15 +79,21 @@ export function syncVersion(rootDir) {
   // file. The `m` flag makes `^` match every line start. The
   // trailing-comment capture group preserves the release-please
   // marker (and any other annotation) verbatim across the rewrite.
-  const re = /^(\s*export const VERSION = )"[^"]*"(;?)(\s*\/\/.*)?$/m;
+  // Tolerate trailing whitespace before EOL — a stray space after `;`
+  // (or after the release-please marker) is otherwise treated as a
+  // non-match and the script throws "did not find the VERSION
+  // constant". The trailing-whitespace capture is preserved verbatim
+  // so reformatters that intentionally pad the line stay byte-stable.
+  const re = /^(\s*export const VERSION = )"[^"]*"(;?)(\s*\/\/.*)?([ \t]*)$/m;
   if (!re.test(ts)) {
     throw new Error("sync-version: did not find the VERSION constant in src/server.ts");
   }
-  const updatedTs = ts.replace(re, (_match, prefix, semi, comment) => {
-    // `comment` is `undefined` when the source line has no trailing
-    // comment; coerce to empty string so the rewrite is a no-op
-    // append rather than the string "undefined".
-    return `${prefix}"${v}"${semi}${comment ?? ""}`;
+  const updatedTs = ts.replace(re, (_match, prefix, semi, comment, trailingWs) => {
+    // `comment` and `trailingWs` are `undefined` when the source line
+    // has no trailing comment / no trailing whitespace; coerce to
+    // empty string so the rewrite is a no-op append rather than the
+    // string "undefined".
+    return `${prefix}"${v}"${semi}${comment ?? ""}${trailingWs ?? ""}`;
   });
 
   // 3. Atomic write phase — both payloads have been built and

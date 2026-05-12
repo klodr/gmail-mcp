@@ -197,6 +197,44 @@ describe("syncVersion", () => {
     expect(ts).toContain('export const OTHER = "kept";');
   });
 
+  it("tolerates trailing whitespace on the VERSION declaration line", () => {
+    // Pin the trailing-whitespace branch — some editors / autosave
+    // tooling pad lines with a stray space or tab before EOL. A
+    // strict `$` anchor without a `[ \t]*` capture would treat that
+    // padded line as a non-match and the script would throw "did not
+    // find the VERSION constant". Cover both `;<spaces>` and
+    // `;<comment><spaces>` forms.
+    writeFixture({
+      pkgVersion: "0.31.0",
+      tsContent:
+        [
+          'export const VERSION = "0.0.0";   ', // padded with spaces
+          'export const KEPT = "kept";',
+        ].join("\n") + "\n",
+    });
+    syncVersion(scratch);
+    const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    // Trailing whitespace is preserved verbatim so reformatters that
+    // intentionally pad the line stay byte-stable across the rewrite.
+    expect(ts).toContain('export const VERSION = "0.31.0";   ');
+    expect(ts).toContain('export const KEPT = "kept";');
+  });
+
+  it("tolerates trailing whitespace after the release-please marker", () => {
+    writeFixture({
+      pkgVersion: "0.31.0",
+      tsContent:
+        [
+          'export const VERSION = "0.0.0"; // x-release-please-version   ',
+        ].join("\n") + "\n",
+    });
+    syncVersion(scratch);
+    const ts = readFileSync(join(scratch, "src", "server.ts"), "utf8");
+    expect(ts).toContain(
+      'export const VERSION = "0.31.0"; // x-release-please-version   ',
+    );
+  });
+
   it("does not rewrite VERSION-like patterns inside comments or string literals", () => {
     // Pin the anchored regex (`^(\\s*export const VERSION = )"..."(;?)$/m`)
     // — without the `^...$/m` anchors, the previous unanchored
