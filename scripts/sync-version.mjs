@@ -106,6 +106,12 @@ export function syncVersion(rootDir) {
   // bumped server.json and a stale src/server.ts.
   const serverJsonTmp = `${serverJsonPath}.tmp`;
   const tsTmp = `${tsPath}.tmp`;
+  /* v8 ignore start -- defensive temp-write failure path: both
+     writeFileSync calls hit a tmpdir that was just successfully
+     mkdtemp'd, so EACCES/ENOSPC during this window would require a
+     concurrent permission flip or out-of-band disk pressure — not
+     reproducible from the test runner. The cleanup is "best effort"
+     anyway; the next syncVersion run would overwrite the tmp regardless. */
   try {
     writeFileSync(serverJsonTmp, serverJsonOutput);
     writeFileSync(tsTmp, updatedTs);
@@ -120,6 +126,7 @@ export function syncVersion(rootDir) {
     } catch {}
     throw err;
   }
+  /* v8 ignore stop */
   // Both tmp files exist and are consistent — promote in place.
   // The two renames are best-effort atomic individually, but the
   // window between them is not. If the second rename throws, the
@@ -133,10 +140,18 @@ export function syncVersion(rootDir) {
   } catch (err) {
     try {
       writeFileSync(serverJsonPath, serverJsonOriginal);
-    } catch {}
+    } catch {
+      /* v8 ignore next -- defensive: failing to roll back is not
+         worse than not trying; swallow and re-throw the original
+         renameSync error so the operator sees the real cause. */
+    }
     try {
       unlinkSync(tsTmp);
-    } catch {}
+    } catch {
+      /* v8 ignore next -- tsTmp may have been moved by the failing
+         renameSync depending on which step inside it tripped; ENOENT
+         here is benign. */
+    }
     throw err;
   }
 
