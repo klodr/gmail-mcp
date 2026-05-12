@@ -204,8 +204,15 @@ jobs:
       - name: Path 3 — cosign verify-blob-attestation
         # Same hardening: replace the open identity-regexp with the exact
         # Fulcio SAN that release.yml at this tag would have produced.
+        #
+        # `--type slsaprovenance1` pins the predicate to SLSA Provenance
+        # v1 — the shape `actions/attest-build-provenance@v4.x` emits.
+        # Cosign defaults to `--type custom` and would otherwise reject
+        # the bundle with `invalid predicate type, expected custom got
+        # https://slsa.dev/provenance/v1`.
         run: |
           cosign verify-blob-attestation \
+            --type slsaprovenance1 \
             --bundle verify-assets/index.js.sigstore \
             --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${TAG}" \
             --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
