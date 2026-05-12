@@ -629,7 +629,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ReadEmailSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Read Email", readOnlyHint: true },
+    annotations: { title: "Read Email", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "search_emails",
@@ -642,7 +642,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: SearchEmailsSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Search Emails", readOnlyHint: true },
+    annotations: { title: "Search Emails", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "download_attachment",
@@ -655,7 +655,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DownloadAttachmentSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Download Attachment", readOnlyHint: true },
+    annotations: { title: "Download Attachment", readOnlyHint: true, openWorldHint: true },
   },
 
   // Thread-level operations
@@ -670,7 +670,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: GetThreadSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Get Thread", readOnlyHint: true },
+    annotations: { title: "Get Thread", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "list_inbox_threads",
@@ -683,7 +683,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ListInboxThreadsSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "List Inbox Threads", readOnlyHint: true },
+    annotations: { title: "List Inbox Threads", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "get_inbox_with_threads",
@@ -696,7 +696,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: GetInboxWithThreadsSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Get Inbox with Threads", readOnlyHint: true },
+    annotations: { title: "Get Inbox with Threads", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "modify_thread",
@@ -711,7 +711,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ModifyThreadSchema,
     scopes: ["gmail.modify"],
-    annotations: { title: "Modify Thread", destructiveHint: true, idempotentHint: true },
+    annotations: {
+      title: "Modify Thread",
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: "download_email",
@@ -724,7 +729,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DownloadEmailSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Download Email", readOnlyHint: true },
+    annotations: { title: "Download Email", readOnlyHint: true, openWorldHint: true },
   },
 
   // Email write operations
@@ -741,7 +746,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: SendEmailSchema,
     scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
-    annotations: { title: "Send Email", destructiveHint: false },
+    annotations: { title: "Send Email", destructiveHint: false, openWorldHint: true },
   },
   {
     name: "pair_recipient",
@@ -758,7 +763,12 @@ export const toolDefinitions: ToolDefinition[] = [
     // Exposed wherever the send surface is; an operator with a
     // readonly-only token has nothing to pair.
     scopes: ["gmail.modify", "gmail.compose", "gmail.send", "mail.google.com"],
-    annotations: { title: "Pair Recipient", destructiveHint: false, idempotentHint: true },
+    annotations: {
+      title: "Pair Recipient",
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: "draft_email",
@@ -773,7 +783,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: SendEmailSchema,
     scopes: ["gmail.modify", "gmail.compose"],
-    annotations: { title: "Draft Email", destructiveHint: false },
+    annotations: { title: "Draft Email", destructiveHint: false, openWorldHint: true },
   },
   {
     name: "list_drafts",
@@ -786,7 +796,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ListDraftsSchema,
     scopes: ["gmail.readonly", "gmail.modify", "gmail.compose"],
-    annotations: { title: "List Drafts", readOnlyHint: true },
+    annotations: { title: "List Drafts", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "get_draft",
@@ -799,7 +809,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: GetDraftSchema,
     scopes: ["gmail.readonly", "gmail.modify", "gmail.compose"],
-    annotations: { title: "Get Draft", readOnlyHint: true },
+    annotations: { title: "Get Draft", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "update_draft",
@@ -824,7 +834,7 @@ export const toolDefinitions: ToolDefinition[] = [
     // "destructive write that must hit the modify capability" floor
     // intact.
     scopes: ["gmail.modify"],
-    annotations: { title: "Update Draft", destructiveHint: true },
+    annotations: { title: "Update Draft", destructiveHint: true, openWorldHint: true },
   },
   {
     name: "delete_draft",
@@ -839,7 +849,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DeleteDraftSchema,
     scopes: ["gmail.modify"],
-    annotations: { title: "Delete Draft", destructiveHint: true },
+    annotations: { title: "Delete Draft", destructiveHint: true, openWorldHint: true },
   },
   {
     name: "send_draft",
@@ -863,7 +873,7 @@ export const toolDefinitions: ToolDefinition[] = [
     // to the API-accepted set so the scope filter rejects
     // mismatched tokens at registration time.
     scopes: ["gmail.modify", "gmail.compose"],
-    annotations: { title: "Send Draft", destructiveHint: true },
+    annotations: { title: "Send Draft", destructiveHint: true, openWorldHint: true },
   },
   {
     name: "modify_email",
@@ -878,7 +888,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ModifyEmailSchema,
     scopes: ["gmail.modify"],
-    annotations: { title: "Modify Email", destructiveHint: true, idempotentHint: true },
+    annotations: {
+      title: "Modify Email",
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: "delete_email",
@@ -897,7 +912,7 @@ export const toolDefinitions: ToolDefinition[] = [
     // users.messages.delete endpoint specifically rejects it with
     // HTTP 403 "Insufficient Permission".
     scopes: ["mail.google.com"],
-    annotations: { title: "Delete Email", destructiveHint: true },
+    annotations: { title: "Delete Email", destructiveHint: true, openWorldHint: true },
   },
   {
     name: "batch_modify_emails",
@@ -912,7 +927,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: BatchModifyEmailsSchema,
     scopes: ["gmail.modify"],
-    annotations: { title: "Batch Modify Emails", destructiveHint: true, idempotentHint: true },
+    annotations: {
+      title: "Batch Modify Emails",
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: "batch_delete_emails",
@@ -928,7 +948,7 @@ export const toolDefinitions: ToolDefinition[] = [
     schema: BatchDeleteEmailsSchema,
     // Same scope requirement as delete_email — see comment above.
     scopes: ["mail.google.com"],
-    annotations: { title: "Batch Delete Emails", destructiveHint: true },
+    annotations: { title: "Batch Delete Emails", destructiveHint: true, openWorldHint: true },
   },
 
   // Label operations
@@ -943,7 +963,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ListEmailLabelsSchema,
     scopes: ["gmail.readonly", "gmail.modify", "gmail.labels"],
-    annotations: { title: "List Email Labels", readOnlyHint: true },
+    annotations: { title: "List Email Labels", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "create_label",
@@ -958,7 +978,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: CreateLabelSchema,
     scopes: ["gmail.modify", "gmail.labels"],
-    annotations: { title: "Create Label", destructiveHint: false },
+    annotations: { title: "Create Label", destructiveHint: false, openWorldHint: true },
   },
   {
     name: "update_label",
@@ -973,7 +993,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: UpdateLabelSchema,
     scopes: ["gmail.modify", "gmail.labels"],
-    annotations: { title: "Update Label", destructiveHint: true, idempotentHint: true },
+    annotations: {
+      title: "Update Label",
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
   {
     name: "delete_label",
@@ -988,7 +1013,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DeleteLabelSchema,
     scopes: ["gmail.modify", "gmail.labels"],
-    annotations: { title: "Delete Label", destructiveHint: true },
+    annotations: { title: "Delete Label", destructiveHint: true, openWorldHint: true },
   },
   {
     name: "get_or_create_label",
@@ -1003,7 +1028,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: GetOrCreateLabelSchema,
     scopes: ["gmail.modify", "gmail.labels"],
-    annotations: { title: "Get or Create Label", destructiveHint: false, idempotentHint: true },
+    annotations: {
+      title: "Get or Create Label",
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 
   // Filter operations (require settings scope)
@@ -1018,7 +1048,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ListFiltersSchema,
     scopes: ["gmail.settings.basic"],
-    annotations: { title: "List Filters", readOnlyHint: true },
+    annotations: { title: "List Filters", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "get_filter",
@@ -1031,7 +1061,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: GetFilterSchema,
     scopes: ["gmail.settings.basic"],
-    annotations: { title: "Get Filter", readOnlyHint: true },
+    annotations: { title: "Get Filter", readOnlyHint: true, openWorldHint: true },
   },
   {
     name: "create_filter",
@@ -1046,7 +1076,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: CreateFilterSchema,
     scopes: ["gmail.settings.basic"],
-    annotations: { title: "Create Filter", destructiveHint: true },
+    annotations: { title: "Create Filter", destructiveHint: true, openWorldHint: true },
   },
   {
     name: "delete_filter",
@@ -1061,7 +1091,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DeleteFilterSchema,
     scopes: ["gmail.settings.basic"],
-    annotations: { title: "Delete Filter", destructiveHint: true },
+    annotations: { title: "Delete Filter", destructiveHint: true, openWorldHint: true },
   },
   {
     name: "create_filter_from_template",
@@ -1076,7 +1106,11 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: CreateFilterFromTemplateSchema,
     scopes: ["gmail.settings.basic"],
-    annotations: { title: "Create Filter from Template", destructiveHint: false },
+    annotations: {
+      title: "Create Filter from Template",
+      destructiveHint: false,
+      openWorldHint: true,
+    },
   },
 
   // Reply-all operation
@@ -1093,7 +1127,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ReplyAllSchema,
     scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
-    annotations: { title: "Reply All", destructiveHint: false },
+    annotations: { title: "Reply All", destructiveHint: false, openWorldHint: true },
   },
 
   // Sender-only reply
@@ -1110,7 +1144,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ReplyToEmailSchema,
     scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
-    annotations: { title: "Reply To Email", destructiveHint: false },
+    annotations: { title: "Reply To Email", destructiveHint: false, openWorldHint: true },
   },
 
   // Forward operation
@@ -1127,7 +1161,7 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: ForwardEmailSchema,
     scopes: ["gmail.modify", "gmail.compose", "gmail.send"],
-    annotations: { title: "Forward Email", destructiveHint: false },
+    annotations: { title: "Forward Email", destructiveHint: false, openWorldHint: true },
   },
 ];
 
