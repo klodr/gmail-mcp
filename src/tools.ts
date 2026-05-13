@@ -55,7 +55,7 @@ const coerceArrayPreprocess = (val: unknown) => {
 };
 
 const coerceArray = <T extends z.ZodType>(inner: T, opts?: { max?: number }) => {
-  const arr = opts?.max !== undefined ? z.array(inner).max(opts.max) : z.array(inner);
+  const arr = opts?.max === undefined ? z.array(inner) : z.array(inner).max(opts.max);
   return z.preprocess(coerceArrayPreprocess, arr);
 };
 

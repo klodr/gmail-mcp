@@ -23,10 +23,10 @@
  * preserved bit-for-bit.
  */
 
-import fs from "fs";
-import path from "path";
-import http from "http";
-import crypto from "crypto";
+import fs from "node:fs";
+import path from "node:path";
+import http from "node:http";
+import crypto from "node:crypto";
 import open from "open";
 import { OAuth2Client } from "google-auth-library";
 import { DEFAULT_SCOPES, scopeNamesToUrls } from "./scopes.js";
@@ -382,7 +382,7 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
   // server is a non-privileged loopback listener — privileged ports
   // (1-1023) require root and are almost certainly a misconfig;
   // ports outside 1-65535 are not valid TCP at all.
-  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+  if (!Number.isInteger(port) || port < 1024 || port > 65_535) {
     throw new Error(
       `Callback port '${parsed.port || "(default)"}' is invalid. ` +
         `The built-in auth server requires an unprivileged TCP port (1024-65535). ` +
@@ -446,8 +446,8 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
       // for what should be a non-fatal "no default browser" event.
       void Promise.resolve()
         .then(() => launchBrowser(authUrl))
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
+        .catch((error: unknown) => {
+          const msg = error instanceof Error ? error.message : String(error);
           log(`Failed to open browser automatically: ${msg}`);
         });
     });

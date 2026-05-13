@@ -205,7 +205,7 @@ export function registerMessageTools(
       if (args.labelIds) additions.push(...args.labelIds);
       if (args.addLabelIds) additions.push(...args.addLabelIds);
       if (additions.length > 0) {
-        requestBody.addLabelIds = Array.from(new Set(additions));
+        requestBody.addLabelIds = [...new Set(additions)];
       }
       if (args.removeLabelIds) requestBody.removeLabelIds = args.removeLabelIds;
       await gmail.users.messages.modify({ userId: "me", id: args.messageId, requestBody });
@@ -250,7 +250,7 @@ export function registerMessageTools(
         resultText += `Failed to process: ${failures.length} messages\n\n`;
         resultText += `Failed message IDs:\n`;
         resultText += failures
-          .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
+          .map((f) => `- ${f.item.slice(0, 16)}... (${f.error.message})`)
           .join("\n");
       }
       return { content: [{ type: "text", text: resultText }] };
@@ -289,7 +289,7 @@ export function registerMessageTools(
         resultText += `Failed to delete: ${failures.length} messages\n\n`;
         resultText += `Failed message IDs:\n`;
         resultText += failures
-          .map((f) => `- ${f.item.substring(0, 16)}... (${f.error.message})`)
+          .map((f) => `- ${f.item.slice(0, 16)}... (${f.error.message})`)
           .join("\n");
       }
       return { content: [{ type: "text", text: resultText }] };

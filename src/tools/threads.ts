@@ -165,7 +165,7 @@ export function registerThreadTools(
             metadataHeaders: ["Subject", "From", "Date"],
           });
           const messages = detail.data.messages || [];
-          const latestMessage = messages[messages.length - 1];
+          const latestMessage = messages.at(-1);
           const latestHeaders = latestMessage?.payload?.headers;
 
           return {
@@ -228,7 +228,7 @@ export function registerThreadTools(
               metadataHeaders: ["Subject", "From", "Date"],
             });
             const messages = detail.data.messages || [];
-            const latestMessage = messages[messages.length - 1];
+            const latestMessage = messages.at(-1);
             const latestHeaders = latestMessage?.payload?.headers;
             return {
               threadId: thread.id || "",

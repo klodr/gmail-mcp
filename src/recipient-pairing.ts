@@ -69,19 +69,22 @@ export function readPairedList(): string[] {
   if (!fs.existsSync(file)) return [];
   let raw: string;
   try {
-    raw = fs.readFileSync(file, "utf-8");
-  } catch (err) {
-    throw new Error(`Unable to read paired-recipients file at ${file}: ${(err as Error).message}`, {
-      cause: err,
-    });
+    raw = fs.readFileSync(file, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Unable to read paired-recipients file at ${file}: ${(error as Error).message}`,
+      {
+        cause: error,
+      },
+    );
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (err) {
+  } catch (error) {
     throw new Error(
-      `Paired-recipients file at ${file} is not valid JSON: ${(err as Error).message}`,
-      { cause: err },
+      `Paired-recipients file at ${file} is not valid JSON: ${(error as Error).message}`,
+      { cause: error },
     );
   }
   if (!isPairedFile(parsed)) {

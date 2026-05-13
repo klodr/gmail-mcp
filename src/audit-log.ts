@@ -120,7 +120,7 @@ export function logAudit(toolName: string, args: unknown, result: AuditResult): 
   });
   try {
     appendFileSync(path, entry + "\n", { mode: 0o600 });
-  } catch (err) {
-    console.error(`[audit] failed to write to ${path}:`, (err as Error).message);
+  } catch (error) {
+    console.error(`[audit] failed to write to ${path}:`, (error as Error).message);
   }
 }

@@ -5,6 +5,7 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import promise from "eslint-plugin-promise";
 import importX from "eslint-plugin-import-x";
+import unicorn from "eslint-plugin-unicorn";
 import jsonc from "eslint-plugin-jsonc";
 import prettier from "eslint-config-prettier";
 
@@ -39,7 +40,25 @@ export default tseslint.config(
       promise.configs["flat/recommended"],
       importX.flatConfigs.recommended,
       importX.flatConfigs.typescript,
+      unicorn.configs["flat/recommended"],
     ],
+    rules: {
+      // eslint-plugin-unicorn adoption pass 1. See klodr/eslint-plugin-security-mcp#41 for policy.
+      "unicorn/prevent-abbreviations": "off",
+      "unicorn/no-null": "off",
+      "unicorn/no-array-reduce": "off",
+      "unicorn/no-process-exit": "off",
+      "unicorn/import-style": "off",
+      "unicorn/prefer-top-level-await": "off",
+      "unicorn/no-array-callback-reference": "off",
+      "unicorn/text-encoding-identifier-case": "off",
+      "unicorn/no-array-for-each": "off",
+      "unicorn/prefer-single-call": "off",
+      "unicorn/no-array-sort": "off",
+      "unicorn/catch-error-name": "off",
+      "unicorn/number-literal-case": "off",
+      "unicorn/switch-case-braces": "off",
+    },
   },
   // JSON / JSONC / JSON5 linting via eslint-plugin-jsonc — `recommended-with-jsonc`
   // applies the JSONC parser to plain `.json` too, so trailing commas in tsconfig
