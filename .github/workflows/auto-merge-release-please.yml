@@ -17,6 +17,15 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
+# Workflow-level permissions are read-only. The `call` job below
+# escalates only the writes the reusable needs (contents +
+# pull-requests). Without this top-level cap, Scorecard's
+# Token-Permissions check flags the workflow on the missing
+# default and any future job added here would inherit the
+# runner's GITHUB_TOKEN scope.
+permissions:
+  contents: read
+
 jobs:
   call:
     # The reusable workflow needs to arm `gh pr merge --auto` (writes the
