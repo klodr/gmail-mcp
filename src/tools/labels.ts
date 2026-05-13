@@ -32,27 +32,27 @@ export function registerLabelTools(
   authorizedScopes: readonly string[],
 ): void {
   // delete_label — PR #3
-  const deleteLabelDef = pull("delete_label");
+  const deleteLabelDefinition = pull("delete_label");
   defineTool(
     server,
     "delete_label",
-    deleteLabelDef.description,
+    deleteLabelDefinition.description,
     DeleteLabelSchema.shape,
     async (args) => {
       const result = await deleteLabel(gmail, args.id);
       return { content: [{ type: "text", text: result.message }] };
     },
-    deleteLabelDef.annotations,
-    deleteLabelDef.scopes,
+    deleteLabelDefinition.annotations,
+    deleteLabelDefinition.scopes,
     authorizedScopes,
   );
 
   // create_label — PR #4
-  const createLabelDef = pull("create_label");
+  const createLabelDefinition = pull("create_label");
   defineTool(
     server,
     "create_label",
-    createLabelDef.description,
+    createLabelDefinition.description,
     CreateLabelSchema.shape,
     async (args) => {
       const result = await createLabel(gmail, args.name, {
@@ -68,17 +68,17 @@ export function registerLabelTools(
         ],
       };
     },
-    createLabelDef.annotations,
-    createLabelDef.scopes,
+    createLabelDefinition.annotations,
+    createLabelDefinition.scopes,
     authorizedScopes,
   );
 
   // update_label — PR #4
-  const updateLabelDef = pull("update_label");
+  const updateLabelDefinition = pull("update_label");
   defineTool(
     server,
     "update_label",
-    updateLabelDef.description,
+    updateLabelDefinition.description,
     UpdateLabelSchema.shape,
     async (args) => {
       const updates: Record<string, unknown> = {};
@@ -99,17 +99,17 @@ export function registerLabelTools(
         ],
       };
     },
-    updateLabelDef.annotations,
-    updateLabelDef.scopes,
+    updateLabelDefinition.annotations,
+    updateLabelDefinition.scopes,
     authorizedScopes,
   );
 
   // get_or_create_label — PR #4
-  const getOrCreateDef = pull("get_or_create_label");
+  const getOrCreateDefinition = pull("get_or_create_label");
   defineTool(
     server,
     "get_or_create_label",
-    getOrCreateDef.description,
+    getOrCreateDefinition.description,
     GetOrCreateLabelSchema.shape,
     async (args) => {
       const { label, found } = await getOrCreateLabel(gmail, args.name, {
@@ -126,17 +126,17 @@ export function registerLabelTools(
         ],
       };
     },
-    getOrCreateDef.annotations,
-    getOrCreateDef.scopes,
+    getOrCreateDefinition.annotations,
+    getOrCreateDefinition.scopes,
     authorizedScopes,
   );
 
   // list_email_labels — PR #4
-  const listLabelsDef = pull("list_email_labels");
+  const listLabelsDefinition = pull("list_email_labels");
   defineTool(
     server,
     "list_email_labels",
-    listLabelsDef.description,
+    listLabelsDefinition.description,
     ListEmailLabelsSchema.shape,
     async () => {
       const labelResults = await listLabels(gmail);
@@ -156,8 +156,8 @@ export function registerLabelTools(
         ],
       };
     },
-    listLabelsDef.annotations,
-    listLabelsDef.scopes,
+    listLabelsDefinition.annotations,
+    listLabelsDefinition.scopes,
     authorizedScopes,
   );
 }

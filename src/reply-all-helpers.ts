@@ -96,9 +96,9 @@ function splitOnUnquotedCommas(headerValue: string): string[] {
   const parts: string[] = [];
   let buf = "";
   let inQuotes = false;
-  for (let i = 0; i < headerValue.length; i++) {
-    const ch = headerValue[i] ?? "";
-    if (ch === '"' && headerValue[i - 1] !== "\\") {
+  for (let index = 0; index < headerValue.length; index++) {
+    const ch = headerValue[index] ?? "";
+    if (ch === '"' && headerValue[index - 1] !== "\\") {
       inQuotes = !inQuotes;
       buf += ch;
     } else if (ch === "," && !inQuotes) {
@@ -266,7 +266,7 @@ export function buildReplyAllRecipients(
 
   // CC recipients: everyone else who was on To and CC, excluding myself
   // and excluding any address already landing in `To` (no To/CC overlap).
-  const toSetLower = new Set(replyTo.map((e) => e.toLowerCase()));
+  const toSetLower = new Set(replyTo.map((address) => address.toLowerCase()));
   const replyCc = dedupeAddresses(filterOutEmail([...toEmails, ...ccEmails], myEmail)).filter(
     (email) => !toSetLower.has(email.toLowerCase()),
   );

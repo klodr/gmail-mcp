@@ -15,7 +15,7 @@ import { defineTool, pullToolMeta as pull } from "./_shared.js";
 import { DownloadEmailSchema, DownloadAttachmentSchema } from "../tools.js";
 import {
   resolveDownloadSavePath,
-  getDownloadDir,
+  getDownloadDirectory,
   safeWriteFile,
   sanitizeAttachmentFilename,
 } from "../utl.js";
@@ -148,7 +148,7 @@ export function registerDownloadTools(
         const data = attachmentResponse.data.data;
         const buffer = Buffer.from(data, "base64url");
 
-        const savePath = resolveDownloadSavePath(args.savePath ?? getDownloadDir());
+        const savePath = resolveDownloadSavePath(args.savePath ?? getDownloadDirectory());
         let filename = args.filename;
 
         if (!filename) {

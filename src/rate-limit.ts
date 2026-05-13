@@ -153,8 +153,8 @@ const callHistory = new Map<string, number[]>();
 let readOk = false;
 
 function getStateFile(): string {
-  const dir = process.env.GMAIL_MCP_STATE_DIR || join(homedir(), ".gmail-mcp");
-  return join(dir, "ratelimit.json");
+  const directory = process.env.GMAIL_MCP_STATE_DIR || join(homedir(), ".gmail-mcp");
+  return join(directory, "ratelimit.json");
 }
 
 function loadCallHistory(): void {

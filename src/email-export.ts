@@ -83,12 +83,12 @@ export function gmailMessageToJson(
 ): EmailJson {
   const getHeader = makeHeaderGetter(message.payload?.headers);
 
-  const dateStr = getHeader("date");
+  const dateString = getHeader("date");
   let isoDate: string;
   try {
-    isoDate = new Date(dateStr).toISOString();
+    isoDate = new Date(dateString).toISOString();
   } catch {
-    isoDate = dateStr; // Keep original if parsing fails
+    isoDate = dateString; // Keep original if parsing fails
   }
 
   return {

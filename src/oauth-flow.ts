@@ -187,13 +187,13 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
       // Compare absolute paths up-front; fall back to
       // `realpathSync` on the destination only if it exists (it
       // may not — that's the whole point of the copy).
-      const srcAbs = path.resolve(localOAuthPath);
-      const dstAbs = path.resolve(opts.oauthPath);
-      const sameByPath = srcAbs === dstAbs;
+      const sourceAbs = path.resolve(localOAuthPath);
+      const destinationAbs = path.resolve(opts.oauthPath);
+      const sameByPath = sourceAbs === destinationAbs;
       let sameByRealpath = false;
       if (!sameByPath && fs.existsSync(opts.oauthPath)) {
         try {
-          sameByRealpath = fs.realpathSync(srcAbs) === fs.realpathSync(dstAbs);
+          sameByRealpath = fs.realpathSync(sourceAbs) === fs.realpathSync(destinationAbs);
         } catch {
           // realpath failure (broken symlink, EACCES) — fall through
           // to the copy. Worst case: the existing file gets
@@ -455,15 +455,15 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
     const hostForUrl = hostname.includes(":") ? `[${hostname}]` : hostname;
     const baseUrl = `http://${hostForUrl}:${port}`;
 
-    httpServer.on("request", (req, res) => {
+    httpServer.on("request", (request, res) => {
       void (async () => {
-        if (!req.url) return;
+        if (!request.url) return;
 
-        const url = new URL(req.url, baseUrl);
+        const url = new URL(request.url, baseUrl);
         if (url.pathname !== callbackPath) return;
 
         const code = url.searchParams.get("code");
-        const stateParam = url.searchParams.get("state");
+        const stateParameter = url.searchParams.get("state");
 
         // Settle the auth promise only after the http server is
         // fully closed: stop accepting new connections AND tear
@@ -510,7 +510,7 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         // up. Fix: build both Buffers up front and compare their
         // `.length` (which is byte length, not UTF-16 units).
         const expectedBuf = Buffer.from(expectedState, "utf8");
-        const stateBuf = stateParam === null ? null : Buffer.from(stateParam, "utf8");
+        const stateBuf = stateParameter === null ? null : Buffer.from(stateParameter, "utf8");
         if (
           stateBuf === null ||
           stateBuf.length !== expectedBuf.length ||

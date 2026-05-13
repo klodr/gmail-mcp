@@ -39,11 +39,15 @@ export function pullToolMeta(name: string): {
   scopes: string[];
   annotations: ToolAnnotations;
 } {
-  const def = getToolByName(name);
-  if (!def) {
+  const definition = getToolByName(name);
+  if (!definition) {
     throw new Error(`Tool definition missing: ${name}`);
   }
-  return { description: def.description, scopes: def.scopes, annotations: def.annotations };
+  return {
+    description: definition.description,
+    scopes: definition.scopes,
+    annotations: definition.annotations,
+  };
 }
 
 /**

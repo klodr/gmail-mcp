@@ -48,27 +48,27 @@ export function registerFilterTools(
   authorizedScopes: readonly string[],
 ): void {
   // delete_filter — PR #3
-  const deleteFilterDef = pull("delete_filter");
+  const deleteFilterDefinition = pull("delete_filter");
   defineTool(
     server,
     "delete_filter",
-    deleteFilterDef.description,
+    deleteFilterDefinition.description,
     DeleteFilterSchema.shape,
     async (args) => {
       const result = await deleteFilter(gmail, args.filterId);
       return { content: [{ type: "text", text: result.message }] };
     },
-    deleteFilterDef.annotations,
-    deleteFilterDef.scopes,
+    deleteFilterDefinition.annotations,
+    deleteFilterDefinition.scopes,
     authorizedScopes,
   );
 
   // create_filter — PR #4 (with recipient-pairing forward gate)
-  const createFilterDef = pull("create_filter");
+  const createFilterDefinition = pull("create_filter");
   defineTool(
     server,
     "create_filter",
-    createFilterDef.description,
+    createFilterDefinition.description,
     CreateFilterSchema.shape,
     async (args) => {
       // Forward action gate: when GMAIL_MCP_RECIPIENT_PAIRING=true,
@@ -91,17 +91,17 @@ export function registerFilterTools(
         ],
       };
     },
-    createFilterDef.annotations,
-    createFilterDef.scopes,
+    createFilterDefinition.annotations,
+    createFilterDefinition.scopes,
     authorizedScopes,
   );
 
   // list_filters — PR #4
-  const listFiltersDef = pull("list_filters");
+  const listFiltersDefinition = pull("list_filters");
   defineTool(
     server,
     "list_filters",
-    listFiltersDef.description,
+    listFiltersDefinition.description,
     ListFiltersSchema.shape,
     async () => {
       const result = await listFilters(gmail);
@@ -120,17 +120,17 @@ export function registerFilterTools(
         content: [{ type: "text", text: `Found ${result.count} filters:\n\n${filtersText}` }],
       };
     },
-    listFiltersDef.annotations,
-    listFiltersDef.scopes,
+    listFiltersDefinition.annotations,
+    listFiltersDefinition.scopes,
     authorizedScopes,
   );
 
   // get_filter — PR #4
-  const getFilterDef = pull("get_filter");
+  const getFilterDefinition = pull("get_filter");
   defineTool(
     server,
     "get_filter",
-    getFilterDef.description,
+    getFilterDefinition.description,
     GetFilterSchema.shape,
     async (args) => {
       const result = await getFilter(gmail, args.filterId);
@@ -145,17 +145,17 @@ export function registerFilterTools(
         ],
       };
     },
-    getFilterDef.annotations,
-    getFilterDef.scopes,
+    getFilterDefinition.annotations,
+    getFilterDefinition.scopes,
     authorizedScopes,
   );
 
   // create_filter_from_template — PR #4
-  const fromTemplateDef = pull("create_filter_from_template");
+  const fromTemplateDefinition = pull("create_filter_from_template");
   defineTool(
     server,
     "create_filter_from_template",
-    fromTemplateDef.description,
+    fromTemplateDefinition.description,
     CreateFilterFromTemplateSchema.shape,
     async (args) => {
       const template = args.template;
@@ -231,8 +231,8 @@ export function registerFilterTools(
         ],
       };
     },
-    fromTemplateDef.annotations,
-    fromTemplateDef.scopes,
+    fromTemplateDefinition.annotations,
+    fromTemplateDefinition.scopes,
     authorizedScopes,
   );
 }

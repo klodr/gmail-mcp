@@ -44,7 +44,31 @@ export default tseslint.config(
     ],
     rules: {
       // eslint-plugin-unicorn adoption pass 1. See klodr/eslint-plugin-security-mcp#41 for policy.
-      "unicorn/prevent-abbreviations": "off",
+      "unicorn/prevent-abbreviations": [
+        "error",
+        {
+          replacements: {
+            args: false,
+            arg: false,
+            opts: false,
+            msg: false,
+            err: false,
+            res: false,
+            val: false,
+            tmp: false,
+            env: false,
+            pkg: false,
+            obj: false,
+            params: false,
+            ext: false,
+          },
+          allowList: {
+            e164: true,
+            E164: true,
+            isValidE164: true,
+          },
+        },
+      ],
       "unicorn/no-null": "off",
       "unicorn/no-array-reduce": "off",
       "unicorn/no-process-exit": "off",
