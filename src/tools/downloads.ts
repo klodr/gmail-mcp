@@ -62,7 +62,7 @@ export function registerDownloadTools(
           // so it is defined here. TS's narrowing across the if/else
           // doesn't reach the parallel fetch.
           // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          content = Buffer.from(rawResponse!.data.raw || "", "base64url").toString("utf-8");
+          content = Buffer.from(rawResponse!.data.raw || "", "base64url").toString("utf8");
         } else {
           const emailContent = extractEmailContent(
             // The cast widens `payload` to non-nullable but Gmail can

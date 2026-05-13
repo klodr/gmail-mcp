@@ -80,7 +80,7 @@ export function registerMessageTools(
       // "[Message clipped]" rule (which is byte-based on raw text+HTML)
       // and so multi-byte characters do not quietly balloon the
       // char-count past the MCP response cap.
-      const bodyBytes = Buffer.byteLength(body, "utf-8");
+      const bodyBytes = Buffer.byteLength(body, "utf8");
       const hardCap = args.format === "summary" ? 500 : args.maxBodyLength;
       let displayBody = body;
       let truncationNote = "";
@@ -89,7 +89,7 @@ export function registerMessageTools(
         // trailing incomplete multi-byte sequence — that way a
         // truncated emoji or accent does not produce an invisible
         // U+FFFD replacement character in the output.
-        const buf = Buffer.from(body, "utf-8").subarray(0, hardCap);
+        const buf = Buffer.from(body, "utf8").subarray(0, hardCap);
         displayBody = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(buf);
         if (displayBody.endsWith("�")) {
           displayBody = displayBody.slice(0, -1);

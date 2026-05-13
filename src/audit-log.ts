@@ -82,7 +82,7 @@ const ELIDED_KEYS: ReadonlySet<string> =
  */
 export function redactSensitive(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(redactSensitive);
+  if (Array.isArray(value)) return value.map((item: unknown) => redactSensitive(item));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     const lower = k.toLowerCase();
