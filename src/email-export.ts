@@ -137,14 +137,15 @@ export function emailToTxt(
     lines.push(`CC: ${cc}`);
   }
 
-  lines.push(`Subject: ${subject}`);
-  lines.push(`Date: ${date}`);
-  lines.push("");
-  lines.push(emailContent.text || "[No plain text content]");
+  lines.push(
+    `Subject: ${subject}`,
+    `Date: ${date}`,
+    "",
+    emailContent.text || "[No plain text content]",
+  );
 
   if (attachments.length > 0) {
-    lines.push("");
-    lines.push("---");
+    lines.push("", "---");
     lines.push(`Attachments: ${attachments.map((a) => a.filename).join(", ")}`);
   }
 

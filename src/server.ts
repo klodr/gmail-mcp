@@ -85,10 +85,10 @@ export function createServer(opts: ServerOptions): McpServer {
     const { name, arguments: args } = request.params;
     try {
       return Promise.resolve(getPrompt(name, args) as unknown as Record<string, unknown>);
-    } catch (err) {
+    } catch (error) {
       const message =
-        err instanceof Error ? err.message : "Unexpected error generating prompt body";
-      throw new Error(`Prompt "${name}": ${message}`, { cause: err });
+        error instanceof Error ? error.message : "Unexpected error generating prompt body";
+      throw new Error(`Prompt "${name}": ${message}`, { cause: error });
     }
   });
 

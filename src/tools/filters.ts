@@ -162,7 +162,7 @@ export function registerFilterTools(
       const params = args.parameters;
       let filterConfig;
       switch (template) {
-        case "fromSender":
+        case "fromSender": {
           if (!params.senderEmail) {
             throw new Error("senderEmail is required for fromSender template");
           }
@@ -172,7 +172,8 @@ export function registerFilterTools(
             params.archive,
           );
           break;
-        case "withSubject":
+        }
+        case "withSubject": {
           if (!params.subjectText) {
             throw new Error("subjectText is required for withSubject template");
           }
@@ -182,16 +183,19 @@ export function registerFilterTools(
             params.markAsRead,
           );
           break;
-        case "withAttachments":
+        }
+        case "withAttachments": {
           filterConfig = filterTemplates.withAttachments(params.labelIds);
           break;
-        case "largeEmails":
+        }
+        case "largeEmails": {
           if (!params.sizeInBytes) {
             throw new Error("sizeInBytes is required for largeEmails template");
           }
           filterConfig = filterTemplates.largeEmails(params.sizeInBytes, params.labelIds);
           break;
-        case "containingText":
+        }
+        case "containingText": {
           if (!params.searchText) {
             throw new Error("searchText is required for containingText template");
           }
@@ -201,7 +205,8 @@ export function registerFilterTools(
             params.markImportant,
           );
           break;
-        case "mailingList":
+        }
+        case "mailingList": {
           if (!params.listIdentifier) {
             throw new Error("listIdentifier is required for mailingList template");
           }
@@ -211,8 +216,10 @@ export function registerFilterTools(
             params.archive,
           );
           break;
-        default:
+        }
+        default: {
           throw new Error(`Unknown template: ${String(template)}`);
+        }
       }
       const result = await createFilter(gmail, filterConfig.criteria, filterConfig.action);
       return {

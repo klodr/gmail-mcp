@@ -22,9 +22,6 @@ import { wrapToolHandler, type ToolResult } from "../middleware.js";
 import { hasScope } from "../scopes.js";
 import { getToolByName } from "../tools.js";
 
-export type { ToolResult };
-export type { ToolAnnotations };
-
 /**
  * Look up a tool's `description`, `scopes`, and `annotations` from the
  * `toolDefinitions` registry in `src/tools.ts`. Throws if the name is
@@ -157,3 +154,6 @@ export function defineTool<S extends ZodRawShape, O extends ZodRawShape = ZodRaw
 
   return true;
 }
+
+export { type ToolResult } from "../middleware.js";
+export { type ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";

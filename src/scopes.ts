@@ -56,8 +56,8 @@ export function scopeNamesToUrls(scopes: string[]): string[] {
 // Returns true if ANY of the tool's required scopes are present in authorizedScopes
 export function hasScope(authorizedScopes: string[], requiredScopes: string[]): boolean {
   // Normalize to shorthand names for comparison (handles both URL and shorthand input)
-  const normalizedAuth = authorizedScopes.map(scopeUrlToName);
-  return requiredScopes.some((scope) => normalizedAuth.includes(scope));
+  const normalizedAuth = new Set(authorizedScopes.map(scopeUrlToName));
+  return requiredScopes.some((scope) => normalizedAuth.has(scope));
 }
 
 // Parse scope input from CLI (comma-separated or space-separated)

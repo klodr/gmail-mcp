@@ -49,21 +49,21 @@
 // longer ambiguous to CodeQL or to `no-irregular-whitespace`.
 const CONTROL_AND_INVISIBLE = new RegExp(
   "[" +
-    "\\u0000-\\u0008" + // C0 minus \t, \n, \v, \f, \r
-    "\\u000B\\u000C" +
-    "\\u000E-\\u001F" +
-    "\\u007F-\\u009F" + // DEL + C1
-    "\\u200B-\\u200F" + // zero-width + LRM/RLM
-    "\\u202A-\\u202E" + // BiDi explicit overrides
-    "\\u2060" + // WORD JOINER
-    "\\u2066-\\u2069" + // BiDi isolates (LRI/RLI/FSI/PDI)
-    "\\uFEFF" + // ZWNBSP / BOM
+    String.raw`\u0000-\u0008` + // C0 minus \t, \n, \v, \f, \r
+    String.raw`\u000B\u000C` +
+    String.raw`\u000E-\u001F` +
+    String.raw`\u007F-\u009F` + // DEL + C1
+    String.raw`\u200B-\u200F` + // zero-width + LRM/RLM
+    String.raw`\u202A-\u202E` + // BiDi explicit overrides
+    String.raw`\u2060` + // WORD JOINER
+    String.raw`\u2066-\u2069` + // BiDi isolates (LRI/RLI/FSI/PDI)
+    String.raw`\uFEFF` + // ZWNBSP / BOM
     "]",
   "g",
 );
 
 export function stripControl(text: string): string {
-  return text.replace(CONTROL_AND_INVISIBLE, "");
+  return text.replaceAll(CONTROL_AND_INVISIBLE, "");
 }
 
 const FENCE_OPEN = "<untrusted-tool-output>\n";
@@ -77,7 +77,11 @@ const FENCE_CLOSE = "\n</untrusted-tool-output>";
 const CLOSE_TAG_RE = /<\/untrusted-tool-output>/gi;
 
 export function fence(text: string): string {
-  return FENCE_OPEN + text.replace(CLOSE_TAG_RE, "\\u003c/untrusted-tool-output>") + FENCE_CLOSE;
+  return (
+    FENCE_OPEN +
+    text.replaceAll(CLOSE_TAG_RE, String.raw`\u003c/untrusted-tool-output>`) +
+    FENCE_CLOSE
+  );
 }
 
 export function sanitizeForLlm(text: string): string {

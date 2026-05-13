@@ -7,8 +7,8 @@
  * `src/index.ts`.
  */
 
-import path from "path";
-import fs from "fs";
+import path from "node:path";
+import fs from "node:fs";
 import type { gmail_v1 } from "googleapis";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defineTool, pullToolMeta as pull } from "./_shared.js";
@@ -111,9 +111,9 @@ export function registerDownloadTools(
       } catch (error: unknown) {
         const { code, message } = asGmailApiError(error);
         const prefix =
-          code !== undefined
-            ? `Failed to download email (HTTP ${code})`
-            : "Failed to download email";
+          code === undefined
+            ? "Failed to download email"
+            : `Failed to download email (HTTP ${code})`;
         return {
           content: [{ type: "text", text: `${prefix}: ${message}` }],
           isError: true,
@@ -219,9 +219,9 @@ export function registerDownloadTools(
       } catch (error: unknown) {
         const { code, message } = asGmailApiError(error);
         const prefix =
-          code !== undefined
-            ? `Failed to download attachment (HTTP ${code})`
-            : "Failed to download attachment";
+          code === undefined
+            ? "Failed to download attachment"
+            : `Failed to download attachment (HTTP ${code})`;
         return {
           content: [{ type: "text", text: `${prefix}: ${message}` }],
           isError: true,

@@ -20,8 +20,8 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { google } from "googleapis";
-import path from "path";
-import os from "os";
+import path from "node:path";
+import os from "node:os";
 import { DEFAULT_SCOPES, parseScopes, validateScopes, getAvailableScopeNames } from "./scopes.js";
 import { buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
 import { createServer } from "./server.js";
@@ -230,14 +230,14 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
         credentialsPath: CREDENTIALS_PATH,
         log,
       });
-    } catch (err: unknown) {
+    } catch (error: unknown) {
       // `err instanceof Error` is the common path (authenticate
       // throws Error subclasses). The `String(err)` arm is the
       // defensive fallback when a non-Error value gets thrown
       // (e.g. legacy code that `throw "string-message"`).
       /* v8 ignore next -- non-Error throw is defensive; authenticate
          only ever throws Error subclasses today. */
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = error instanceof Error ? error.message : String(error);
       log(`Authentication failed: ${msg}`);
       exit(1);
     }
@@ -284,8 +284,8 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
   // through `wrapToolHandler`'s catch, giving the client a
   // programmatic path to prompt the user to re-auth.
   // Fire-and-forget: the check must not delay `server.connect()`.
-  oauth2Client.getAccessToken().catch((err: unknown) => {
-    if (isInvalidGrantError(err)) {
+  oauth2Client.getAccessToken().catch((error: unknown) => {
+    if (isInvalidGrantError(error)) {
       const payload = buildInvalidGrantPayload(CREDENTIALS_PATH);
       log(`[startup] ${payload.code}: ${payload.recovery_action}`);
     } else {
@@ -301,8 +301,8 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
       // Error subclass without ever exposing the body. The
       // `INVALID_GRANT` branch above remains the actionable signal
       // for the headline "credentials revoked" case.
-      const errType = err instanceof Error ? err.constructor.name : typeof err;
-      const rawLen = err instanceof Error ? err.message.length : String(err).length;
+      const errType = error instanceof Error ? error.constructor.name : typeof error;
+      const rawLen = error instanceof Error ? error.message.length : String(error).length;
       log(
         `[startup] getAccessToken probe failed: type=${errType}, message length=${rawLen} chars (redacted for credential safety; rerun \`npx @klodr/gmail-mcp auth\` if this persists)`,
       );

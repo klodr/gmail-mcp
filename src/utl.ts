@@ -1,7 +1,7 @@
-import fs from "fs";
-import os from "os";
-import path from "path";
-import { randomBytes } from "crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { randomBytes } from "node:crypto";
 import emailAddresses from "email-addresses";
 import { createTransport } from "nodemailer";
 
@@ -116,13 +116,13 @@ export function safeWriteFile(
     let fd: number;
     try {
       fd = fs.openSync(target, flags, 0o600);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
       if (code === "EEXIST" && onCollision === "suffix") {
         target = `${base} (${attempt + 1})${ext}`;
         continue;
       }
-      throw err;
+      throw error;
     }
     try {
       // fs.writeSync returns the byte count actually written, which may
@@ -236,7 +236,7 @@ function encodeEmailHeader(text: string): string {
   // The range [^\x00-\x7F] is the canonical test for non-ASCII and is
   // the intended use of \x00 here — not a control-char regex smell.
   // eslint-disable-next-line no-control-regex -- intentional: detect non-ASCII range
-  if (/[^\x00-\x7F]/.test(text)) {
+  if (/[^\u0000-\u007F]/.test(text)) {
     // Use MIME Words encoding (RFC 2047)
     return "=?UTF-8?B?" + Buffer.from(text).toString("base64") + "?=";
   }
@@ -280,7 +280,7 @@ export const validateEmail = (email: string): boolean => {
  * of a drift-prone mirror.
  */
 export function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n\0\u2028\u2029]/g, "");
+  return value.replaceAll(/[\r\n\0\u2028\u2029]/g, "");
 }
 
 /**
@@ -321,12 +321,12 @@ export function sanitizeHeaderValue(value: string): string {
  * downloading `résumé.pdf` sees `résumé.pdf` on disk, not `r_sum_.pdf`.
  */
 const ATTACHMENT_HOSTILE_CHARS = new RegExp(
-  "[" + "\\u0000-\\u001F" + "\\u007F-\\u009F" + '/\\\\:*?"<>|' + "]",
+  "[" + String.raw`\u0000-\u001F` + String.raw`\u007F-\u009F` + String.raw`/\\:*?"<>|` + "]",
   "g",
 );
 
 export function sanitizeAttachmentFilename(filename: string): string {
-  const cleaned = filename.replace(ATTACHMENT_HOSTILE_CHARS, "_").replace(/^\.+/, "");
+  const cleaned = filename.replaceAll(ATTACHMENT_HOSTILE_CHARS, "_").replace(/^\.+/, "");
   if (cleaned === "" || /^_+$/.test(cleaned)) return "attachment";
   return cleaned;
 }
@@ -459,11 +459,11 @@ export function createEmailMessage(validatedArgs: ValidatedEmailArgs): string {
   const boundary = `----=_NextPart_${randomBytes(16).toString("hex")}`;
 
   // Validate email addresses
-  validatedArgs.to.forEach((email) => {
+  for (const email of validatedArgs.to) {
     if (!validateEmail(email)) {
       throw new Error(`Recipient email address is invalid: ${email}`);
     }
-  });
+  }
 
   // Sanitize all user-supplied header values to prevent CRLF injection
   const from = sanitizeHeaderValue(validatedArgs.from || "me");
@@ -492,39 +492,39 @@ export function createEmailMessage(validatedArgs: ValidatedEmailArgs): string {
   // Construct the email based on the content type
   if (mimeType === "multipart/alternative") {
     // Multipart email with both plain text and HTML
-    emailParts.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
-    emailParts.push("");
-
-    // Plain text part
-    emailParts.push(`--${boundary}`);
-    emailParts.push("Content-Type: text/plain; charset=UTF-8");
-    emailParts.push("Content-Transfer-Encoding: 7bit");
-    emailParts.push("");
-    emailParts.push(validatedArgs.body);
-    emailParts.push("");
-
-    // HTML part
-    emailParts.push(`--${boundary}`);
-    emailParts.push("Content-Type: text/html; charset=UTF-8");
-    emailParts.push("Content-Transfer-Encoding: 7bit");
-    emailParts.push("");
-    emailParts.push(validatedArgs.htmlBody || validatedArgs.body); // Use body as fallback
-    emailParts.push("");
-
-    // Close the boundary
-    emailParts.push(`--${boundary}--`);
+    emailParts.push(
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: 7bit",
+      "",
+      validatedArgs.body,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/html; charset=UTF-8",
+      "Content-Transfer-Encoding: 7bit",
+      "",
+      validatedArgs.htmlBody || validatedArgs.body,
+      "",
+      `--${boundary}--`,
+    );
   } else if (mimeType === "text/html") {
     // HTML-only email
-    emailParts.push("Content-Type: text/html; charset=UTF-8");
-    emailParts.push("Content-Transfer-Encoding: 7bit");
-    emailParts.push("");
-    emailParts.push(validatedArgs.htmlBody || validatedArgs.body);
+    emailParts.push(
+      "Content-Type: text/html; charset=UTF-8",
+      "Content-Transfer-Encoding: 7bit",
+      "",
+      validatedArgs.htmlBody || validatedArgs.body,
+    );
   } else {
     // Plain text email (default)
-    emailParts.push("Content-Type: text/plain; charset=UTF-8");
-    emailParts.push("Content-Transfer-Encoding: 7bit");
-    emailParts.push("");
-    emailParts.push(validatedArgs.body);
+    emailParts.push(
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: 7bit",
+      "",
+      validatedArgs.body,
+    );
   }
 
   return emailParts.join("\r\n");
@@ -534,11 +534,11 @@ export async function createEmailWithNodemailer(
   validatedArgs: ValidatedEmailArgs,
 ): Promise<string> {
   // Validate email addresses
-  validatedArgs.to.forEach((email) => {
+  for (const email of validatedArgs.to) {
     if (!validateEmail(email)) {
       throw new Error(`Recipient email address is invalid: ${email}`);
     }
-  });
+  }
 
   // Create a nodemailer transporter (we won't actually send, just generate the message)
   const transporter = createTransport({

@@ -172,8 +172,8 @@ function loadCallHistory(): void {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
       // Cold start: no prior state. readOk so the first persist succeeds.
       callHistory.clear();
@@ -184,7 +184,7 @@ function loadCallHistory(): void {
     // empty counter would clobber a present-but-unreadable state file
     // and silently reset the limit. Keep readOk=false so
     // persistCallHistory stays a no-op until a successful read.
-    console.error(`[ratelimit] failed to read state from ${path}: ${(err as Error).message}`);
+    console.error(`[ratelimit] failed to read state from ${path}: ${(error as Error).message}`);
     return;
   }
   // Successfully read the file → replace in-memory snapshot.
@@ -198,11 +198,11 @@ function loadCallHistory(): void {
         }
       }
     }
-  } catch (err) {
+  } catch (error) {
     // Corrupted JSON: we *did* read the file, so a fresh start is the
     // documented recovery. Overwriting the corrupt file is intentional.
     console.error(
-      `[ratelimit] corrupted state at ${path}, starting fresh: ${(err as Error).message}`,
+      `[ratelimit] corrupted state at ${path}, starting fresh: ${(error as Error).message}`,
     );
   }
   readOk = true;
@@ -221,8 +221,8 @@ function persistCallHistory(): void {
     for (const [k, v] of callHistory) obj[k] = v;
     writeFileSync(tmp, JSON.stringify(obj), { mode: 0o600 });
     renameSync(tmp, path);
-  } catch (err) {
-    console.error(`[ratelimit] failed to persist state to ${path}: ${(err as Error).message}`);
+  } catch (error) {
+    console.error(`[ratelimit] failed to persist state to ${path}: ${(error as Error).message}`);
   }
 }
 

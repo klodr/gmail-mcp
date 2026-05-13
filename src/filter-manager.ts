@@ -55,12 +55,12 @@ export async function createFilter(
     });
 
     return response.data;
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
     if (error.code === 400) {
-      throw new Error(`Invalid filter criteria or action: ${error.message}`, { cause: err });
+      throw new Error(`Invalid filter criteria or action: ${error.message}`, { cause: error_ });
     }
-    throw new Error(`Failed to create filter: ${error.message}`, { cause: err });
+    throw new Error(`Failed to create filter: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -81,9 +81,9 @@ export async function listFilters(gmail: gmail_v1.Gmail) {
       filters,
       count: filters.length,
     };
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
-    throw new Error(`Failed to list filters: ${error.message}`, { cause: err });
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
+    throw new Error(`Failed to list filters: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -101,12 +101,12 @@ export async function getFilter(gmail: gmail_v1.Gmail, filterId: string) {
     });
 
     return response.data;
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
     if (error.code === 404) {
-      throw new Error(`Filter with ID "${filterId}" not found.`, { cause: err });
+      throw new Error(`Filter with ID "${filterId}" not found.`, { cause: error_ });
     }
-    throw new Error(`Failed to get filter: ${error.message}`, { cause: err });
+    throw new Error(`Failed to get filter: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -124,12 +124,12 @@ export async function deleteFilter(gmail: gmail_v1.Gmail, filterId: string) {
     });
 
     return { success: true, message: `Filter "${filterId}" deleted successfully.` };
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
     if (error.code === 404) {
-      throw new Error(`Filter with ID "${filterId}" not found.`, { cause: err });
+      throw new Error(`Filter with ID "${filterId}" not found.`, { cause: error_ });
     }
-    throw new Error(`Failed to delete filter: ${error.message}`, { cause: err });
+    throw new Error(`Failed to delete filter: ${error.message}`, { cause: error_ });
   }
 }
 

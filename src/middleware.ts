@@ -190,14 +190,14 @@ function sanitizeToolResult(result: ToolResult): ToolResult {
 function safeLogAudit(name: string, args: unknown, result: AuditResult): void {
   try {
     logAudit(name, args, result);
-  } catch (auditErr) {
+  } catch (error) {
     /* v8 ignore next -- defensive catch: logAudit already swallows
        appendFileSync failures internally, so this branch only fires on
        a JSON.stringify / Date format throw — not exercisable from a
        unit test without mocking the import (which would over-couple
        the test to implementation detail). The guarantee is the
        `try/catch` presence itself. */
-    console.error(`[middleware] audit log failed for ${name}:`, (auditErr as Error).message);
+    console.error(`[middleware] audit log failed for ${name}:`, (error as Error).message);
   }
 }
 
@@ -255,12 +255,12 @@ export async function wrapToolHandler(
 
   try {
     enforceRateLimit(name);
-  } catch (err) {
-    if (err instanceof RateLimitError) {
+  } catch (error) {
+    if (error instanceof RateLimitError) {
       safeLogAudit(name, args, "rate_limited");
       return sanitizeToolResult(
         attachStructuredContent({
-          content: [{ type: "text", text: formatRateLimitError(err) }],
+          content: [{ type: "text", text: formatRateLimitError(error) }],
           isError: true,
         }),
       );
@@ -275,7 +275,7 @@ export async function wrapToolHandler(
        test. */
     safeLogAudit(name, args, "error");
     /* v8 ignore next */
-    throw err;
+    throw error;
   }
 
   let auditResult: AuditResult = "ok";
@@ -289,9 +289,9 @@ export async function wrapToolHandler(
     // "error" on throws, missing the isError:true returns).
     if (result.isError) auditResult = "error";
     return sanitizeToolResult(attachStructuredContent(result));
-  } catch (err) {
+  } catch (error) {
     auditResult = "error";
-    throw err;
+    throw error;
   } finally {
     safeLogAudit(name, args, auditResult);
   }

@@ -65,8 +65,8 @@ export async function createLabel(
     });
 
     return response.data;
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
     // 409 = unambiguous duplicate. 400 is generic (also invalid names /
     // missing fields) so require a corroborating message match. For
     // network-layer errors with no status at all, fall back to the
@@ -77,10 +77,10 @@ export async function createLabel(
       (error.code === 400 && messageIndicatesDuplicate) ||
       (error.code === undefined && messageIndicatesDuplicate);
     if (isDuplicate) {
-      throw new DuplicateLabelError(labelName, { cause: err });
+      throw new DuplicateLabelError(labelName, { cause: error_ });
     }
 
-    throw new Error(`Failed to create label: ${error.message}`, { cause: err });
+    throw new Error(`Failed to create label: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -108,13 +108,13 @@ export async function updateLabel(
     });
 
     return response.data;
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
     if (error.code === 404) {
-      throw new Error(`Label with ID "${labelId}" not found.`, { cause: err });
+      throw new Error(`Label with ID "${labelId}" not found.`, { cause: error_ });
     }
 
-    throw new Error(`Failed to update label: ${error.message}`, { cause: err });
+    throw new Error(`Failed to update label: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -142,17 +142,17 @@ export async function deleteLabel(gmail: gmail_v1.Gmail, labelId: string) {
     });
 
     return { success: true, message: `Label "${label.data.name}" deleted successfully.` };
-  } catch (err: unknown) {
+  } catch (error_: unknown) {
     // Let our own system-label rejection bubble up with its specific
     // message intact instead of being swallowed by the generic catch.
-    if (err instanceof SystemLabelProtectionError) throw err;
+    if (error_ instanceof SystemLabelProtectionError) throw error_;
 
-    const error = asGmailApiError(err);
+    const error = asGmailApiError(error_);
     if (error.code === 404) {
-      throw new Error(`Label with ID "${labelId}" not found.`, { cause: err });
+      throw new Error(`Label with ID "${labelId}" not found.`, { cause: error_ });
     }
 
-    throw new Error(`Failed to delete label: ${error.message}`, { cause: err });
+    throw new Error(`Failed to delete label: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -183,9 +183,9 @@ export async function listLabels(gmail: gmail_v1.Gmail) {
         user: userLabels.length,
       },
     };
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
-    throw new Error(`Failed to list labels: ${error.message}`, { cause: err });
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
+    throw new Error(`Failed to list labels: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -206,9 +206,9 @@ export async function findLabelByName(gmail: gmail_v1.Gmail, labelName: string) 
     );
 
     return foundLabel || null;
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
-    throw new Error(`Failed to find label: ${error.message}`, { cause: err });
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
+    throw new Error(`Failed to find label: ${error.message}`, { cause: error_ });
   }
 }
 
@@ -265,15 +265,15 @@ export async function getOrCreateLabel(
     try {
       const created = await createLabel(gmail, labelName, options);
       return { label: created, found: false };
-    } catch (createErr: unknown) {
-      if (createErr instanceof DuplicateLabelError) {
+    } catch (error: unknown) {
+      if (error instanceof DuplicateLabelError) {
         const racedLabel = await findLabelByName(gmail, labelName);
         if (racedLabel) return { label: racedLabel, found: true };
       }
-      throw createErr;
+      throw error;
     }
-  } catch (err: unknown) {
-    const error = asGmailApiError(err);
-    throw new Error(`Failed to get or create label: ${error.message}`, { cause: err });
+  } catch (error_: unknown) {
+    const error = asGmailApiError(error_);
+    throw new Error(`Failed to get or create label: ${error.message}`, { cause: error_ });
   }
 }

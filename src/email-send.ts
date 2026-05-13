@@ -56,8 +56,8 @@ export async function buildEncodedRawMessage(args: EmailSendArgs): Promise<strin
       : createEmailMessage(args);
   return Buffer.from(message)
     .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
     .replace(/=+$/, "");
 }
 
@@ -134,7 +134,7 @@ export async function sendOrDraftEmail(
           // Last message's Message-ID becomes In-Reply-To.
           // threadMessages.length > 0 is guaranteed by the outer if;
           // the `?.` keeps the compiler happy under noUncheckedIndexedAccess.
-          const lastMessage = threadMessages[threadMessages.length - 1];
+          const lastMessage = threadMessages.at(-1);
           const lastHeaders = lastMessage?.payload?.headers || [];
           const lastMessageId = lastHeaders.find(
             (h) => h.name?.toLowerCase() === "message-id",
@@ -203,7 +203,7 @@ export async function sendOrDraftEmail(
     // Log attachment-related errors for debugging
     if (validatedArgs.attachments && validatedArgs.attachments.length > 0) {
       const { code, message } = asGmailApiError(error);
-      const codeTag = code !== undefined ? ` (HTTP ${code})` : "";
+      const codeTag = code === undefined ? "" : ` (HTTP ${code})`;
       console.error(
         `Failed to send email with ${validatedArgs.attachments.length} attachments${codeTag}:`,
         message,

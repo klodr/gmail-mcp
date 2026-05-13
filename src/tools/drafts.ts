@@ -39,7 +39,7 @@ function gmailDraftToolError(
   error: unknown,
 ): { content: Array<{ type: "text"; text: string }>; isError: true } {
   const { code, message } = asGmailApiError(error);
-  const prefix = code !== undefined ? `Failed to ${op} (HTTP ${code})` : `Failed to ${op}`;
+  const prefix = code === undefined ? `Failed to ${op}` : `Failed to ${op} (HTTP ${code})`;
   return {
     content: [{ type: "text", text: `${prefix}: ${message}` }],
     isError: true,
@@ -194,7 +194,7 @@ export function registerDraftTools(
                   allMessageIds.push(messageIdHeader.value);
                 }
               }
-              const lastMessage = threadMessages[threadMessages.length - 1];
+              const lastMessage = threadMessages.at(-1);
               const lastHeaders = lastMessage?.payload?.headers || [];
               const lastMessageId = lastHeaders.find(
                 (h) => h.name?.toLowerCase() === "message-id",

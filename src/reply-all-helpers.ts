@@ -132,7 +132,7 @@ function pickCandidateAddress(token: string): string | null {
   const lastBracket = bracketMatches.at(-1)?.[1]?.trim();
   if (lastBracket) return lastBracket;
   if (trimmed.includes("@")) {
-    return trimmed.replace(/^["']|["']$/g, "").trim();
+    return trimmed.replaceAll(/^["']|["']$/g, "").trim();
   }
   return null;
 }
