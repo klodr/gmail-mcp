@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/klodr/gmail-mcp/compare/v1.1.8...v1.2.0) (2026-05-13)
+
+
+### Added
+
+* **tools:** declare openWorldHint:true on every tool ([#185](https://github.com/klodr/gmail-mcp/issues/185)) ([c6b41b8](https://github.com/klodr/gmail-mcp/commit/c6b41b80129e813f23919d6ca28922c22499b343))
+
+
+### Fixed
+
+* **ci:** add top-level permissions: contents: read to auto-merge ([#186](https://github.com/klodr/gmail-mcp/issues/186)) ([e88fec2](https://github.com/klodr/gmail-mcp/commit/e88fec2aa32fa156df3cb35cbe0e0999df2034f3))
+* **ci:** align auto-merge filter on klodr-release-please[bot] ([#169](https://github.com/klodr/gmail-mcp/issues/169)) ([d05cb2b](https://github.com/klodr/gmail-mcp/commit/d05cb2b715fa0907caf137b7998365dae4f24db8))
+* **ci:** drop paths filter on actions-pinned ([#168](https://github.com/klodr/gmail-mcp/issues/168)) ([7aec6f9](https://github.com/klodr/gmail-mcp/commit/7aec6f9851b874950bbbba38c6470c57ec4e4cf7))
+* **ci:** gate auto-merge caller on bot login before passing secrets ([#161](https://github.com/klodr/gmail-mcp/issues/161)) ([783bf24](https://github.com/klodr/gmail-mcp/commit/783bf249bca8d5565b131f8b76639acdf51ef6e2))
+* **ci:** repin reusable auto-merge to a reachable SHA ([#170](https://github.com/klodr/gmail-mcp/issues/170)) ([2ca78ac](https://github.com/klodr/gmail-mcp/commit/2ca78ac8519227c52b33bb53eae80a593572c719))
+* **lint:** drain CR findings + valid globs syntax ([#165](https://github.com/klodr/gmail-mcp/issues/165)) ([fe94e93](https://github.com/klodr/gmail-mcp/commit/fe94e93f0603c6963ac61b7dd6f97ead15d09c5e))
+* **pinact:** dot-prefix config + recursive action globs ([#166](https://github.com/klodr/gmail-mcp/issues/166)) ([3ca1d3a](https://github.com/klodr/gmail-mcp/commit/3ca1d3ab631c5530bb3a8f4c3fff6a8cdd6b6c8c))
+* **pre-commit:** call ./node_modules/.bin/lint-staged directly ([#176](https://github.com/klodr/gmail-mcp/issues/176)) ([ed51f6f](https://github.com/klodr/gmail-mcp/commit/ed51f6fb6382e4f419dfe4e7633c680f758dad13))
+* **scripts:** tolerate trailing release-please marker on VERSION line ([#180](https://github.com/klodr/gmail-mcp/issues/180)) ([0504299](https://github.com/klodr/gmail-mcp/commit/050429930af941506d30b5945b2e143e2e29cc68))
+* **verify-release:** pin cosign predicate to SLSA Provenance v1 ([#184](https://github.com/klodr/gmail-mcp/issues/184)) ([9d74677](https://github.com/klodr/gmail-mcp/commit/9d746776ba5075b1a413e490d1d4b26fd0fb80a7))
+
+
+### Changed
+
+* add auto-merge caller for release-please PRs ([#154](https://github.com/klodr/gmail-mcp/issues/154)) ([c5f13ec](https://github.com/klodr/gmail-mcp/commit/c5f13ec78d1fef90407643d53fdf52c7ddb50f64))
+* add leak-detect caller workflow ([#177](https://github.com/klodr/gmail-mcp/issues/177)) ([70d3208](https://github.com/klodr/gmail-mcp/commit/70d3208296cb39c69b26cc66a18ffff8f5b7110c))
+* add pinact config + actions-pinned CI gate ([#163](https://github.com/klodr/gmail-mcp/issues/163)) ([e121bd8](https://github.com/klodr/gmail-mcp/commit/e121bd8cc74e17a2c0c8d4ee8e2629670bb44e74))
+* add yamllint+markdownlint+commitlint+lint-staged pack ([#162](https://github.com/klodr/gmail-mcp/issues/162)) ([77ef7b0](https://github.com/klodr/gmail-mcp/commit/77ef7b02230eeaef51062d6891633b192ac4636b))
+* bump actions/checkout from 4.2.2 to 6.0.2 ([#167](https://github.com/klodr/gmail-mcp/issues/167)) ([1f4595d](https://github.com/klodr/gmail-mcp/commit/1f4595d5cc58606d730835d6be8d97f2484b53c5))
+* bump actions/github-script from d746ffe35508b1917358783b479e04febd2b8f71 to 3a2844b7e9c422d3c10d287c895573f7108da1b3 ([#158](https://github.com/klodr/gmail-mcp/issues/158)) ([ce74391](https://github.com/klodr/gmail-mcp/commit/ce743919a976870b0eb2757146a38fbe0d4d38b6))
+* bump github/codeql-action from 4.35.3 to 4.35.4 ([#156](https://github.com/klodr/gmail-mcp/issues/156)) ([94a290c](https://github.com/klodr/gmail-mcp/commit/94a290c88ef689725ac5fdb8d74ec927ffec0d02))
+* bump sigstore/cosign-installer from 4.1.1 to 4.1.2 ([#157](https://github.com/klodr/gmail-mcp/issues/157)) ([6bbbcc4](https://github.com/klodr/gmail-mcp/commit/6bbbcc41aafa42899e94ca649053fb99b5be17b5))
+* **bundle-analysis:** run on Dependabot PRs to satisfy required check ([#160](https://github.com/klodr/gmail-mcp/issues/160)) ([52b670a](https://github.com/klodr/gmail-mcp/commit/52b670a655fca2586aa7e26d595d1283118af6f9))
+* **dependabot:** use chore(deps) prefix for Conventional Commits ([#155](https://github.com/klodr/gmail-mcp/issues/155)) ([f7e9393](https://github.com/klodr/gmail-mcp/commit/f7e9393972e65b755d7a4753d42d533e1e3844a5))
+* **deps-dev:** bump the dev-dependencies group with 2 updates ([#159](https://github.com/klodr/gmail-mcp/issues/159)) ([f9b0243](https://github.com/klodr/gmail-mcp/commit/f9b02430ea4771d38f47d5feb4f0f4dec525c60b))
+* fix four workflow errors (pinact, gitleaks, auto-merge, coderabbit) ([#182](https://github.com/klodr/gmail-mcp/issues/182)) ([addfffd](https://github.com/klodr/gmail-mcp/commit/addfffdd7ae3cc5e9baea2c2a3affd54a353c022))
+* **husky:** adopt shared pre-push template ([#164](https://github.com/klodr/gmail-mcp/issues/164)) ([7cec70c](https://github.com/klodr/gmail-mcp/commit/7cec70ce32e7d23840bb9fca3f3459c3952ee09b))
+* **leak-detect:** re-pin reusable workflow to fix yq checksum SHA ([#181](https://github.com/klodr/gmail-mcp/issues/181)) ([1e42398](https://github.com/klodr/gmail-mcp/commit/1e42398c7571b96b41cf8e967cf5796bc759d291))
+* **lint-staged:** add prettier --write to all globs ([#172](https://github.com/klodr/gmail-mcp/issues/172)) ([eebb888](https://github.com/klodr/gmail-mcp/commit/eebb8882c4f54ad020a786d366eb0fd6a2a8de01))
+* **lint:** reactivate 6 markdownlint rules previously disabled ([#183](https://github.com/klodr/gmail-mcp/issues/183)) ([d8ce9c3](https://github.com/klodr/gmail-mcp/commit/d8ce9c39c7ec87b3b8f65b35249e51478a5ff465))
+* migrate ci.yml to reusable-node-ci ([#171](https://github.com/klodr/gmail-mcp/issues/171)) ([8d9e13a](https://github.com/klodr/gmail-mcp/commit/8d9e13a8edaf0984f4eeccb1e3b6c2e450d4ef48))
+* **node:** align .npmrc rationale + bump .nvmrc to 22.22.2 (CVE floor) ([#175](https://github.com/klodr/gmail-mcp/issues/175)) ([cbb3096](https://github.com/klodr/gmail-mcp/commit/cbb3096258240d009d8572e50394997f1f801e88))
+* **pre-commit:** warn on missing system tooling (yamllint) ([#173](https://github.com/klodr/gmail-mcp/issues/173)) ([a2c41f7](https://github.com/klodr/gmail-mcp/commit/a2c41f7c9df46e58da3f7ad670ff2211b9139393))
+* **pre-push:** sync with canonical template (SC2034 + drop npm audit) ([#174](https://github.com/klodr/gmail-mcp/issues/174)) ([7f7c54a](https://github.com/klodr/gmail-mcp/commit/7f7c54a74f73589a071379023c53ea67467f4f9d))
+* **test:** harmonise vitest coverage config with klodr/* ecosystem ([#178](https://github.com/klodr/gmail-mcp/issues/178)) ([0220137](https://github.com/klodr/gmail-mcp/commit/0220137f56bcdcf387b01342e246e7a24390f0d4))
+
 ## [1.1.8](https://github.com/klodr/gmail-mcp/compare/v1.1.7...v1.1.8) (2026-05-10)
 
 
