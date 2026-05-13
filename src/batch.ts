@@ -25,6 +25,10 @@ export async function processBatches<T, U>(
   batchSize: number,
   processFunction: (batch: T[]) => Promise<U[]>,
 ): Promise<BatchOutcome<T, U>> {
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new RangeError(`processBatches: batchSize must be a positive integer (got ${batchSize})`);
+  }
+
   const successes: U[] = [];
   const failures: { item: T; error: Error }[] = [];
 

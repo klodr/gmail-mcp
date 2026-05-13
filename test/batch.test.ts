@@ -67,4 +67,19 @@ describe("processBatches", () => {
     const result = await processBatches(items, 2, fn);
     expect(result.successes).toEqual(["#10", "#20", "#30", "#40"]);
   });
+
+  it.each([0, -1, -100])("rejects non-positive batchSize (%i)", async (size) => {
+    const fn = vi.fn(async (batch: number[]) => batch);
+    await expect(processBatches([1, 2, 3], size, fn)).rejects.toThrow(RangeError);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it.each([1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects non-integer batchSize (%s)",
+    async (size) => {
+      const fn = vi.fn(async (batch: number[]) => batch);
+      await expect(processBatches([1, 2, 3], size, fn)).rejects.toThrow(RangeError);
+      expect(fn).not.toHaveBeenCalled();
+    },
+  );
 });
