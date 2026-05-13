@@ -106,7 +106,7 @@ export function safeWriteFile(
   const onCollision = options.onCollision ?? "error";
   const flags =
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
-  const buffer = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
+  const buffer = typeof content === "string" ? Buffer.from(content, "utf8") : content;
 
   const ext = path.extname(fullPath);
   const base = fullPath.slice(0, fullPath.length - ext.length);
@@ -467,9 +467,13 @@ export function createEmailMessage(validatedArgs: ValidatedEmailArgs): string {
 
   // Sanitize all user-supplied header values to prevent CRLF injection
   const from = sanitizeHeaderValue(validatedArgs.from || "me");
-  const to = validatedArgs.to.map(sanitizeHeaderValue).join(", ");
-  const cc = validatedArgs.cc ? validatedArgs.cc.map(sanitizeHeaderValue).join(", ") : "";
-  const bcc = validatedArgs.bcc ? validatedArgs.bcc.map(sanitizeHeaderValue).join(", ") : "";
+  const to = validatedArgs.to.map((v: string) => sanitizeHeaderValue(v)).join(", ");
+  const cc = validatedArgs.cc
+    ? validatedArgs.cc.map((v: string) => sanitizeHeaderValue(v)).join(", ")
+    : "";
+  const bcc = validatedArgs.bcc
+    ? validatedArgs.bcc.map((v: string) => sanitizeHeaderValue(v)).join(", ")
+    : "";
   const inReplyTo = validatedArgs.inReplyTo ? sanitizeHeaderValue(validatedArgs.inReplyTo) : "";
   const references = validatedArgs.references
     ? sanitizeHeaderValue(validatedArgs.references)
@@ -567,9 +571,9 @@ export async function createEmailWithNodemailer(
   // attachment-less path (createEmailMessage).
   const mailOptions = {
     from: sanitizeHeaderValue(validatedArgs.from || "me"),
-    to: validatedArgs.to.map(sanitizeHeaderValue).join(", "),
-    cc: validatedArgs.cc?.map(sanitizeHeaderValue).join(", "),
-    bcc: validatedArgs.bcc?.map(sanitizeHeaderValue).join(", "),
+    to: validatedArgs.to.map((v: string) => sanitizeHeaderValue(v)).join(", "),
+    cc: validatedArgs.cc?.map((v: string) => sanitizeHeaderValue(v)).join(", "),
+    bcc: validatedArgs.bcc?.map((v: string) => sanitizeHeaderValue(v)).join(", "),
     subject: sanitizeHeaderValue(validatedArgs.subject),
     text: validatedArgs.body,
     html: validatedArgs.htmlBody,

@@ -145,8 +145,7 @@ export function emailToTxt(
   );
 
   if (attachments.length > 0) {
-    lines.push("", "---");
-    lines.push(`Attachments: ${attachments.map((a) => a.filename).join(", ")}`);
+    lines.push("", "---", `Attachments: ${attachments.map((a) => a.filename).join(", ")}`);
   }
 
   return lines.join("\n");

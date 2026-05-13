@@ -509,8 +509,8 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         // the fire-and-forget IIFE → request hangs + listener stays
         // up. Fix: build both Buffers up front and compare their
         // `.length` (which is byte length, not UTF-16 units).
-        const expectedBuf = Buffer.from(expectedState, "utf-8");
-        const stateBuf = stateParam === null ? null : Buffer.from(stateParam, "utf-8");
+        const expectedBuf = Buffer.from(expectedState, "utf8");
+        const stateBuf = stateParam === null ? null : Buffer.from(stateParam, "utf8");
         if (
           stateBuf === null ||
           stateBuf.length !== expectedBuf.length ||
