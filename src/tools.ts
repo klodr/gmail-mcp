@@ -267,10 +267,14 @@ export const MoveToSpamBatchSchema = z.object({
   messageIds: coerceArray(GmailIdSchema, { max: 1000 }).describe(
     "List of message IDs to move to the Spam folder (max 1000 per call)",
   ),
-  batchSize: coerceInt({ min: 1, max: 100 })
+  // Aligned with Gmail's documented batchModify limit (1000 IDs per
+  // request). Default = max so a single call uses one round-trip
+  // unless the caller deliberately reduces the chunk size to bound
+  // partial-failure blast radius.
+  batchSize: coerceInt({ min: 1, max: 1000 })
     .optional()
-    .default(50)
-    .describe("Messages per batch (1-100, default 50)"),
+    .default(1000)
+    .describe("Messages per batch (1-1000, default 1000 — matches Gmail's batchModify limit)"),
 });
 
 export const CreateFilterSchema = z
