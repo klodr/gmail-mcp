@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1](https://github.com/klodr/gmail-mcp/compare/v1.2.0...v1.2.1) (2026-05-18)
+
+
+### Changed
+
+* bump reusable SHAs to current klodr/.github main (orphan fix) ([#194](https://github.com/klodr/gmail-mcp/issues/194)) ([ac3a263](https://github.com/klodr/gmail-mcp/commit/ac3a26399e90ba1ba6d9aff252b07559dbae5448))
+* **ci:** reduce release-please trigger to 1 workflow_run ([#191](https://github.com/klodr/gmail-mcp/issues/191)) ([ce833e0](https://github.com/klodr/gmail-mcp/commit/ce833e0fcb69953dfc8ee9e38833b99bf8ddd61b))
+* **deps:** relock to pull qs 6.15.2 fix for CVE-2026-8723 ([#193](https://github.com/klodr/gmail-mcp/issues/193)) ([e3b045c](https://github.com/klodr/gmail-mcp/commit/e3b045cc345ddb414b13e111739a34de9faccc66))
+* **lint:** adopt eslint-plugin-unicorn (pass 1) ([#188](https://github.com/klodr/gmail-mcp/issues/188)) ([fee25e0](https://github.com/klodr/gmail-mcp/commit/fee25e0c36edb7fbaea219c4798b147b448a4e44))
+
 ## [1.2.0](https://github.com/klodr/gmail-mcp/compare/v1.1.8...v1.2.0) (2026-05-13)
 
 
