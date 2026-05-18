@@ -1,11 +1,13 @@
 /**
- * End-to-end coverage for the six registerMessageTools handlers
+ * End-to-end coverage for the registerMessageTools handlers
  * (delete_email, read_email, search_emails, modify_email,
- * batch_modify_emails, batch_delete_emails). Drives them through the
- * full MCP roundtrip via InMemoryTransport so every branch in
- * src/tools/messages.ts gets exercised — particularly read_email's
- * format / truncation / attachments matrix and modify_email's
- * labelIds + addLabelIds dedup merge (CR finding history).
+ * batch_modify_emails, batch_delete_emails, move_to_spam,
+ * move_to_spam_batch). Drives them through the full MCP roundtrip
+ * via InMemoryTransport so every branch in src/tools/messages.ts
+ * gets exercised — particularly read_email's format / truncation /
+ * attachments matrix, modify_email's labelIds + addLabelIds dedup
+ * merge (CR finding history), and the SPAM-only honesty note in the
+ * move_to_spam* responses (DD-001).
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -26,6 +28,7 @@ function makeMockGmail(opts: MockOpts = {}): {
   getSpy: ReturnType<typeof vi.fn>;
   listSpy: ReturnType<typeof vi.fn>;
   modifySpy: ReturnType<typeof vi.fn>;
+  batchModifySpy: ReturnType<typeof vi.fn>;
 } {
   const bodyText = opts.bodyText ?? "Hello from the test suite.";
   const threadId = opts.threadId ?? "T1";
@@ -38,6 +41,7 @@ function makeMockGmail(opts: MockOpts = {}): {
 
   const deleteSpy = vi.fn(() => Promise.resolve({ data: {} }));
   const modifySpy = vi.fn(() => Promise.resolve({ data: {} }));
+  const batchModifySpy = vi.fn(() => Promise.resolve({ data: {} }));
   const listSpy = vi.fn(() =>
     Promise.resolve({ data: { messages: [{ id: "M1" }, { id: "M2" }] } }),
   );
@@ -95,10 +99,11 @@ function makeMockGmail(opts: MockOpts = {}): {
         get: getSpy,
         list: listSpy,
         modify: modifySpy,
+        batchModify: batchModifySpy,
       },
     },
   } as unknown as gmail_v1.Gmail;
-  return { gmail, deleteSpy, getSpy, listSpy, modifySpy };
+  return { gmail, deleteSpy, getSpy, listSpy, modifySpy, batchModifySpy };
 }
 
 async function makeClient(gmail: gmail_v1.Gmail): Promise<{
@@ -307,6 +312,88 @@ describe("registerMessageTools — handler-level coverage", () => {
       // batch_delete uses different wording from batch_modify
       // ("deleted" vs "processed").
       expect(text).toMatch(/Successfully deleted: 2 messages/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("move_to_spam: applies SPAM label and emits the UI-only ML-feedback honesty note (DD-001)", async () => {
+    const { gmail, modifySpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "move_to_spam",
+        arguments: { messageId: "M42" },
+      });
+      expect(modifySpy).toHaveBeenCalledTimes(1);
+      const call = modifySpy.mock.calls[0]?.[0] as {
+        userId: string;
+        id: string;
+        requestBody: { addLabelIds?: string[] };
+      };
+      expect(call.id).toBe("M42");
+      expect(call.requestBody.addLabelIds).toEqual(["SPAM"]);
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toMatch(/moved to Spam/);
+      // The honesty disclaimer is the contract — DD-001 requires it.
+      expect(text).toMatch(/does NOT push a feedback signal/);
+      expect(text).toMatch(/anti-phishing ML classifier/);
+      expect(text).toMatch(/UI-only/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("move_to_spam_batch: applies SPAM via batchModify, chunks the ids, emits the honesty note", async () => {
+    const { gmail, batchModifySpy } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "move_to_spam_batch",
+        arguments: { messageIds: ["A", "B", "C"], batchSize: 2 },
+      });
+      // 3 ids, batchSize 2 → 2 chunks (2 + 1).
+      expect(batchModifySpy).toHaveBeenCalledTimes(2);
+      const firstCall = batchModifySpy.mock.calls[0]?.[0] as {
+        requestBody: { ids: string[]; addLabelIds: string[] };
+      };
+      expect(firstCall.requestBody.ids).toEqual(["A", "B"]);
+      expect(firstCall.requestBody.addLabelIds).toEqual(["SPAM"]);
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toMatch(/Successfully moved to Spam: 3 messages/);
+      expect(text).toMatch(/Does NOT trigger Google's anti-phishing/);
+      expect(text).toMatch(/UI-only/);
+    } finally {
+      await close();
+    }
+  });
+
+  it("move_to_spam_batch: surfaces per-chunk failures with the truncated-id list", async () => {
+    const batchModifySpy = vi.fn(() => Promise.reject(new Error("simulated batchModify failure")));
+    const gmail = {
+      users: {
+        messages: {
+          delete: vi.fn(),
+          get: vi.fn(),
+          list: vi.fn(),
+          modify: vi.fn(),
+          batchModify: batchModifySpy,
+        },
+      },
+    } as unknown as gmail_v1.Gmail;
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "move_to_spam_batch",
+        arguments: {
+          messageIds: ["aaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb"],
+        },
+      });
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toMatch(/Failed to move: 2/);
+      expect(text).toContain("Failed message IDs");
+      expect(text).toContain("simulated batchModify failure");
+      expect(text).toMatch(/aaaaaaaaaaaaaaaa\.\.\./);
     } finally {
       await close();
     }

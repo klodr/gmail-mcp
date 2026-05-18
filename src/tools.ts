@@ -259,6 +259,24 @@ export const BatchDeleteEmailsSchema = z.object({
     .describe("Messages per batch (1-100, default 50)"),
 });
 
+export const MoveToSpamSchema = z.object({
+  messageId: GmailIdSchema.describe("ID of the message to move to the Spam folder"),
+});
+
+export const MoveToSpamBatchSchema = z.object({
+  messageIds: coerceArray(GmailIdSchema, { max: 1000 }).describe(
+    "List of message IDs to move to the Spam folder (max 1000 per call)",
+  ),
+  // Aligned with Gmail's documented batchModify limit (1000 IDs per
+  // request). Default = max so a single call uses one round-trip
+  // unless the caller deliberately reduces the chunk size to bound
+  // partial-failure blast radius.
+  batchSize: coerceInt({ min: 1, max: 1000 })
+    .optional()
+    .default(1000)
+    .describe("Messages per batch (1-1000, default 1000 — matches Gmail's batchModify limit)"),
+});
+
 export const CreateFilterSchema = z
   .object({
     criteria: z
@@ -929,6 +947,46 @@ export const toolDefinitions: ToolDefinition[] = [
     scopes: ["gmail.modify"],
     annotations: {
       title: "Batch Modify Emails",
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "move_to_spam",
+    description: [
+      "Move one message to the Spam folder by applying the `SPAM` system label.",
+      "",
+      "USE WHEN: an LLM agent (or the user) judges a message to be unwanted/spam/phishing and wants it spam-foldered. Mirrors what clicking 'Move to spam' in the Gmail UI does at the label level.",
+      "",
+      "DO NOT USE: as a substitute for Gmail's UI 'Report phishing' button. **The Gmail API does not expose a phishing-feedback endpoint** — applying the `SPAM` label via this tool moves the message to the Spam folder but does NOT push a feedback signal into Google's anti-phishing ML classifier (that signal is UI-only). If the user wants to contribute to Google's phishing-detection model, they must use the Gmail UI directly.",
+      "",
+      "SIDE EFFECTS: writes the `SPAM` label on the message. **Reversible** by calling `modify_email` with `removeLabelIds: ['SPAM']`. Idempotent. Visible in Gmail UI immediately.",
+    ].join("\n"),
+    schema: MoveToSpamSchema,
+    scopes: ["gmail.modify"],
+    annotations: {
+      title: "Move to Spam",
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "move_to_spam_batch",
+    description: [
+      "Move a list of messages to the Spam folder by applying the `SPAM` system label in chunked batches.",
+      "",
+      "USE WHEN: spam-foldering many messages at once (search-result set, sender purge, etc.). Cheaper than calling `move_to_spam` N times.",
+      "",
+      "DO NOT USE: as a substitute for Gmail's UI 'Report phishing' workflow. **The Gmail API exposes no phishing-feedback endpoint** — applying the `SPAM` label moves the messages but does NOT train Google's anti-phishing ML model. For one or two messages, use `move_to_spam`. The MCP chunks at Gmail's 1000-message limit; partial-batch failures may leave the operation half-applied.",
+      "",
+      "SIDE EFFECTS: writes the `SPAM` label on every listed message. **Reversible** by `batch_modify_emails` with `removeLabelIds: ['SPAM']`. Idempotent. Audit log entry logs the message-ID list (truncated for readability).",
+    ].join("\n"),
+    schema: MoveToSpamBatchSchema,
+    scopes: ["gmail.modify"],
+    annotations: {
+      title: "Move to Spam (Batch)",
       destructiveHint: true,
       idempotentHint: true,
       openWorldHint: true,
