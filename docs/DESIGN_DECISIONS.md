@@ -6,36 +6,71 @@ upstream behaviour, or a vendor pattern — and the rationale.
 
 ## Positioning
 
-klodr/gmail-mcp is the **maximalist** of the Gmail-MCP fork family.
 The upstream — [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server) —
-describes itself as "lean and pragmatic" and explicitly points at
-this fork for users who want the heavier posture. The two products
-share an ancestor, no longer share a roadmap.
+describes itself as "lean and pragmatic" and names this fork the
+**maximalist** one. That label is accurate from the outside (we ship
+more code, more tests, more CI/CD than upstream) but it misframes the
+intent. klodr/gmail-mcp is not heavy for the sake of being heavy.
+The product is built around four properties — **secure**,
+**autonomous**, **tested**, **resilient under acceleration** — and
+every kilogram of code or workflow that does not pay rent on one of
+those four is a candidate for removal.
 
-What that posture means in practice:
+### Secure
 
-- The server is meant to run **without a human watching every action
-  the LLM takes**. The middleware (`audit-log.ts`, `rate-limit.ts`,
-  `sanitize.ts`, `recipient-pairing.ts`, `sender-resolver.ts`,
-  `gmail-errors.ts`, `middleware.ts`) is there so an autonomous LLM
-  client can use the surface without a human acting as the runtime
-  validator. The defence is in the server, not in the operator's
-  attention span.
-- The CI/CD pile (17 workflows, SHA-pinned actions, OSV/Gitleaks/
-  leak-detect/CodeQL/Scorecard, signed commits, audited supply chain)
-  is the same idea applied to development: a non-human contributor
-  (= an LLM doing the bulk of the commits) is constrained by the
-  pipeline rather than by a human reading every diff line.
-- Tool names and descriptions follow the same rule: an autonomous LLM
-  reading them must not be misled. If a tool's name suggests a
-  capability the server does not actually deliver, the design
-  decisions file records why and the tool is renamed or omitted
-  (see DD-001).
+The defence is in the server, not in the operator's attention span.
+Middleware components (`audit-log.ts`, `rate-limit.ts`, `sanitize.ts`,
+`recipient-pairing.ts`, `sender-resolver.ts`, `gmail-errors.ts`,
+`middleware.ts`) constrain what an autonomous client can do at runtime:
+they sanitize input the LLM provides, rate-limit the Gmail API call
+volume, audit every action, and refuse to send mail to unpaired
+recipients. The Gmail surface is not exposed raw to whatever the LLM
+guesses; it is mediated.
 
-The cost of this posture is well understood — more code, more
-workflows, more drift surface, more pinned-SHA bookkeeping. The
-benefit is that the operator does not need to be in the loop on a
-per-action basis. That trade is the product.
+### Autonomous
+
+The server is designed to run **without a human watching every action
+the LLM takes**. The same server that is safe in supervised use stays
+safe when the supervisor is asleep. That is a different threat model
+from upstream's "I use it daily in my own Claude Code workflow" —
+upstream assumes a human is online; klodr assumes the human may not be.
+The middleware is what bridges that gap.
+
+### Tested
+
+Test coverage is 1.58× the source code (≈12.8 kLOC of tests for
+≈8.1 kLOC of source). Tests are not just on the happy path; they
+exercise the middleware, the OAuth flow, the rate-limiter, the
+mime walkers, the sanitize boundaries, and the failure modes of every
+batch operation. A change can pass typecheck and still get blocked by
+a behavioural regression captured in test fixtures.
+
+### Resilient under acceleration
+
+The CI/CD pile (17 workflows, SHA-pinned actions, OSV / Gitleaks /
+leak-detect / CodeQL / Scorecard, signed commits, audited supply
+chain, lockfile lint, npm `--ignore-scripts`, attest-build-provenance,
+verify-release SLSA) is not paranoia — it is **how the project
+absorbs the speed at which the ecosystem changes**. When a
+transitive npm dependency ships a CVE, the lockfile-lint + OSV
+scanner pair surfaces it, release-please opens the bump PR, the
+review pipeline gates it, the package is republished. Recent
+concrete instance: **qs CVE-2026-8723**, surfaced and shipped within
+hours of the public advisory across the klodr/* MCP family.
+
+Tool names and descriptions follow the same rule. An autonomous LLM
+reading them must not be misled. If a tool's name suggests a
+capability the server does not actually deliver, the design decisions
+file records why and the tool is renamed or omitted (see DD-001).
+
+### The trade
+
+The cost is real — more code, more workflows, more drift surface,
+more pinned-SHA bookkeeping. The benefit is that the operator does
+not need to be in the loop on a per-action basis, and the project
+keeps tracking the security ecosystem at the pace it actually
+changes (days, sometimes hours), not at the pace of a side-project
+trickle. That trade is the product.
 
 ---
 
