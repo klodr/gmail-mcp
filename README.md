@@ -108,7 +108,7 @@ Requires **Node.js 22+**.
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a project and enable the **Gmail API**.
-3. Under **APIs & Services → Credentials**, create an **OAuth 2.0 Client ID** (Desktop or Web). For Web, add `http://localhost:3000/oauth2callback` to the authorised redirect URIs.
+3. Under **APIs & Services → Credentials**, create an **OAuth 2.0 Client ID** (Desktop or Web). For Web, add `http://localhost:3000/oauth2callback` to the authorized redirect URIs.
 4. Download the JSON, rename it to `gcp-oauth.keys.json`, place it at `~/.gmail-mcp/gcp-oauth.keys.json` (or override with `GMAIL_OAUTH_PATH=/abs/path/gcp-oauth.keys.json`).
 
 ### 2️⃣ Authenticate (once)

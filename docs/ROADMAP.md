@@ -36,7 +36,7 @@ Brought `klodr/gmail-mcp` up to the hardening baseline already shipped in the si
 
 ## Shipped (post-v0.10.0 hardening, 2026-04-24)
 
-- ✅ **Attachment filename neutralisation** — `sanitizeAttachmentFilename` (`src/utl.ts`) replaces POSIX / Windows separators, NUL / C0 / DEL / C1, and reserved chars with `_`, strips leading dots, and falls back to `"attachment"` on an empty or all-underscore result. Applied before `safeWriteFile` ingests any attacker-controlled filename. PRs #59 and #61.
+- ✅ **Attachment filename neutralization** — `sanitizeAttachmentFilename` (`src/utl.ts`) replaces POSIX / Windows separators, NUL / C0 / DEL / C1, and reserved chars with `_`, strips leading dots, and falls back to `"attachment"` on an empty or all-underscore result. Applied before `safeWriteFile` ingests any attacker-controlled filename. PRs #59 and #61.
 - ✅ **Audit log PII elision by default** — `SIZE_ELIDED_KEYS` + `PII_ELIDED_KEYS` sets + `GMAIL_MCP_AUDIT_LOG_VERBOSE=true` escape hatch. PR #58.
 - ✅ **Sanitize bypass early-returns** — all direct error-text returns now route through `sanitizeForLlm` instead of bypassing the fence. PR #57.
 - ✅ **Protocol-error flagging on download failures** — `download_email` / `download_attachment` catch blocks now return `isError: true` and surface Gmail HTTP status via `asGmailApiError`. PR #60.
@@ -46,7 +46,7 @@ Brought `klodr/gmail-mcp` up to the hardening baseline already shipped in the si
   {
     "code": "INVALID_GRANT",
     "message": "The Gmail refresh token was rejected by Google. It was likely revoked by the user, expired after 6 months of inactivity, or reissued elsewhere.",
-    "recovery_action": "Re-run `npx @klodr/gmail-mcp auth` to reauthorise.",
+    "recovery_action": "Re-run `npx @klodr/gmail-mcp auth` to reauthorize.",
     "credential_path": "~/.gmail-mcp/credentials.json"
   }
   ```

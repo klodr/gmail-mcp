@@ -1,0 +1,35 @@
+# Spell-checks every Markdown file under `**/*.md` with cspell using
+# en-US only. en-GB is intentionally NOT loaded so British variants
+# surface as misspellings. Pilot run for the klodr/* family — if this
+# stays useful here over a few weeks, the same step will be lifted
+# into the klodr/.github reusable lint workflow.
+name: Spell check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  spell:
+    name: cspell (Markdown)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run cspell
+        run: npm run lint:spell

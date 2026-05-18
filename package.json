@@ -21,7 +21,8 @@
     "prepare": "husky",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-version.mjs && git add server.json src/server.ts",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#dist\""
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#dist\"",
+    "lint:spell": "cspell --no-progress --gitignore --config cspell.config.yaml \"**/*.md\""
   },
   "files": [
     "dist",
@@ -79,6 +80,7 @@
     "@types/node": "^22.19.17",
     "@types/nodemailer": "^8.0.0",
     "@vitest/coverage-v8": "^4.1.5",
+    "cspell": "^10.0.0",
     "eslint": "^10.3.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.4",
@@ -122,7 +124,8 @@
     ],
     "*.md": [
       "prettier --write",
-      "markdownlint-cli2"
+      "markdownlint-cli2",
+      "cspell --no-progress --gitignore --config cspell.config.yaml --no-must-find-files"
     ]
   }
 }

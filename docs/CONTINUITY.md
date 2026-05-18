@@ -47,13 +47,13 @@ If the maintainer is confirmed unable to continue, anyone can:
 - [ ] Verify the Sigstore signature using the procedure in [SECURITY.md → Verifying releases](../.github/SECURITY.md#verifying-releases)
 - [ ] Update README badges and `CONTINUITY.md` references to point at the fork
 
-There is no organisational lock-in: every secret and every external
+There is no organizational lock-in: every secret and every external
 service can be re-provisioned by the new maintainer, typically within
 hours, depending on third-party account approval and token issuance times.
 
 End users keep full control of their own OAuth credentials; a fork
 can consume an existing `~/.gmail-mcp/credentials.json` without
-requiring re-authorisation as long as the `client_id` in
+requiring re-authorization as long as the `client_id` in
 `~/.gmail-mcp/gcp-oauth.keys.json` is preserved.
 
 ## Ongoing improvements

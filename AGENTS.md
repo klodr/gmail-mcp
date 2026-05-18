@@ -181,9 +181,9 @@ src/
   filter-manager.ts     filter creation helpers
   label-manager.ts      label creation helpers
   email-send.ts         RFC 5322 message builder
-  email-export.ts       json/eml/txt/html serialisation
+  email-export.ts       json/eml/txt/html serialization
   mime-walkers.ts       MIME tree walkers (attachments, body)
-  gmail-headers.ts      header normalisation (Message-ID, References)
+  gmail-headers.ts      header normalization (Message-ID, References)
   gmail-errors.ts       error mapping (Gmail 4xx/5xx → MCP isError)
   audit-log.ts          JSONL audit log (mode 0o600)
   sanitize.ts           audit-log redaction
@@ -224,12 +224,12 @@ What follows is the minimum an editor must know to avoid regressing it:
 ## Before opening a PR — checklist
 
 1. `npm run format && npm run lint && npm run typecheck && npm test`
-2. New behaviour has a test. New error path has a test. New tool has
+2. New behavior has a test. New error path has a test. New tool has
    a scope declaration in the registrar.
 3. Commit subject ≤72 chars, signed, conventional, no Co-Authored-By.
 4. If you touched a security guard listed above: also re-read the
    matching section in `docs/ASSURANCE_CASE.md` and update it if the
    threat model shifted.
-5. If you changed user-facing behaviour: update `README.md` and the
+5. If you changed user-facing behavior: update `README.md` and the
    relevant section of `llms-install.md`. If you changed the
    capability matrix vs upstream, also update `docs/COMPETITORS.md`.

@@ -1,0 +1,342 @@
+# cspell — Markdown-only spell check, US English.
+#
+# Scope: every .md file in the repo (README, CHANGELOG.md is excluded
+# because release-please generates it from commit messages and adding
+# every contributor name + commit ID to the dictionary would defeat
+# the point).
+#
+# Locale: US English only. en-GB is NOT loaded — this catches mixed
+# variants (e.g. "authorised" vs "authorized") which was the trigger
+# for adding this lint in the first place (CR feedback on PR #198).
+#
+# When you add a real technical term the spell-checker doesn't know,
+# put it in `words:` below. When you remove a code-related word that
+# turned out to be a typo, fix the typo in the doc.
+
+$schema: https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json
+version: "0.2"
+language: en-US
+
+files:
+  - "**/*.md"
+
+ignorePaths:
+  - node_modules/**
+  - dist/**
+  - coverage/**
+  - CHANGELOG.md
+  - .github/CHANGELOG.md
+  - "**/CHANGELOG.md"
+
+# Bundled cspell dictionaries we want active. en-GB is intentionally
+# absent so that British variants surface as misspellings.
+dictionaries:
+  - en_US
+  - softwareTerms
+  - typescript
+  - node
+  - npm
+  - companies
+  - misc
+
+words:
+  # Project / org names
+  - klodr
+  - klodr-mcp
+  - gmail-mcp
+  - faxdrop
+  - mercury-invoicing
+  - mcp
+  - mcpx
+  - openclaw
+  - panghy
+  - thisisambros
+  - GongRzhe
+  - ArtyMcLabin
+  - MaxGhenis
+  - JF10R
+  - bryankthompson
+  - icanhasjonas
+  - tansanDOTeth
+
+  # Tech terms (truncated identifiers, library names)
+  - addr
+  - apikey
+  - autocomplete
+  - autoupdated
+  - backoff
+  - basicauth
+  - bcc
+  - bcrypt
+  - blkdev
+  - bytedance
+  - codeql
+  - codeowners
+  - codeql-action
+  - coderabbit
+  - coderabbitai
+  - codespaces
+  - commitlint
+  - cooldown
+  - cspell
+  - dependabot
+  - devcontainer
+  - devdependencies
+  - devtools
+  - dirent
+  - dotenv
+  - dotfiles
+  - eslint
+  - filewatch
+  - fixedwidth
+  - fsync
+  - fuzzer
+  - gitignore
+  - github-actions
+  - gitleaks
+  - googleapi
+  - gpgsign
+  - homebrew
+  - hostnames
+  - intoto
+  - keepalive
+  - kebab
+  - kebab-case
+  - knapsack
+  - lcov
+  - lintable
+  - markdownlint
+  - mimetype
+  - mitm
+  - msec
+  - nginxconf
+  - nodemailer
+  - normalizer
+  - nounset
+  - oauth
+  - oauth2
+  - oauth2callback
+  - openssf
+  - opensource
+  - osv
+  - osv-scanner
+  - outpath
+  - pathlike
+  - pkce
+  - pnpm
+  - prng
+  - prsm
+  - qodo
+  - rebase
+  - rebased
+  - refid
+  - reflog
+  - repos
+  - retext
+  - retty
+  - rewriter
+  - rfc
+  - rngd
+  - rolldown
+  - runuser
+  - scorecard
+  - semver
+  - sha256
+  - shasums
+  - shellcheck
+  - sigstore
+  - slsa
+  - smtps
+  - soa
+  - socketdev
+  - sotweb
+  - srcs
+  - subdomain
+  - subpath
+  - suid
+  - suite
+  - synack
+  - tarball
+  - tarballs
+  - throughputs
+  - tldr
+  - toctou
+  - tofu
+  - toml
+  - toolset
+  - tsconfig
+  - turborepo
+  - typecheck
+  - typescript-eslint
+  - umask
+  - unalias
+  - unmaintained
+  - unredacted
+  - uri
+  - uris
+  - vitest
+  - vuln
+  - webhook
+  - yamllint
+  - zod
+
+  # MCP / Gmail specific tools and fields
+  - addLabelIds
+  - alertcenter
+  - autoresolve
+  - batchModify
+  - DEBUGUART
+  - destructiveHint
+  - dryrun
+  - dryRun
+  - eml
+  - filerolled
+  - filewriter
+  - gmail
+  - gmail.modify
+  - gmail.readonly
+  - gmail.send
+  - gmail.compose
+  - gmail.settings
+  - gmail.settings.basic
+  - gmail.labels
+  - googleapis
+  - googleapis.com
+  - htmlBody
+  - idempotentHint
+  - inboxes
+  - inreplyto
+  - jsonl
+  - kludged
+  - labelid
+  - llms-install
+  - mailboxes
+  - mailing-list
+  - manifests
+  - maxResults
+  - messageid
+  - messageIds
+  - mimeType
+  - mta
+  - mta-sts
+  - multipart
+  - paired
+  - persisted
+  - prebuilds
+  - readOnlyHint
+  - rebuilt
+  - repermissioning
+  - subdir
+  - tooltips
+  - utf-8
+  - workspace
+  - workspaces
+
+  # English words cspell doesn't always know in tech contexts
+  - autonomously
+  - boilerplate
+  - bootstrapping
+  - boundedness
+  - cardinality
+  - chunked
+  - chunking
+  - composable
+  - dedup
+  - deduplicate
+  - deduplicated
+  - destinations
+  - exfiltrate
+  - exfiltration
+  - filings
+  - footgun
+  - footnote
+  - granularly
+  - heuristically
+  - hookable
+  - idempotently
+  - introspect
+  - introspection
+  - knobs
+  - loadbearing
+  - middleware
+  - multi-account
+  - multi-tool
+  - non-deterministic
+  - pluggable
+  - reclassify
+  - reclassification
+  - rehydrate
+  - reproducibility
+  - retriable
+  - retry-able
+  - rollouts
+  - sanitization
+  - sanitizer
+  - scaffolded
+  - sensitively
+  - serializable
+  - shoehorned
+  - silos
+  - smoke-test
+  - smoketest
+  - snippets
+  - structural
+  - takeover
+  - tarpitting
+  - templated
+  - throughput
+  - unfileable
+  - unfiltered
+  - unmediated
+  - unobserved
+  - upstreamed
+  - validator
+  - whitepaper
+
+  # COMPETITORS.md — third-party Gmail MCP authors / products
+  - alexknowshtml
+  - annyzhou
+  - bastienchabal
+  - Composio
+  - Dedalus
+  - dhagash
+  - faithk
+  - fernandezdiegoh
+  - Glama
+  - Kiewicz
+  - martingaston
+  - mcpgmail
+  - mehta
+  - meyannis
+  - Mishra
+  - Moti
+  - muammar
+  - Pranav
+  - Sallytion
+  - shinzo
+  - Solona
+  - ustikya
+  - victormasson
+  - vinayak
+  - Wala
+  - Wanggithub
+  - windsornguyen
+  - Xiang
+  - yacoob
+
+  # Tech jargon / acronyms
+  - cablate
+  - CSPRNG
+  - exfiltrates
+  - gaxios
+  - HITL
+  - Hitman
+  - mischaracterized
+  - modelcontextprotocol
+  - realpathed
+  - smime
+  - streamable
+  - Trojaned
+
+  # Placeholder in examples
+  - yourname
