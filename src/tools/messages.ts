@@ -306,9 +306,11 @@ export function registerMessageTools(
         args.messageIds,
         // Zod's parsed shape narrows `batchSize` to a number once the
         // optional() default sees a value, but at runtime the field
-        // is elided when the caller omits it.
+        // is elided when the caller omits it. Fallback must match
+        // MoveToSpamBatchSchema's `.default(1000)` — Gmail's documented
+        // batchModify cap, one round-trip for the typical call.
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        args.batchSize ?? 50,
+        args.batchSize ?? 1000,
         async (batch) => {
           // Gmail's `batchModify` endpoint applies the same label set to
           // every message in the chunk in one HTTP round-trip — cheaper
