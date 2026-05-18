@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   lint:
-    uses: klodr/.github/.github/workflows/reusable-lint-yaml-md.yml@26b7f93b5a39c544f4414ada76cd2c79d9732bbd
+    uses: klodr/.github/.github/workflows/reusable-lint-yaml-md.yml@63627d28c0e716176f24f06f4d3cad6c1abf3648
     with:
       # markdownlint-cli2-action splits globs by newline (NOT space).
       # Pass each pattern on its own line; `#prefix` excludes.

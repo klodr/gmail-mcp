@@ -27,7 +27,7 @@ jobs:
     # fail as a required check. Leak scanning of fork PRs is enforced
     # post-merge by the maintainer-side push trigger on main.
     if: github.event.pull_request.head.repo.full_name == github.repository
-    uses: klodr/.github/.github/workflows/reusable-leak-detect.yml@e302f5295abbccbfbb36769721cdde1529013ba3
+    uses: klodr/.github/.github/workflows/reusable-leak-detect.yml@63627d28c0e716176f24f06f4d3cad6c1abf3648
     secrets:
       leak-detect-client-id: ${{ secrets.LEAK_DETECT_CLIENT_ID }}
       leak-detect-app-private-key: ${{ secrets.LEAK_DETECT_APP_PRIVATE_KEY }}
