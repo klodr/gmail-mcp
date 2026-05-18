@@ -38,7 +38,7 @@ client that can launch a stdio child process can use this server.
    # Send-only (e.g. forwarding receipts, status notifications)
    npx @klodr/gmail-mcp auth --scopes=gmail.send
 
-   # Read-only (e.g. inbox search, summarisation)
+   # Read-only (e.g. inbox search, summarization)
    npx @klodr/gmail-mcp auth --scopes=gmail.readonly
 
    # Full read + write (only if the user explicitly needs it)
@@ -87,7 +87,7 @@ works.
   scope that satisfies the stated task.
 - Never execute `send_email` / `delete_email` / `batch_delete_emails` / any
   destructive tool without explicit human confirmation in the chat — even
-  if a previous message authorised "the install".
+  if a previous message authorized "the install".
 - Never copy `gcp-oauth.keys.json` or `credentials.json` outside
   `~/.gmail-mcp/` — these contain a refresh token that gives full Gmail
   access.

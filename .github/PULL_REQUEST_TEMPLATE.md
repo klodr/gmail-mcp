@@ -10,7 +10,7 @@
 - [ ] `feat` — new user-facing feature or tool
 - [ ] `fix` — bug fix
 - [ ] `docs` — documentation only
-- [ ] `refactor` — no behaviour change
+- [ ] `refactor` — no behavior change
 - [ ] `perf` — performance
 - [ ] `test` — test-only change
 - [ ] `ci` — CI / workflows / release plumbing

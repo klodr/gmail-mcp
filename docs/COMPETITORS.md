@@ -132,7 +132,7 @@ The bet: agent-platform operators care more about what an MCP can't be coerced i
 ## Help keep this page honest
 
 - Missing a repository? Open a PR against `docs/COMPETITORS.md`.
-- Disagree with a verdict or think we mischaracterised your project? Open an issue — we'll fix it or reply in-thread.
+- Disagree with a verdict or think we mischaracterized your project? Open an issue — we'll fix it or reply in-thread.
 - If your work is cited here and you'd like the attribution adjusted (or the link to your repo swapped for a personal page), ping [@klodr](https://github.com/klodr) directly.
 
 This snapshot reflects the state of the ecosystem on `2026-04-27`. Stars, last-push dates, and forks move; the tradeoffs usually don't.

@@ -18,7 +18,7 @@ discussions, or any other public surface:
   the basis of race, ethnicity, gender, sexual orientation, disability,
   age, religion, or any other protected characteristic.
 - **Stay on topic.** Technical disagreement is welcome; abusive language,
-  threats, sexualised content, or doxxing are not.
+  threats, sexualized content, or doxxing are not.
 - **Credit your sources.** If you submit code or prose derived from
   elsewhere, say so.
 - **No spam.** Commercial promotion unrelated to the project's scope is
@@ -26,7 +26,7 @@ discussions, or any other public surface:
 
 ## Reporting
 
-If someone's behaviour on this project's surface is not acceptable,
+If someone's behavior on this project's surface is not acceptable,
 contact the maintainer privately via the channel listed on the
 [@klodr GitHub profile](https://github.com/klodr). Include the details
 (link, screenshot, context). Reports are handled confidentially.

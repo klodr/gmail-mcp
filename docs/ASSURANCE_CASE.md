@@ -37,7 +37,7 @@ weaknesses have been countered.
    the inbox may be tricked into calling `send_email` with that
    attachment path. **Mitigation: attachment jail.** Every attachment
    path passed to `send_email` / `draft_email` / `reply_all` is
-   `realpath`-canonicalised and rejected if it escapes
+   `realpath`-canonicalized and rejected if it escapes
    `GMAIL_MCP_ATTACHMENT_DIR` (default `~/GmailAttachments/`, mode
    `0o700`). Symlinks pointing outside the jail are rejected at
    the realpath step.
@@ -132,8 +132,8 @@ The critical untrusted boundary is **LLM agent → MCP server**: tool
 arguments arriving from the agent are treated as adversarial input
 even when they appear to originate from the user, because the agent
 may have been manipulated by injected content inside the inbox it is
-summarising. Validation (Zod), canonicalisation (realpath), leaf-open
-policy (`O_NOFOLLOW`), header sanitisation, MIME-boundary randomness,
+summarizing. Validation (Zod), canonicalization (realpath), leaf-open
+policy (`O_NOFOLLOW`), header sanitization, MIME-boundary randomness,
 and scope filtering all live at that boundary.
 
 ## 3. Secure-design principles applied
@@ -141,9 +141,9 @@ and scope filtering all live at that boundary.
 | Principle | Implementation |
 |---|---|
 | **Least privilege** | OAuth scope filtering at startup: the tool list is intersected with the scopes the user granted at `auth` time; tools outside the granted scope are not registered. `release.yml` splits a read-only `build` job from a `publish` job that holds `NPM_TOKEN` and runs only on tag pushes. Every workflow declares its minimal `permissions:` block. |
-| **Defense in depth** | Zod schema bounds on every tool input **and** runtime realpath checks on every file path **and** `O_NOFOLLOW` on every leaf open. CRLF sanitisation **and** cryptographic MIME boundary. Sigstore signature **and** SLSA attestation **and** npm provenance for releases. |
+| **Defense in depth** | Zod schema bounds on every tool input **and** runtime realpath checks on every file path **and** `O_NOFOLLOW` on every leaf open. CRLF sanitization **and** cryptographic MIME boundary. Sigstore signature **and** SLSA attestation **and** npm provenance for releases. |
 | **Fail closed** | Missing `~/.gmail-mcp/gcp-oauth.keys.json` → exit at startup with a clear error. Attachment path outside the jail → refuse before any write. Non-loopback OAuth callback hostname → reject at `authenticate()`. Invalid Zod input → refuse before the Gmail API call. |
-| **Minimise attack surface** | Single-file ESM bundle via `tsup` (no sourcemaps in the published tarball); only `dist/`, `README.md`, `LICENSE` in the npm files allowlist. No HTTP transport (stdio only) outside of the one-shot OAuth callback server. Tool list gated by OAuth scope. |
+| **Minimize attack surface** | Single-file ESM bundle via `tsup` (no sourcemaps in the published tarball); only `dist/`, `README.md`, `LICENSE` in the npm files allowlist. No HTTP transport (stdio only) outside of the one-shot OAuth callback server. Tool list gated by OAuth scope. |
 | **Secrets are env-only / local-only** | OAuth refresh token at `~/.gmail-mcp/credentials.json` (mode `0o600`); client keys at `~/.gmail-mcp/gcp-oauth.keys.json` (user-provided). No secret ever travels over MCP stdout or MCP tool results. |
 | **Auditable & reproducible** | Every release is Sigstore-signed and SLSA-attested. Every commit triggers CI on Node 22 and 24 + CodeQL + Socket + CodeRabbit. OpenSSF Scorecard is wired in too. |
 | **Open source, MIT** | Anyone can audit. Project continuity documented in [CONTINUITY.md](./CONTINUITY.md). |
@@ -154,11 +154,11 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 
 | Weakness | Status | Mitigation |
 |---|---|---|
-| **CWE-22** Path traversal | Countered | `send_email` / `draft_email` / `reply_all` attachment paths pass through `assertAttachmentPathAllowed` (realpath-canonicalised against `GMAIL_MCP_ATTACHMENT_DIR`). `download_email` / `download_attachment` destinations pass through `resolveDownloadSavePath` (realpath + re-verify post-`mkdirSync`). |
+| **CWE-22** Path traversal | Countered | `send_email` / `draft_email` / `reply_all` attachment paths pass through `assertAttachmentPathAllowed` (realpath-canonicalized against `GMAIL_MCP_ATTACHMENT_DIR`). `download_email` / `download_attachment` destinations pass through `resolveDownloadSavePath` (realpath + re-verify post-`mkdirSync`). |
 | **CWE-59** Symlink following | Countered | Every leaf file write uses `fs.openSync` with `O_NOFOLLOW`; a pre-existing symlink at the destination causes the open to fail. |
 | **CWE-78 / CWE-94** Command / code injection | N/A | No `child_process`, no `eval`, no dynamic `require`. |
 | **CWE-89** SQL injection | N/A | No database. |
-| **CWE-79** XSS | Out-of-scope for this process (MCP never renders HTML) — downstream responsibility | The `download_email` tool writes HTML bodies (via `emailToHtml()`) verbatim to `GMAIL_MCP_DOWNLOAD_DIR` and the `read_email` tool returns HTML string content to the MCP client. This MCP does not render HTML itself. If the consuming agent forwards that HTML to a browser, PDF pipeline, or any other HTML-executing surface, the agent must sanitise before rendering. Flagged transparently rather than claimed N/A. |
+| **CWE-79** XSS | Out-of-scope for this process (MCP never renders HTML) — downstream responsibility | The `download_email` tool writes HTML bodies (via `emailToHtml()`) verbatim to `GMAIL_MCP_DOWNLOAD_DIR` and the `read_email` tool returns HTML string content to the MCP client. This MCP does not render HTML itself. If the consuming agent forwards that HTML to a browser, PDF pipeline, or any other HTML-executing surface, the agent must sanitize before rendering. Flagged transparently rather than claimed N/A. |
 | **CWE-88 / CWE-93 / CWE-113** CRLF / header injection | Countered | `sanitizeHeaderValue` strips `\r`, `\n`, `\0` from every user-supplied RFC-822 header value (`From`, `To`, `Cc`, `Bcc`, `Subject`, `In-Reply-To`, `References`). |
 | **CWE-117** Log injection | N/A | MCP emits no log file of its own (tracked as a future audit-log feature in [SECURITY.md](../.github/SECURITY.md)). |
 | **CWE-200 / CWE-209** Information exposure / verbose errors | Countered | Error messages never include the OAuth refresh token or the Google OAuth client secret. |
@@ -169,7 +169,7 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 | **CWE-367** TOCTOU | Countered | After `mkdirSync` in the download path the resolved path is **re-realpathed** and re-verified against the jail root, so a race between the check and the `mkdir` cannot be used to escape. |
 | **CWE-400** Resource exhaustion | Mitigated | Zod bounds on `maxResults` (≤ 500), `batchSize` (≤ 100), `messageIds.length` (≤ 1000) on every paginated / batch tool. |
 | **CWE-426** Untrusted search path | N/A | No `$PATH` manipulation. |
-| **CWE-502** Deserialisation of untrusted data | Limited | Only `JSON.parse` on the OAuth credentials file + tool arguments (validated by Zod) + Gmail API responses. |
+| **CWE-502** Deserialization of untrusted data | Limited | Only `JSON.parse` on the OAuth credentials file + tool arguments (validated by Zod) + Gmail API responses. |
 | **CWE-732** Incorrect permission assignment | Countered | `~/.gmail-mcp/credentials.json` mode `0o600`; `~/.gmail-mcp/`, `~/GmailAttachments/`, `~/GmailDownloads/` directories mode `0o700`. |
 | **CWE-918** SSRF | N/A | Base URL is fixed (`googleapis` → Gmail API); no user-controlled URL field. |
 | **CWE-1357** Reliance on insufficiently trustworthy component | Countered | All GitHub Actions pinned by full commit SHA; Dependabot + Socket monitor for compromised deps. |
