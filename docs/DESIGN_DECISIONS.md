@@ -97,14 +97,18 @@ The UI "Report phishing" button does **two distinct things**:
 The Gmail API only exposes step 1. Step 2 is **not reachable from any
 public endpoint** (verified across the v1 Gmail API, the Admin SDK
 Alert Center API which is read-only, the Postmaster Tools API which
-is sender-side aggregate, and the Apps Script `GmailApp.moveToSpam`
-which Google itself documents as "closest to" — i.e. not equivalent
-to — clicking the UI button). Third-party "Report phishing" add-ons
-(Expel, CanIPhish, Proofpoint, Material Security) all route reports
-to an external SOC; none of them push back into Google's classifier.
+is sender-side aggregate, and the Apps Script thread-level helpers
+`GmailThread.moveToSpam()` / `GmailApp.moveThreadToSpam(thread)` /
+`GmailApp.moveThreadsToSpam(threads)` which move threads to the Spam
+folder but do not expose any additional anti-phishing feedback channel
+beyond what the v1 API call already does). Third-party "Report
+phishing" add-ons (Expel, CanIPhish, Proofpoint, Material Security)
+all route reports to an external SOC; none of them push back into
+Google's classifier.
 
 Even Gmail's own documentation describes the manual spam-folder move
-as a **spam** training signal, not a phishing-specific one.
+as a **spam** training signal, not a phishing-specific one (see Gmail
+Help — [Mark or unmark Spam in Gmail](https://support.google.com/mail/answer/1366858)).
 
 A tool named `report_phishing` whose implementation is exactly
 `addLabelIds: ["SPAM"]` therefore promises a feedback effect it
@@ -138,7 +142,9 @@ detection when in practice it is only spam-foldering the message.
 
 - [Gmail API users.messages.modify](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/modify)
 - [Avoid & report phishing emails (Gmail Help)](https://support.google.com/mail/answer/8253?hl=en)
+- [Mark or unmark Spam in Gmail (Gmail Help)](https://support.google.com/mail/answer/1366858)
 - [Admin SDK Alert Center — MailPhishing](https://developers.google.com/admin-sdk/alertcenter/reference/rest/v1beta1/MailPhishing)
+- [Apps Script — `GmailApp.moveThreadToSpam`](https://developers.google.com/apps-script/reference/gmail/gmail-app#moveThreadToSpam(GmailThread))
 - [Sublime Security — Gmail's Report Phishing feature](https://docs.sublime.security/docs/gmails-report-phishing-feature)
 - Upstream commit: `ArtyMcLabin/Gmail-MCP-Server@007b816d`
 
