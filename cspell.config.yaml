@@ -340,3 +340,20 @@ words:
 
   # Placeholder in examples
   - yourname
+
+  # Sigstore / SBOM tooling, security ecosystem
+  - anchore
+  - Fulcio
+  - Rekor
+  - SIEM
+  - syft
+
+  # Anti-phishing landscape (DD-001 references)
+  - doxxing
+  - Proofpoint
+  - Shivam
+
+  # English-but-niche words
+  - foldering
+  - misframes
+  - overpromises

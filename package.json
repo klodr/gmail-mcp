@@ -22,7 +22,7 @@
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-version.mjs && git add server.json src/server.ts",
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#dist\"",
-    "lint:spell": "cspell --no-progress --gitignore --config cspell.config.yaml \"**/*.md\""
+    "lint:spell": "cspell --no-progress --dot --gitignore --config cspell.config.yaml \"**/*.md\""
   },
   "files": [
     "dist",
@@ -125,7 +125,7 @@
     "*.md": [
       "prettier --write",
       "markdownlint-cli2",
-      "cspell --no-progress --gitignore --config cspell.config.yaml --no-must-find-files"
+      "cspell --no-progress --dot --gitignore --config cspell.config.yaml --no-must-find-files"
     ]
   }
 }

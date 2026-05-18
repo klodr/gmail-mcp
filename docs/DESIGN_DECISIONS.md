@@ -2,7 +2,7 @@
 
 Architectural and naming decisions for klodr/gmail-mcp. Each entry
 records a choice that diverges from a naive implementation, an
-upstream behaviour, or a vendor pattern — and the rationale.
+upstream behavior, or a vendor pattern — and the rationale.
 
 ## Positioning
 
@@ -18,7 +18,7 @@ those four is a candidate for removal.
 
 ### Secure
 
-The defence is in the server, not in the operator's attention span.
+The defense is in the server, not in the operator's attention span.
 Middleware components (`audit-log.ts`, `rate-limit.ts`, `sanitize.ts`,
 `recipient-pairing.ts`, `sender-resolver.ts`, `gmail-errors.ts`,
 `middleware.ts`) constrain what an autonomous client can do at runtime:
@@ -43,7 +43,7 @@ Test coverage is 1.58× the source code (≈12.8 kLOC of tests for
 exercise the middleware, the OAuth flow, the rate-limiter, the
 mime walkers, the sanitize boundaries, and the failure modes of every
 batch operation. A change can pass typecheck and still get blocked by
-a behavioural regression captured in test fixtures.
+a behavioral regression captured in test fixtures.
 
 ### Resilient under acceleration
 
