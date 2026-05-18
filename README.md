@@ -23,9 +23,19 @@
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/klodr)
 
 > [!NOTE]
-> Hardened + enhanced fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) (archived 2026-03-03), via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Since the divergence point: **130+ commits** and an extensive rewrite — security hardening, Gmail-surface improvements (reply-all, send-as alias, thread-level tools, download-to-disk, recipient pairing, batch ops with retry…), supply-chain hygiene, and CI gating. Every PR goes through CodeRabbit + dual-model Qodo Merge before merge. See [SECURITY.md](.github/SECURITY.md) for the controls and threat model, and the [comparison table](#-why-this-mcp) below for the parent-forks delta.
+> Hardened + enhanced fork of [GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server) (archived 2026-03-03), via [ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server). Since the divergence point: **180+ commits** and an extensive rewrite — security hardening, Gmail-surface improvements (reply-all, send-as alias, thread-level tools, download-to-disk, recipient pairing, batch ops with retry…), supply-chain hygiene, and CI gating. Every PR goes through CodeRabbit + dual-model Qodo Merge before merge. See [SECURITY.md](.github/SECURITY.md) for the controls and threat model, and the [comparison table](#-why-this-mcp) below for the parent-forks delta.
 
 A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, Claude Code, Cursor, Continue, OpenClaw…) read and manage a Gmail account through scope-gated tools. Exposes the Gmail v1 API surface you actually need (messages, threads, labels, filters, attachments, drafts, reply-all) behind a single `npx` install.
+
+> [!IMPORTANT]
+> **Positioning.** Upstream calls this fork the *maximalist* one. The label is accurate from the outside, but it misframes the intent. `klodr/gmail-mcp` is built around four properties — and the code, tests and CI/CD all exist to pay rent on these and only these:
+>
+> - **Secure** — input sanitization, recipient pairing, rate limiting, sender resolution, and audit logging are enforced *in the server* (not in the operator's attention). The Gmail surface is mediated, not exposed raw.
+> - **Autonomous** — designed to stay safe when no human is watching every action. Different threat model from upstream's "I use it daily in my own workflow"; the in-process middleware is what bridges that gap.
+> - **Tested** — 781 vitest cases across 39 files, **99.25%** statement coverage (89% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
+> - **Resilient under acceleration** — 17 CI/CD workflows (CodeQL, OSV, Gitleaks, leak-detect, Scorecard, Socket, SLSA, lockfile lint, signed releases…) track the security ecosystem at the pace it actually changes — days, sometimes hours. Recent concrete instance: **qs CVE-2026-8723**, surfaced and shipped within hours of the public advisory across the klodr/* MCP family.
+>
+> Full rationale and the per-tool design trade-offs live in [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md).
 
 ## ✨ Why this MCP?
 
@@ -51,10 +61,8 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | **Security — input handling** | | | |
 | CRLF header injection sanitization (`\r\n\0`) | ❌ | ⚠️ partial | ✅ |
 | Path traversal in `download_attachment` | ❌ | ✅ fixed | ✅ |
-| Attachment source **jail** (`GMAIL_MCP_ATTACHMENT_DIR`) blocks exfiltration of `~/.ssh/id_rsa` etc. via prompt injection | ❌ | ❌ | ✅ |
-| Download destination **jail** (`GMAIL_MCP_DOWNLOAD_DIR`) | ❌ | ❌ | ✅ |
-| `O_NOFOLLOW` on leaf writes (pre-existing symlink at destination rejected) | ❌ | ❌ | ✅ |
-| Post-`mkdir` realpath re-verification (TOCTOU defense) | ❌ | ❌ | ✅ |
+| Path **jails** (attachment source + download destination) blocking prompt-injected exfiltration | ❌ | ❌ | ✅ |
+| Symlink-safe writes (`O_NOFOLLOW` + post-`mkdir` realpath re-verification, TOCTOU defense) | ❌ | ❌ | ✅ |
 | Zod bounds on `maxResults` / `batchSize` / `messageIds` length | ❌ | ❌ | ✅ |
 | Cryptographic MIME boundary (`crypto.randomBytes`, not `Math.random`) | ❌ | ❌ | ✅ |
 | **MCP protocol & tool surface** | | | |
@@ -70,12 +78,11 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | CI: OpenSSF Scorecard (weekly scan + badge) | ❌ | ❌ | ✅ |
 | CI: Socket Security supply-chain alerts | ❌ | ❌ | ✅ |
 | CI: CodeRabbit assertive reviews on every PR | ❌ | ❌ | ✅ |
-| Release: Sigstore-signed `dist/index.js` + SLSA in-toto attestation | ❌ | ❌ | ✅ |
-| Release: npm provenance statement | ❌ | ❌ | ✅ |
+| Release: signed builds (Sigstore + SLSA in-toto attestation + npm provenance) | ❌ | ❌ | ✅ |
 | Release: single-file ESM bundle | ❌ | ❌ | ✅ |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (631 tests) |
-| Statement coverage across `src/**` | 0% | 16.14% | **>97%** |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**781 tests**, 39 files) |
+| Statement coverage across `src/**` | 0% | 16.14% | **99.25%** (89% branch) |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
 | **CI/CD hardening** | | | |
@@ -176,6 +183,25 @@ npx @klodr/gmail-mcp auth --scopes=gmail.modify,mail.google.com,gmail.settings.b
 
 ## 🛡️ Safeguards
 
+### In-process middleware (autonomy enforcement)
+
+The runtime constraints that an autonomous LLM client cannot violate are enforced *in the server*, not in the operator's attention span. Seven in-process modules sit on the tool entry path; the ones that are opt-in only activate when the matching env var is set.
+
+**Always-on** (active for every call out of the box):
+
+- **`sanitize.ts`** — strips/escapes input the LLM provides (CRLF injection, control characters, NUL bytes) before it reaches Gmail headers, filenames, or filesystem paths.
+- **`sender-resolver.ts`** — resolves the `from` parameter against the account's authorized send-as aliases only. Spoofing the sender field is rejected before the Gmail API send call.
+- **`rate-limit.ts`** — bounds Gmail API call volume per tool family (`send`, `delete`, `modify`, `drafts`, `labels`, `filters`) over rolling daily/monthly windows. The state is persisted to disk so it survives restarts. Disable with `GMAIL_MCP_RATE_LIMIT_DISABLE=true` for test runs only.
+- **`gmail-errors.ts`** — normalizes Gmail API failure modes into typed errors so retries and surfacing to the LLM are deterministic.
+- **`middleware.ts`** — composes the always-on chain and binds it to every tool entry point. New tools inherit the pipeline by construction.
+
+**Opt-in** (off by default, set the env var to engage):
+
+- **`recipient-pairing.ts`** — refuses to send mail to addresses that are not on the operator-controlled allow-list (`~/.gmail-mcp/paired.json`). No fresh outbound destinations from a hallucinated address. Engages when `GMAIL_MCP_RECIPIENT_PAIRING=true`; gates the `send_email` / `reply_*` / `forward_email` / `draft_email` / `update_draft` family only.
+- **`audit-log.ts`** — append-only JSONL trail of every tool call (name, redacted args, outcome) with structural-key-preserving redaction so operators can replay decisions post-hoc. Engages when `GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl` is set.
+
+Configure each module via the env vars below:
+
 | Knob | Env var | Default | Notes |
 |---|---|---|---|
 | Attachment jail | `GMAIL_MCP_ATTACHMENT_DIR=/abs/path` | `~/GmailAttachments/` (auto-created mode `0o700`) | Every attachment path (`send_email`, `draft_email`, `update_draft`, `reply_all`, `reply_to_email`, `forward_email`) must live inside this directory after `realpath` canonicalization. Symlinks pointing outside are rejected. Blocks prompt-injected exfiltration of `~/.ssh/id_rsa`, `~/.gmail-mcp/credentials.json`, `~/.claude.json`, etc. |
@@ -242,6 +268,6 @@ MIT — see [LICENSE](./LICENSE).
 `klodr/gmail-mcp` is the maintenance fork of a two-step upstream chain:
 
 - **[GongRzhe/Gmail-MCP-Server](https://github.com/GongRzhe/Gmail-MCP-Server)** — the original server. Unmaintained since August 2025 (7+ months with zero maintainer activity and 72+ unmerged pull requests).
-- **[ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server)** — Arty MacKiewicz's active fork, which merged a pile of long-pending community PRs: reply threading ([#91](https://github.com/GongRzhe/Gmail-MCP-Server/pull/91)), reply-all ([#3](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/3) by @MaxGhenis), `list_filters` fix ([#4](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/4) by @nicholas-anthony-ai), `--scopes` flag ([#6](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/6) by @tansanDOTeth), CI/CD hardening ([#9](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/9)) + security hardening ([#10](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/10)) + dependency CVE fixes ([#11](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/11)) by @JF10R, tool annotations ([#14](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/14) by @bryankthompson), `download_email` ([#13](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/13) by @icanhasjonas).
+- **[ArtyMcLabin/Gmail-MCP-Server](https://github.com/ArtyMcLabin/Gmail-MCP-Server)** — Arty MacKiewicz's active fork. Since divergence from Gong, it merged community contributions including: reply-all ([#3](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/3) by @MaxGhenis), `list_filters` fix ([#4](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/4) by @nicholas-anthony-ai), CI/CD shell-injection hardening ([#9](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/9) by @JF10R), `download_email` ([#13](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/13) by @icanhasjonas), tool annotations ([#14](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/14) by @bryankthompson), CC/BCC fields in `read_email` ([#21](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/21) by @panghy), and draft lifecycle tools `send_draft` / `delete_draft` / `update_draft` ([#30](https://github.com/ArtyMcLabin/Gmail-MCP-Server/pull/30) by @thisisambros). Reply-threading auto-resolution and the `--scopes` flag were folded in directly by the maintainer.
 
 `klodr/gmail-mcp` carries all of the above forward and adds the supply-chain / path-jail / review-policy layer (see comparison table above). Credit to every PR author along the chain.
