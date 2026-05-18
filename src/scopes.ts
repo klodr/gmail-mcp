@@ -49,14 +49,14 @@ export function scopeUrlToName(scope: string): string {
 
 // Convert array of shorthand scope names to full Google API URLs
 export function scopeNamesToUrls(scopes: string[]): string[] {
-  return scopes.map(scopeNameToUrl);
+  return scopes.map((name: string) => scopeNameToUrl(name));
 }
 
 // Check if the authorized scopes grant access to a tool
 // Returns true if ANY of the tool's required scopes are present in authorizedScopes
 export function hasScope(authorizedScopes: string[], requiredScopes: string[]): boolean {
   // Normalize to shorthand names for comparison (handles both URL and shorthand input)
-  const normalizedAuth = new Set(authorizedScopes.map(scopeUrlToName));
+  const normalizedAuth = new Set(authorizedScopes.map((url: string) => scopeUrlToName(url)));
   return requiredScopes.some((scope) => normalizedAuth.has(scope));
 }
 

@@ -23,22 +23,26 @@ export interface BatchOutcome<T, U> {
 export async function processBatches<T, U>(
   items: T[],
   batchSize: number,
-  processFn: (batch: T[]) => Promise<U[]>,
+  processFunction: (batch: T[]) => Promise<U[]>,
 ): Promise<BatchOutcome<T, U>> {
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new RangeError(`processBatches: batchSize must be a positive integer (got ${batchSize})`);
+  }
+
   const successes: U[] = [];
   const failures: { item: T; error: Error }[] = [];
 
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
+  for (let index = 0; index < items.length; index += batchSize) {
+    const batch = items.slice(index, index + batchSize);
     try {
-      const results = await processFn(batch);
+      const results = await processFunction(batch);
       successes.push(...results);
     } catch {
       // If the whole batch fails, retry each item individually so a
       // single bad item does not lose the rest of the batch's results.
       for (const item of batch) {
         try {
-          const result = await processFn([item]);
+          const result = await processFunction([item]);
           successes.push(...result);
         } catch (itemError) {
           failures.push({ item, error: itemError as Error });

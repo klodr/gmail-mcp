@@ -23,11 +23,11 @@ const ENV_DOWNLOAD_DIR = "GMAIL_MCP_DOWNLOAD_DIR";
  * outgoing email) and the download jail (destinations we're willing to
  * write to for incoming messages/attachments).
  */
-const jailDirCache = new Map<string, string>();
-function resolveJailDir(envVar: string, defaultName: string): string {
-  const cached = jailDirCache.get(envVar);
+const jailDirectoryCache = new Map<string, string>();
+function resolveJailDirectory(envVariable: string, defaultName: string): string {
+  const cached = jailDirectoryCache.get(envVariable);
   if (cached) return cached;
-  const envPath = process.env[envVar];
+  const envPath = process.env[envVariable];
   const target =
     envPath && envPath.trim() !== "" ? path.resolve(envPath) : path.join(os.homedir(), defaultName);
   // `recursive: true` is idempotent on an existing dir, so no existsSync
@@ -35,16 +35,16 @@ function resolveJailDir(envVar: string, defaultName: string): string {
   // the create.
   fs.mkdirSync(target, { recursive: true, mode: 0o700 });
   const resolved = fs.realpathSync(target);
-  jailDirCache.set(envVar, resolved);
+  jailDirectoryCache.set(envVariable, resolved);
   return resolved;
 }
 
-function getAttachmentDir(): string {
-  return resolveJailDir(ENV_ATTACHMENT_DIR, "GmailAttachments");
+function getAttachmentDirectory(): string {
+  return resolveJailDirectory(ENV_ATTACHMENT_DIR, "GmailAttachments");
 }
 
-export function getDownloadDir(): string {
-  return resolveJailDir(ENV_DOWNLOAD_DIR, "GmailDownloads");
+export function getDownloadDirectory(): string {
+  return resolveJailDirectory(ENV_DOWNLOAD_DIR, "GmailDownloads");
 }
 
 /**
@@ -52,8 +52,8 @@ export function getDownloadDir(): string {
  * can flip `GMAIL_MCP_ATTACHMENT_DIR` / `GMAIL_MCP_DOWNLOAD_DIR`
  * between cases and see the new root take effect.
  */
-export function resetJailDirCache(): void {
-  jailDirCache.clear();
+export function resetJailDirectoryCache(): void {
+  jailDirectoryCache.clear();
 }
 
 /**
@@ -106,7 +106,7 @@ export function safeWriteFile(
   const onCollision = options.onCollision ?? "error";
   const flags =
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
-  const buffer = typeof content === "string" ? Buffer.from(content, "utf-8") : content;
+  const buffer = typeof content === "string" ? Buffer.from(content, "utf8") : content;
 
   const ext = path.extname(fullPath);
   const base = fullPath.slice(0, fullPath.length - ext.length);
@@ -157,7 +157,7 @@ export function resolveDownloadSavePath(savePath: string): string {
   if (!path.isAbsolute(savePath)) {
     throw new Error(
       `savePath must be absolute: "${savePath}". ` +
-        `Place the download under ${getDownloadDir()} and use the absolute path, ` +
+        `Place the download under ${getDownloadDirectory()} and use the absolute path, ` +
         `or set ${ENV_DOWNLOAD_DIR} to change the allowed root.`,
     );
   }
@@ -167,7 +167,7 @@ export function resolveDownloadSavePath(savePath: string): string {
   // the first existing ancestor, realpath it (that blocks symlink
   // escape on an existing parent), compose the still-missing tail,
   // then check.
-  const jail = getDownloadDir();
+  const jail = getDownloadDirectory();
   const resolvedTarget = path.resolve(savePath);
   let probe = resolvedTarget;
   while (!fs.existsSync(probe) && path.dirname(probe) !== probe) {
@@ -212,14 +212,14 @@ function assertAttachmentPathAllowed(filePath: string): string {
   if (!path.isAbsolute(filePath)) {
     throw new Error(
       `Attachment path must be absolute: "${filePath}". ` +
-        `Place files inside ${getAttachmentDir()} (or set ${ENV_ATTACHMENT_DIR}) and use the absolute path.`,
+        `Place files inside ${getAttachmentDirectory()} (or set ${ENV_ATTACHMENT_DIR}) and use the absolute path.`,
     );
   }
   if (!fs.existsSync(filePath)) {
     throw new Error(`File does not exist: ${filePath}`);
   }
   const resolved = fs.realpathSync(filePath);
-  assertInsideJail(resolved, getAttachmentDir(), {
+  assertInsideJail(resolved, getAttachmentDirectory(), {
     envVar: ENV_ATTACHMENT_DIR,
     kind: "attachment",
     original: filePath,
@@ -380,7 +380,7 @@ export function pickBody(
   if (!text) return { body: html, source: "html" };
   if (!html) return { body: text, source: "text" };
 
-  const trimmedTextLen = text.trim().length;
+  const trimmedTextLength = text.trim().length;
   if (looksLikePlaceholder(text)) {
     return { body: html, source: "html" };
   }
@@ -389,7 +389,7 @@ export function pickBody(
   // The genuine stubs this catches are viewer-redirects that embed a
   // tiny text blurb while the whole marketing body lives in HTML — those
   // consistently exceed a 5× ratio (Qodo #41).
-  if (trimmedTextLen < 150 && html.length > trimmedTextLen * 5) {
+  if (trimmedTextLength < 150 && html.length > trimmedTextLength * 5) {
     return { body: html, source: "html" };
   }
   return { body: text, source: "text" };
@@ -467,9 +467,13 @@ export function createEmailMessage(validatedArgs: ValidatedEmailArgs): string {
 
   // Sanitize all user-supplied header values to prevent CRLF injection
   const from = sanitizeHeaderValue(validatedArgs.from || "me");
-  const to = validatedArgs.to.map(sanitizeHeaderValue).join(", ");
-  const cc = validatedArgs.cc ? validatedArgs.cc.map(sanitizeHeaderValue).join(", ") : "";
-  const bcc = validatedArgs.bcc ? validatedArgs.bcc.map(sanitizeHeaderValue).join(", ") : "";
+  const to = validatedArgs.to.map((v: string) => sanitizeHeaderValue(v)).join(", ");
+  const cc = validatedArgs.cc
+    ? validatedArgs.cc.map((v: string) => sanitizeHeaderValue(v)).join(", ")
+    : "";
+  const bcc = validatedArgs.bcc
+    ? validatedArgs.bcc.map((v: string) => sanitizeHeaderValue(v)).join(", ")
+    : "";
   const inReplyTo = validatedArgs.inReplyTo ? sanitizeHeaderValue(validatedArgs.inReplyTo) : "";
   const references = validatedArgs.references
     ? sanitizeHeaderValue(validatedArgs.references)
@@ -567,17 +571,17 @@ export async function createEmailWithNodemailer(
   // attachment-less path (createEmailMessage).
   const mailOptions = {
     from: sanitizeHeaderValue(validatedArgs.from || "me"),
-    to: validatedArgs.to.map(sanitizeHeaderValue).join(", "),
-    cc: validatedArgs.cc?.map(sanitizeHeaderValue).join(", "),
-    bcc: validatedArgs.bcc?.map(sanitizeHeaderValue).join(", "),
+    to: validatedArgs.to.map((v: string) => sanitizeHeaderValue(v)).join(", "),
+    cc: validatedArgs.cc?.map((v: string) => sanitizeHeaderValue(v)).join(", "),
+    bcc: validatedArgs.bcc?.map((v: string) => sanitizeHeaderValue(v)).join(", "),
     subject: sanitizeHeaderValue(validatedArgs.subject),
     text: validatedArgs.body,
     html: validatedArgs.htmlBody,
     attachments: attachments,
     inReplyTo: validatedArgs.inReplyTo ? sanitizeHeaderValue(validatedArgs.inReplyTo) : undefined,
     references: (() => {
-      const ref = validatedArgs.references || validatedArgs.inReplyTo;
-      return ref ? sanitizeHeaderValue(ref) : undefined;
+      const reference = validatedArgs.references || validatedArgs.inReplyTo;
+      return reference ? sanitizeHeaderValue(reference) : undefined;
     })(),
   };
 

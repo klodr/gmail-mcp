@@ -124,7 +124,7 @@ export function addPairedAddress(email: string): { added: boolean; address: stri
   if (current.includes(normalised)) {
     return { added: false, address: normalised };
   }
-  writePairedList([...current, normalised].sort());
+  writePairedList([...current, normalised].toSorted());
   return { added: true, address: normalised };
 }
 

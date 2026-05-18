@@ -302,9 +302,9 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
       // `INVALID_GRANT` branch above remains the actionable signal
       // for the headline "credentials revoked" case.
       const errType = error instanceof Error ? error.constructor.name : typeof error;
-      const rawLen = error instanceof Error ? error.message.length : String(error).length;
+      const rawLength = error instanceof Error ? error.message.length : String(error).length;
       log(
-        `[startup] getAccessToken probe failed: type=${errType}, message length=${rawLen} chars (redacted for credential safety; rerun \`npx @klodr/gmail-mcp auth\` if this persists)`,
+        `[startup] getAccessToken probe failed: type=${errType}, message length=${rawLength} chars (redacted for credential safety; rerun \`npx @klodr/gmail-mcp auth\` if this persists)`,
       );
     }
   });

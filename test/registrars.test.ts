@@ -24,7 +24,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
 import { resetRateLimitHistory } from "../src/rate-limit.js";
-import { resetJailDirCache } from "../src/utl.js";
+import { resetJailDirectoryCache } from "../src/utl.js";
 
 // Per-test rate-limit isolation: each test gets its own GMAIL_MCP_STATE_DIR
 // so the persistent rate-limit ledger does not leak across tests (without
@@ -62,7 +62,7 @@ beforeEach(() => {
     }
   }
   resetRateLimitHistory();
-  resetJailDirCache();
+  resetJailDirectoryCache();
 });
 
 afterEach(() => {
@@ -71,7 +71,7 @@ afterEach(() => {
   rmSync(attachmentDir, { recursive: true, force: true });
   process.env = { ...originalEnv };
   resetRateLimitHistory();
-  resetJailDirCache();
+  resetJailDirectoryCache();
 });
 
 interface MockedGmailCalls {

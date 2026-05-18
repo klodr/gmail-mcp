@@ -99,9 +99,9 @@ export function extractAttachments(payload: GmailMessagePart): EmailAttachment[]
       });
     }
     if (part.parts) {
-      part.parts.forEach((subpart: GmailMessagePart) => {
+      for (const subpart of part.parts) {
         walk(subpart, depth + 1);
-      });
+      }
     }
   }
 
@@ -138,9 +138,9 @@ export function collectAttachmentsForThread(
       });
     }
     if (part.parts) {
-      part.parts.forEach((subpart: GmailMessagePart) => {
+      for (const subpart of part.parts) {
         walk(subpart, depth + 1);
-      });
+      }
     }
   }
 

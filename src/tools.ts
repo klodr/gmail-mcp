@@ -55,8 +55,8 @@ const coerceArrayPreprocess = (val: unknown) => {
 };
 
 const coerceArray = <T extends z.ZodType>(inner: T, opts?: { max?: number }) => {
-  const arr = opts?.max === undefined ? z.array(inner) : z.array(inner).max(opts.max);
-  return z.preprocess(coerceArrayPreprocess, arr);
+  const array = opts?.max === undefined ? z.array(inner) : z.array(inner).max(opts.max);
+  return z.preprocess(coerceArrayPreprocess, array);
 };
 
 // Scoped integer coercion. `z.coerce.number()` is too permissive — it
