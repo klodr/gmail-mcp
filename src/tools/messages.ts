@@ -17,6 +17,8 @@ import {
   ModifyEmailSchema,
   BatchModifyEmailsSchema,
   BatchDeleteEmailsSchema,
+  MoveToSpamSchema,
+  MoveToSpamBatchSchema,
 } from "../tools.js";
 import { extractHeaders } from "../gmail-headers.js";
 import { pickBody, HTML_FALLBACK_NOTE } from "../utl.js";
@@ -257,6 +259,84 @@ export function registerMessageTools(
     },
     batchModify.annotations,
     batchModify.scopes,
+    authorizedScopes,
+  );
+
+  // move_to_spam — DD-001: SPAM label only, does NOT trigger Google ML feedback (UI-only)
+  const moveToSpam = pull("move_to_spam");
+  defineTool(
+    server,
+    "move_to_spam",
+    moveToSpam.description,
+    MoveToSpamSchema.shape,
+    async (args) => {
+      await gmail.users.messages.modify({
+        userId: "me",
+        id: args.messageId,
+        requestBody: { addLabelIds: ["SPAM"] },
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `Message ${args.messageId} moved to Spam (SPAM label applied). ` +
+              `Note: this is the closest public Gmail API approximation of clicking ` +
+              `'Move to spam' in the UI. It does NOT push a feedback signal into ` +
+              `Google's anti-phishing ML classifier — that signal is UI-only and ` +
+              `not reachable from any public API endpoint.`,
+          },
+        ],
+      };
+    },
+    moveToSpam.annotations,
+    moveToSpam.scopes,
+    authorizedScopes,
+  );
+
+  // move_to_spam_batch — DD-001
+  const moveToSpamBatch = pull("move_to_spam_batch");
+  defineTool(
+    server,
+    "move_to_spam_batch",
+    moveToSpamBatch.description,
+    MoveToSpamBatchSchema.shape,
+    async (args) => {
+      const { successes, failures } = await processBatches(
+        args.messageIds,
+        // Zod's parsed shape narrows `batchSize` to a number once the
+        // optional() default sees a value, but at runtime the field
+        // is elided when the caller omits it.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        args.batchSize ?? 50,
+        async (batch) => {
+          // Gmail's `batchModify` endpoint applies the same label set to
+          // every message in the chunk in one HTTP round-trip — cheaper
+          // than N individual `modify` calls.
+          await gmail.users.messages.batchModify({
+            userId: "me",
+            requestBody: { ids: batch, addLabelIds: ["SPAM"] },
+          });
+          return batch.map((messageId) => ({ messageId, success: true as const }));
+        },
+      );
+      let resultText = `Batch move-to-spam complete.\n`;
+      resultText += `Successfully moved to Spam: ${successes.length} messages\n`;
+      resultText +=
+        `Note: applied the SPAM label only — closest public API approximation of ` +
+        `clicking 'Move to spam' in the Gmail UI. Does NOT trigger Google's anti-phishing ` +
+        `ML feedback signal (UI-only, not reachable from any public API).\n`;
+      if (failures.length > 0) {
+        resultText += `Failed to move: ${failures.length} messages\n\n`;
+        resultText += `Failed message IDs:\n`;
+        resultText += failures
+          .map((f) => `- ${f.item.slice(0, 16)}... (${f.error.message})`)
+          .join("\n");
+      }
+      return { content: [{ type: "text", text: resultText }] };
+    },
+    moveToSpamBatch.annotations,
+    moveToSpamBatch.scopes,
     authorizedScopes,
   );
 

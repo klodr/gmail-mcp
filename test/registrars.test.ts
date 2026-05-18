@@ -3307,6 +3307,8 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "list_inbox_threads",
           "modify_email",
           "modify_thread",
+          "move_to_spam",
+          "move_to_spam_batch",
           "pair_recipient",
           "read_email",
           "reply_all",
