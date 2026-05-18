@@ -32,7 +32,7 @@ A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, C
 >
 > - **Secure** — input sanitization, recipient pairing, rate limiting, sender resolution, and audit logging are enforced *in the server* (not in the operator's attention). The Gmail surface is mediated, not exposed raw.
 > - **Autonomous** — designed to stay safe when no human is watching every action. Different threat model from upstream's "I use it daily in my own workflow"; the in-process middleware is what bridges that gap.
-> - **Tested** — 678 vitest cases across 39 files, **99.25%** statement coverage (89% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
+> - **Tested** — 781 vitest cases across 39 files, **99.25%** statement coverage (89% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
 > - **Resilient under acceleration** — 17 CI/CD workflows (CodeQL, OSV, Gitleaks, leak-detect, Scorecard, Socket, SLSA, lockfile lint, signed releases…) track the security ecosystem at the pace it actually changes — days, sometimes hours. Recent concrete instance: **qs CVE-2026-8723**, surfaced and shipped within hours of the public advisory across the klodr/* MCP family.
 >
 > Full rationale and the per-tool design trade-offs live in [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md).
@@ -81,7 +81,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: signed builds (Sigstore + SLSA in-toto attestation + npm provenance) | ❌ | ❌ | ✅ |
 | Release: single-file ESM bundle | ❌ | ❌ | ✅ |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**678 tests**, 39 files) |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**781 tests**, 39 files) |
 | Statement coverage across `src/**` | 0% | 16.14% | **99.25%** (89% branch) |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
@@ -185,15 +185,20 @@ npx @klodr/gmail-mcp auth --scopes=gmail.modify,mail.google.com,gmail.settings.b
 
 ### In-process middleware (autonomy enforcement)
 
-The runtime constraints that an autonomous LLM client cannot violate are enforced *in the server*, not in the operator's attention span. Seven in-process modules run on every tool invocation:
+The runtime constraints that an autonomous LLM client cannot violate are enforced *in the server*, not in the operator's attention span. Seven in-process modules sit on the tool entry path; the ones that are opt-in only activate when the matching env var is set.
+
+**Always-on** (active for every call out of the box):
 
 - **`sanitize.ts`** — strips/escapes input the LLM provides (CRLF injection, control characters, NUL bytes) before it reaches Gmail headers, filenames, or filesystem paths.
-- **`recipient-pairing.ts`** — refuses to send mail to addresses that are not on the operator-controlled allow-list (`~/.gmail-mcp/paired.json`). No fresh outbound destinations from a hallucinated address.
-- **`sender-resolver.ts`** — resolves the `from` parameter against the account's authorized send-as aliases only. Spoofing the sender field is rejected before the SMTP submission.
-- **`rate-limit.ts`** — bounds Gmail API call volume per tool family (`send`, `delete`, `modify`, `drafts`, `labels`, `filters`) over rolling daily/monthly windows. The state is persisted to disk so it survives restarts.
-- **`audit-log.ts`** — opt-in append-only JSONL trail of every tool call (name, redacted args, outcome) with structural-key-preserving redaction so operators can replay decisions post-hoc.
+- **`sender-resolver.ts`** — resolves the `from` parameter against the account's authorized send-as aliases only. Spoofing the sender field is rejected before the Gmail API send call.
+- **`rate-limit.ts`** — bounds Gmail API call volume per tool family (`send`, `delete`, `modify`, `drafts`, `labels`, `filters`) over rolling daily/monthly windows. The state is persisted to disk so it survives restarts. Disable with `GMAIL_MCP_RATE_LIMIT_DISABLE=true` for test runs only.
 - **`gmail-errors.ts`** — normalizes Gmail API failure modes into typed errors so retries and surfacing to the LLM are deterministic.
-- **`middleware.ts`** — composes the chain and binds it to every tool entry point. New tools inherit the full pipeline by construction.
+- **`middleware.ts`** — composes the always-on chain and binds it to every tool entry point. New tools inherit the pipeline by construction.
+
+**Opt-in** (off by default, set the env var to engage):
+
+- **`recipient-pairing.ts`** — refuses to send mail to addresses that are not on the operator-controlled allow-list (`~/.gmail-mcp/paired.json`). No fresh outbound destinations from a hallucinated address. Engages when `GMAIL_MCP_RECIPIENT_PAIRING=true`; gates the `send_email` / `reply_*` / `forward_email` / `draft_email` / `update_draft` family only.
+- **`audit-log.ts`** — append-only JSONL trail of every tool call (name, redacted args, outcome) with structural-key-preserving redaction so operators can replay decisions post-hoc. Engages when `GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl` is set.
 
 Configure each module via the env vars below:
 
