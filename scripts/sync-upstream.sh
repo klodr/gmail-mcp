@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Sync latest klodr/gmail-mcp into upstream-sync, then merge into your working branch.
 # Usage: ./scripts/sync-upstream.sh [target-branch]
-# Default target: custom/outreach
+# Default target: main
 
-TARGET_BRANCH="${1:-custom/outreach}"
+TARGET_BRANCH="${1:-main}"
 
 git fetch upstream --tags
 git checkout upstream-sync

@@ -1,6 +1,7 @@
 # 📧 gmail-mcp
 
-> Read, search, send, draft, label, filter, and thread Gmail from any MCP-enabled AI assistant. Wraps the [Gmail API](https://developers.google.com/gmail/api) with scope-gated tools and in-process safeguards.
+> Read, search, send, draft, label, filter, and thread Gmail from any MCP-enabled AI assistant. Wraps the [Gmail API](https://developers.google.com/gmail/api) with scope-gated tools and in-process safeguards.  
+> **Headquarters Health:** non-technical setup guide → [`docs/HQ-GMAIL-MCP-SETUP.md`](docs/HQ-GMAIL-MCP-SETUP.md) (Cursor + Claude; four outreach accounts).
 
 [![CI](https://github.com/klodr/gmail-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/klodr/gmail-mcp/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/klodr/gmail-mcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/klodr/gmail-mcp/actions/workflows/codeql.yml)
