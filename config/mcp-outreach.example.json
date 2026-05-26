@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "gmail-outreach-1": {
+      "command": "node",
+      "args": ["/Users/User1/Projects/gmail-mcp/dist/index.js"],
+      "env": {
+        "GMAIL_OAUTH_PATH": "/Users/User1/.gmail-outreach-1/gcp-oauth.keys.json",
+        "GMAIL_CREDENTIALS_PATH": "/Users/User1/.gmail-outreach-1/credentials.json"
+      }
+    },
+    "gmail-outreach-2": {
+      "command": "node",
+      "args": ["/Users/User1/Projects/gmail-mcp/dist/index.js"],
+      "env": {
+        "GMAIL_OAUTH_PATH": "/Users/User1/.gmail-outreach-2/gcp-oauth.keys.json",
+        "GMAIL_CREDENTIALS_PATH": "/Users/User1/.gmail-outreach-2/credentials.json"
+      }
+    },
+    "gmail-outreach-3": {
+      "command": "node",
+      "args": ["/Users/User1/Projects/gmail-mcp/dist/index.js"],
+      "env": {
+        "GMAIL_OAUTH_PATH": "/Users/User1/.gmail-outreach-3/gcp-oauth.keys.json",
+        "GMAIL_CREDENTIALS_PATH": "/Users/User1/.gmail-outreach-3/credentials.json"
+      }
+    },
+    "gmail-outreach-4": {
+      "command": "node",
+      "args": ["/Users/User1/Projects/gmail-mcp/dist/index.js"],
+      "env": {
+        "GMAIL_OAUTH_PATH": "/Users/User1/.gmail-outreach-4/gcp-oauth.keys.json",
+        "GMAIL_CREDENTIALS_PATH": "/Users/User1/.gmail-outreach-4/credentials.json"
+      }
+    }
+  }
+}
