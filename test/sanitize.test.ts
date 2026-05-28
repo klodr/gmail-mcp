@@ -13,7 +13,11 @@ describe("stripControl", () => {
     // LRI, RLI, FSI, PDI,
     // WJ, ZWNBSP — explicit \u escapes keep the fixture searchable and
     // immune to editor / Git normalisation.
-    const tricks = "\u200b\u200c\u200d\u200e\u200f" + "\u202a\u202b\u202c\u202d\u202e" + "\u2066\u2067\u2068\u2069" + "\u2060\ufeff";
+    const tricks =
+      "\u200b\u200c\u200d\u200e\u200f" +
+      "\u202a\u202b\u202c\u202d\u202e" +
+      "\u2066\u2067\u2068\u2069" +
+      "\u2060\ufeff";
     expect(stripControl(`A${tricks}B`)).toBe("AB");
   });
 
