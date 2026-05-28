@@ -1,0 +1,5 @@
+# Sanitizer test fixtures previously embedded literal control/invisible
+# Unicode (NUL, zero-width, bidi, BOM) to exercise the sanitizer. Those
+# are now \uXXXX escapes, but force a text diff regardless so review
+# tooling (CodeRabbit, GitHub) never falls back to "binary" and skips them.
+*.test.ts text diff
