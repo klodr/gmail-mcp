@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: klodr/.github/.github/workflows/reusable-node-ci.yml@63627d28c0e716176f24f06f4d3cad6c1abf3648
+    uses: klodr/.github/.github/workflows/reusable-node-ci.yml@3cff28796830bc3ed5fd0ff801663ffe4407466c # main @ 2026-07-04 (v7.0.0 real commit)
     permissions:
       contents: read
       id-token: write
