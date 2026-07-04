@@ -68,7 +68,7 @@
     "email-addresses": "^5.0.0",
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^9.0.3",
     "open": "^11.0.0",
     "zod": "^4.4.2"
   },
@@ -93,7 +93,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.4",
     "lockfile-lint": "^5.0.0",
-    "markdownlint-cli2": "^0.22.1",
+    "markdownlint-cli2": "^0.23.0",
     "prettier": "^3.8.3",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
@@ -107,7 +107,9 @@
     ]
   },
   "overrides": {
-    "fast-uri": "3.1.2"
+    "fast-uri": "3.1.2",
+    "esbuild": "^0.28.1",
+    "js-yaml@^4.0.0": "4.3.0"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,mts}": [
