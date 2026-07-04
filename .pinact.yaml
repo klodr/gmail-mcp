@@ -11,7 +11,7 @@ ignore_actions:
   # klodr/.github repo has no version tags, so pinact cannot map a SHA
   # to a version comment — skip the version-comment verification.
   - name: klodr/\.github/\.github/(workflows|actions)/.*
-    ref: .*
+    ref: "[0-9a-f]{40}"
   # Personal fork of qodo-ai/pr-agent, tracked by commit SHA (no tags).
   - name: klodr/pr-agent
-    ref: .*
+    ref: "[0-9a-f]{40}"

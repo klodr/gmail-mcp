@@ -108,7 +108,7 @@
   },
   "overrides": {
     "fast-uri": "3.1.2",
-    "esbuild": "^0.28.1",
+    "esbuild": "0.28.1",
     "js-yaml@^4.0.0": "4.3.0"
   },
   "lint-staged": {
