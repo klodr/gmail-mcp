@@ -38,7 +38,7 @@ Do not duplicate what those documents say. Reference them.
 
 ## Setup
 
-Node `>=22.22.2` is **enforced** via `engines` + `engine-strict=true` in
+Node `>=22.23.1` is **enforced** via `engines` + `engine-strict=true` in
 `.npmrc`. CI runs the matrix on Node 22 and 24. `npm install` on Node
 21 fails immediately — that is intentional.
 

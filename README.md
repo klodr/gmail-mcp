@@ -73,7 +73,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Published on npm | ❌ stale — no future releases (repo archived) | ❌ (consumed as a GitHub install from the intermediate fork) | ✅ dedicated scoped package, signed releases |
 | Active maintenance (last 30 d) | ❌ (archived 2026-03-03) | ⚠️ sporadic | ✅ daily review cycle (CodeRabbit + human) |
 | **Supply-chain integrity** | | | |
-| Node.js floor | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ✅ `>=22` (Active LTS, maintenance until 2027-04-30) |
+| Node.js floor | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ❌ `>=14` ([EOL April 2023](https://nodejs.org/en/about/previous-releases)) | ✅ `>=22` (Maintenance LTS until 2027-04-30) |
 | CI: CodeQL Advanced (`javascript-typescript` + `actions`) | ❌ | ❌ | ✅ |
 | CI: OpenSSF Scorecard (weekly scan + badge) | ❌ | ❌ | ✅ |
 | CI: Socket Security supply-chain alerts | ❌ | ❌ | ✅ |
