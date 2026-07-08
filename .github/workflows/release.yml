@@ -57,7 +57,9 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          registry-url: "https://registry.npmjs.org"
+          # No registry-url: setup-node would write an npm auth line
+          # reading NODE_AUTH_TOKEN, which (left empty) makes npm take
+          # the classic-auth path instead of the OIDC exchange.
 
       - name: Install dependencies
         run: npm ci
