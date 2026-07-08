@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/klodr/gmail-mcp/compare/v1.2.1...v1.3.0) (2026-07-08)
+
+
+### Added
+
+* **messages:** move_to_spam tools + DD-001 design decision ([#197](https://github.com/klodr/gmail-mcp/issues/197)) ([c2bf52b](https://github.com/klodr/gmail-mcp/commit/c2bf52b8d8146cfa4af69e05c4ce00275d130d34))
+
+
+### Fixed
+
+* **downloads:** accept long Gmail attachment IDs ([#242](https://github.com/klodr/gmail-mcp/issues/242)) ([02190aa](https://github.com/klodr/gmail-mcp/commit/02190aafceb78075c637df29c7e3f8f38c0d4283))
+
+
+### Changed
+
+* bump actions/attest-build-provenance from 4.1.0 to 4.1.1 ([#240](https://github.com/klodr/gmail-mcp/issues/240)) ([2644228](https://github.com/klodr/gmail-mcp/commit/2644228cf5e6fa5581e0bc73b5d52c0e55b5428e))
+* bump actions/checkout from 4.2.2 to 6.0.2 ([#200](https://github.com/klodr/gmail-mcp/issues/200)) ([36fabac](https://github.com/klodr/gmail-mcp/commit/36fabace15a8ff3d626707d943ba3a25b85b2332))
+* bump actions/checkout from 6.0.2 to 7.0.0 ([#225](https://github.com/klodr/gmail-mcp/issues/225)) ([deb0c42](https://github.com/klodr/gmail-mcp/commit/deb0c42b4e398a9112b099f1e98447d23241fd67))
+* bump actions/create-github-app-token from 3.1.1 to 3.2.0 ([#199](https://github.com/klodr/gmail-mcp/issues/199)) ([a5a4a0e](https://github.com/klodr/gmail-mcp/commit/a5a4a0e7044a149853aecbc558da435510572a92))
+* bump docker/build-push-action from 7.1.0 to 7.2.0 ([#205](https://github.com/klodr/gmail-mcp/issues/205)) ([b028c1c](https://github.com/klodr/gmail-mcp/commit/b028c1cf458e853401d6fe4ca0edfe798dfd95c6))
+* bump docker/build-push-action from 7.2.0 to 7.3.0 ([#239](https://github.com/klodr/gmail-mcp/issues/239)) ([9a0b6e5](https://github.com/klodr/gmail-mcp/commit/9a0b6e50b576213309b98cd22faa8d594e616c6d))
+* bump docker/setup-buildx-action from 4.0.0 to 4.1.0 ([#204](https://github.com/klodr/gmail-mcp/issues/204)) ([1e76204](https://github.com/klodr/gmail-mcp/commit/1e762043eeda11b7297a27d9bac4862152517f00))
+* bump docker/setup-buildx-action from 4.1.0 to 4.2.0 ([#238](https://github.com/klodr/gmail-mcp/issues/238)) ([6d997c6](https://github.com/klodr/gmail-mcp/commit/6d997c61c63ad212d1830436bc39ac96d9f00e0d))
+* bump github/codeql-action from 4.35.4 to 4.35.5 ([#201](https://github.com/klodr/gmail-mcp/issues/201)) ([c110686](https://github.com/klodr/gmail-mcp/commit/c110686c8bd1b60304d7902330d4424f1a7b84fb))
+* bump github/codeql-action from 4.35.5 to 4.36.0 ([#206](https://github.com/klodr/gmail-mcp/issues/206)) ([1a42785](https://github.com/klodr/gmail-mcp/commit/1a427852bc8074aefd6f851076fa7943f78d9773))
+* bump github/codeql-action/analyze from 4.36.0 to 4.36.3 ([#236](https://github.com/klodr/gmail-mcp/issues/236)) ([a02414d](https://github.com/klodr/gmail-mcp/commit/a02414df943aa4c20dc870ce0939f8e7807b55bb))
+* bump github/codeql-action/upload-sarif from 4.36.0 to 4.36.3 ([#229](https://github.com/klodr/gmail-mcp/issues/229)) ([4f7cd46](https://github.com/klodr/gmail-mcp/commit/4f7cd467ab395b92178e206f252e282b649b4977))
+* bump gitleaks/gitleaks-action from 2.3.9 to 3.0.0 ([#212](https://github.com/klodr/gmail-mcp/issues/212)) ([6adc625](https://github.com/klodr/gmail-mcp/commit/6adc625f82be82baa2a45956128d30f1f042790b))
+* bump pinned Node 22.x to 22.23.1 ([#235](https://github.com/klodr/gmail-mcp/issues/235)) ([9c8c90e](https://github.com/klodr/gmail-mcp/commit/9c8c90efdbc348f7fb69b905f8b35e629b293d2f))
+* bump suzuki-shunsuke/pinact-action from 2.0.0 to 3.0.0 ([#211](https://github.com/klodr/gmail-mcp/issues/211)) ([0695d4c](https://github.com/klodr/gmail-mcp/commit/0695d4c674ce24280e3d350e771565d020ae9d27))
+* **ci,deps:** codecov-action v7 pin + clear OSV vulnerabilities ([#231](https://github.com/klodr/gmail-mcp/issues/231)) ([f74511c](https://github.com/klodr/gmail-mcp/commit/f74511c4c212bc4e49f6f94ea4eb5600deea88ea))
+* **deps-dev:** bump the dev-dependencies group across 1 directory with 13 updates ([#241](https://github.com/klodr/gmail-mcp/issues/241)) ([d5a106f](https://github.com/klodr/gmail-mcp/commit/d5a106fd39de5e41005ad5f6d097add10728b682))
+* **deps:** bump the production-dependencies group across 1 directory with 2 updates ([#232](https://github.com/klodr/gmail-mcp/issues/232)) ([8006aef](https://github.com/klodr/gmail-mcp/commit/8006aef2ca368bc3aae42db974fa874934966f0a))
+* **leak-detect:** bump reusable to skip bot-authored PRs ([#203](https://github.com/klodr/gmail-mcp/issues/203)) ([4ad6d34](https://github.com/klodr/gmail-mcp/commit/4ad6d34280b4669f7514d96abf91f559144f55d2))
+* **leak-detect:** bump to inline-JWT reusable + drop client-id ([#196](https://github.com/klodr/gmail-mcp/issues/196)) ([69498d8](https://github.com/klodr/gmail-mcp/commit/69498d89085090ee3d7caf40830c30513c1c3e4e))
+* **lint:** tighten gmail unicorn policy to match faxdrop ([#190](https://github.com/klodr/gmail-mcp/issues/190)) ([13ec2b8](https://github.com/klodr/gmail-mcp/commit/13ec2b834343710d8eeda703bd07d1882a7ee0a9))
+* **spell:** add cspell on Markdown with en-US only ([#202](https://github.com/klodr/gmail-mcp/issues/202)) ([8b576cf](https://github.com/klodr/gmail-mcp/commit/8b576cf6aab69eb415cd2d571ffd21824d51acbb))
+
+
+### Documentation
+
+* **readme:** refresh positioning, stats, Arty PR list ([#198](https://github.com/klodr/gmail-mcp/issues/198)) ([24a463b](https://github.com/klodr/gmail-mcp/commit/24a463b5f0f8f3fb6cf6dd1b6a6325f46a46df52))
+
 ## [1.2.1](https://github.com/klodr/gmail-mcp/compare/v1.2.0...v1.2.1) (2026-05-18)
 
 
