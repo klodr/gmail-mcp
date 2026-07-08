@@ -240,7 +240,11 @@ jobs:
           npm pkg delete scripts.prepare || true
           npm pkg delete scripts.prepublishOnly || true
 
+      # Trusted publishing: npm mints short-lived credentials from the
+      # workflow's OIDC identity (registered on npmjs.com for this repo +
+      # workflow file). No NPM_TOKEN secret; provenance stays on.
+      - name: Update npm (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@latest
+
       - name: Publish to npm
         run: npm publish --access public --provenance --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
