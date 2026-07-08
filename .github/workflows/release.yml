@@ -243,8 +243,8 @@ jobs:
       # Trusted publishing: npm mints short-lived credentials from the
       # workflow's OIDC identity (registered on npmjs.com for this repo +
       # workflow file). No NPM_TOKEN secret; provenance stays on.
-      - name: Update npm (trusted publishing needs >= 11.5.1)
-        run: npm install -g npm@latest
+      - name: Pin npm 11.18.0 (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@11.18.0
 
       - name: Publish to npm
         run: npm publish --access public --provenance --ignore-scripts
