@@ -57,7 +57,9 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          registry-url: "https://registry.npmjs.org"
+          # No registry-url: setup-node would write an npm auth line
+          # reading NODE_AUTH_TOKEN, which (left empty) makes npm take
+          # the classic-auth path instead of the OIDC exchange.
 
       - name: Install dependencies
         run: npm ci
@@ -240,7 +242,11 @@ jobs:
           npm pkg delete scripts.prepare || true
           npm pkg delete scripts.prepublishOnly || true
 
+      # Trusted publishing: npm mints short-lived credentials from the
+      # workflow's OIDC identity (registered on npmjs.com for this repo +
+      # workflow file). No NPM_TOKEN secret; provenance stays on.
+      - name: Pin npm 11.18.0 (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@11.18.0
+
       - name: Publish to npm
         run: npm publish --access public --provenance --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
