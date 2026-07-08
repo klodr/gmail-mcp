@@ -54,11 +54,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.0
 
-      - name: Setup Node 22
+      - name: Setup Node 24
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22"
-          cache: "npm"
+          # Node 24 ships npm >= 11.5.1, which supports OIDC trusted
+          # publishing out of the box (no global npm install needed).
+          node-version: "24"
+          # No npm cache here: keep the publish job's environment minimal
+          # for OIDC trusted publishing (per CodeRabbit review).
           # No registry-url: setup-node would write an npm auth line
           # reading NODE_AUTH_TOKEN, which (left empty) makes npm take
           # the classic-auth path instead of the OIDC exchange.
@@ -247,8 +250,5 @@ jobs:
       # Trusted publishing: npm mints short-lived credentials from the
       # workflow's OIDC identity (registered on npmjs.com for this repo +
       # workflow file). No NPM_TOKEN secret; provenance stays on.
-      - name: Pin npm 11.18.0 (trusted publishing needs >= 11.5.1)
-        run: npm install -g npm@11.18.0
-
       - name: Publish to npm
         run: npm publish --access public --provenance --ignore-scripts
