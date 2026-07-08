@@ -2,7 +2,9 @@ name: Release & npm publish
 
 # Triggered by `git push origin vX.Y.Z`. Creates the GitHub Release from the
 # matching CHANGELOG.md section, signs the build artifact with Sigstore, then
-# publishes to npm with provenance. End-to-end, no manual UI step.
+# publishes to npm with provenance via OIDC trusted publishing (no token:
+# the npmjs.com trusted-publisher entry for this repo + workflow file is
+# the credential). End-to-end, no manual UI step.
 on:
   push:
     tags:
