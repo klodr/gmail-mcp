@@ -60,7 +60,8 @@ jobs:
           # Node 24 ships npm >= 11.5.1, which supports OIDC trusted
           # publishing out of the box (no global npm install needed).
           node-version: "24"
-          cache: "npm"
+          # No npm cache here: keep the publish job's environment minimal
+          # for OIDC trusted publishing (per CodeRabbit review).
           # No registry-url: setup-node would write an npm auth line
           # reading NODE_AUTH_TOKEN, which (left empty) makes npm take
           # the classic-auth path instead of the OIDC exchange.
