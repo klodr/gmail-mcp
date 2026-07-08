@@ -2614,6 +2614,26 @@ describe("PR #6 registrars — download error paths", () => {
     });
   });
 
+  it("download_attachment accepts 400-char attachment IDs and truncates the fallback name (#222)", async () => {
+    // Real Gmail attachment IDs encode the message + MIME part path and
+    // routinely exceed 256 chars; the derived-name fallback must not
+    // overflow the OS filename limit (ENAMETOOLONG).
+    const longId = "A".repeat(400);
+    await withFix(["gmail.modify"], async (fix) => {
+      const result = (await fix.client.callTool({
+        name: "download_attachment",
+        arguments: {
+          messageId: "msg_with_att",
+          attachmentId: longId,
+          savePath: downloadDir,
+        },
+      })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+      expect(result.isError).toBeFalsy();
+      const written = readdirSync(downloadDir);
+      expect(written).toContain(`attachment-${longId.slice(0, 24)}`);
+    });
+  });
+
   it("download_attachment surfaces a clear error when Gmail returns empty data", async () => {
     // Pin the "No attachment data received" guard at
     // `src/tools/downloads.ts:125-127`. Gmail returns an empty
