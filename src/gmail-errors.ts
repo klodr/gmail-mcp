@@ -85,8 +85,7 @@ export function isInvalidGrantError(err: unknown): boolean {
     return true;
   }
   const data = (err as unknown as GaxiosError).response?.data as
-    | { error?: unknown; error_description?: unknown }
-    | undefined;
+    { error?: unknown; error_description?: unknown } | undefined;
   if (typeof data?.error === "string" && data.error.toLowerCase().includes("invalid_grant")) {
     return true;
   }
