@@ -160,7 +160,7 @@ export function registerDownloadTools(
 
           const findAttachment = (part: GmailMessagePart): string | null => {
             if (part.body && part.body.attachmentId === args.attachmentId) {
-              return part.filename || `attachment-${args.attachmentId}`;
+              return part.filename || `attachment-${args.attachmentId.slice(0, 24)}`;
             }
             if (part.parts) {
               for (const subpart of part.parts) {
@@ -173,7 +173,7 @@ export function registerDownloadTools(
 
           filename =
             (messageResponse.data.payload ? findAttachment(messageResponse.data.payload) : null) ||
-            `attachment-${args.attachmentId}`;
+            `attachment-${args.attachmentId.slice(0, 24)}`;
         }
 
         // Sanitize filename: backslash / NUL / C0 / control chars from
@@ -190,7 +190,7 @@ export function registerDownloadTools(
            future sanitize change that returns "" or "." instead
            of "attachment". */
         if (filename === "" || filename === ".") {
-          filename = `attachment-${args.attachmentId}`;
+          filename = `attachment-${args.attachmentId.slice(0, 24)}`;
         }
         /* v8 ignore stop */
 

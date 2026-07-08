@@ -11,6 +11,15 @@ const GmailIdSchema = z
   .max(256)
   .regex(/^[A-Za-z0-9_-]+$/);
 
+// Gmail *attachment* IDs share the base64url charset but encode the
+// message + MIME part path, so real ones routinely run 300-600+ chars
+// (#222). Same forged-ID rationale as GmailIdSchema, higher ceiling.
+const AttachmentIdSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
 // User-supplied filesystem paths. The attachment jail in `src/utl.ts`
 // (assertAttachmentPathAllowed) is the load-bearing check at runtime,
 // but a schema-level guard rejects the worst shapes before Zod would
@@ -361,7 +370,7 @@ export const CreateFilterFromTemplateSchema = z
 
 export const DownloadAttachmentSchema = z.object({
   messageId: GmailIdSchema.describe("ID of the email message containing the attachment"),
-  attachmentId: GmailIdSchema.describe("ID of the attachment to download"),
+  attachmentId: AttachmentIdSchema.describe("ID of the attachment to download"),
   filename: z
     .string()
     .optional()
