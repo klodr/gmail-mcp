@@ -107,9 +107,11 @@
     ]
   },
   "overrides": {
-    "fast-uri": "3.1.2",
+    "fast-uri": "3.1.4",
     "esbuild": "0.28.1",
-    "js-yaml@^4.0.0": "4.3.0"
+    "js-yaml@^4.0.0": "4.3.0",
+    "js-yaml@^5.0.0": "5.2.2",
+    "@hono/node-server": "2.0.12"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,mts}": [
