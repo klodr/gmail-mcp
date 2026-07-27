@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3](https://github.com/klodr/gmail-mcp/compare/v1.3.2...v1.3.3) (2026-07-27)
+
+
+### Changed
+
+* **deps:** bump google-auth-library from 10.9.0 to 10.9.1 in the production-dependencies group across 1 directory ([#266](https://github.com/klodr/gmail-mcp/issues/266)) ([80e9029](https://github.com/klodr/gmail-mcp/commit/80e9029a9acc3bc0c33023f94ae96f2f8ee559eb))
+
 ## [1.3.2](https://github.com/klodr/gmail-mcp/compare/v1.3.1...v1.3.2) (2026-07-27)
 
 
