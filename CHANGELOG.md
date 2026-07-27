@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2](https://github.com/klodr/gmail-mcp/compare/v1.3.1...v1.3.2) (2026-07-27)
+
+
+### Fixed
+
+* **deps:** clear all open Dependabot security alerts ([#262](https://github.com/klodr/gmail-mcp/issues/262)) ([5fec63b](https://github.com/klodr/gmail-mcp/commit/5fec63ba1a3d2c2b900ff3bd4ba1dfc6823b162b))
+
+
+### Changed
+
+* bump actions/attest from 4.1.0 to 4.2.0 ([#257](https://github.com/klodr/gmail-mcp/issues/257)) ([4c31b58](https://github.com/klodr/gmail-mcp/commit/4c31b58c265a6d868bdc6c178332196f2912ed15))
+* bump actions/setup-node from 6.4.0 to 7.0.0 ([#255](https://github.com/klodr/gmail-mcp/issues/255)) ([f83dfa7](https://github.com/klodr/gmail-mcp/commit/f83dfa706ca5e4e31326211da7d74a5486c239f0))
+* bump github/codeql-action/analyze from 4.36.0 to 4.37.1 ([#256](https://github.com/klodr/gmail-mcp/issues/256)) ([9ee08cc](https://github.com/klodr/gmail-mcp/commit/9ee08ccbdfe69a02934a6b38d2209bb707c85798))
+* **release:** run publish on Node 24 (bundled npm 11.16, OIDC-ready) ([#247](https://github.com/klodr/gmail-mcp/issues/247)) ([1e64f1f](https://github.com/klodr/gmail-mcp/commit/1e64f1fbda707272762aefaa144a201632f1d5c4))
+
 ## [1.3.1](https://github.com/klodr/gmail-mcp/compare/v1.3.0...v1.3.1) (2026-07-08)
 
 
