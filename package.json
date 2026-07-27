@@ -96,7 +96,7 @@
     "markdownlint-cli2": "^0.23.0",
     "prettier": "^3.8.3",
     "tsup": "^8.5.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.59.1",
     "vitest": "^4.1.5",
     "yaml-lint": "^1.7.0"
