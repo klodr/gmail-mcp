@@ -29,7 +29,7 @@ import {
 // Mirrors the same convention used in
 // klodr/mercury-invoicing-mcp/src/server.ts:VERSION and
 // klodr/faxdrop-mcp/src/server.ts:VERSION.
-export const VERSION = "1.3.1"; // x-release-please-version
+export const VERSION = "1.3.2"; // x-release-please-version
 
 export interface ServerOptions {
   /**
