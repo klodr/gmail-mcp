@@ -89,7 +89,7 @@
     "eslint-plugin-promise": "^7.3.0",
     "eslint-plugin-unicorn": "^64.0.0",
     "fast-check": "^4.7.0",
-    "gaxios": "^7.1.4",
+    "gaxios": "^8.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.4",
     "lockfile-lint": "^5.0.0",
