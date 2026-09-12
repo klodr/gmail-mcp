@@ -30,6 +30,11 @@ jobs:
         # The action only adds the binary to PATH — it does not run it.
         # The actual check is in the next step.
         uses: editorconfig-checker/action-editorconfig-checker@840e866d93b8e032123c23bac69dece044d4d84c # v2.2.0
+        # v4.0.0 (03/09/2026) a supprime l'artefact 'ec-linux-amd64.tar.gz' que
+        # cette action cherche ; 'latest' casse donc l'installation.
+        # v3.11.3 est la derniere release qui le fournit.
+        with:
+          version: v3.11.3
 
       - name: Run editorconfig-checker
         # Honours .editorconfig + .editorconfig-checker.json at the repo
