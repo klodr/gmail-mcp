@@ -16,8 +16,10 @@ import type { gmail_v1 as gmail_v1_types } from "googleapis";
 import {
   MAX_MIME_DEPTH,
   collectAttachmentsForThread,
+  collectCidReferences,
   extractAttachments,
   extractEmailContent,
+  isInlinePart,
   listAttachmentParts,
 } from "../src/mime-walkers.js";
 
@@ -386,5 +388,53 @@ describe("listAttachmentParts", () => {
       .filter((c) => c.includes("mime_depth_exceeded"));
     expect(warnings.length).toBeGreaterThan(0);
     expect((JSON.parse(warnings[0]) as Record<string, unknown>).walker).toBe("listAttachmentParts");
+  });
+});
+
+describe("collectCidReferences", () => {
+  it("collects cid: references lower-cased, percent-decoded, whatever the quoting", () => {
+    const html = [
+      '<img src="cid:image001.jpg@01DC2D8F.1D7B6A60">',
+      "<img src='CID:Logo%40Example'>",
+      '<div style="background:url(cid:bg.png)"></div>',
+    ].join("");
+    expect(collectCidReferences(html)).toEqual(
+      new Set(["image001.jpg@01dc2d8f.1d7b6a60", "logo@example", "bg.png"]),
+    );
+  });
+
+  it("keeps the raw token when its percent-encoding is malformed", () => {
+    expect(collectCidReferences('<img src="cid:bad%E0%A4%A">')).toEqual(new Set(["bad%e0%a4%a"]));
+  });
+
+  it("returns an empty set for a body without cid: URLs", () => {
+    expect(collectCidReferences("")).toEqual(new Set());
+    expect(collectCidReferences("<p>no images</p>")).toEqual(new Set());
+  });
+});
+
+describe("isInlinePart", () => {
+  const base = { partId: "1", filename: "logo.png", mimeType: "image/png", size: 10 };
+  const references = new Set(["logo@x"]);
+
+  it("is true for a Content-ID part the HTML references", () => {
+    expect(isInlinePart({ ...base, contentId: "logo@x" }, references)).toBe(true);
+    expect(isInlinePart({ ...base, contentId: "logo@x", disposition: "inline" }, references)).toBe(
+      true,
+    );
+  });
+
+  it("is false when the part is explicitly an attachment, even if referenced", () => {
+    expect(
+      isInlinePart({ ...base, contentId: "logo@x", disposition: "attachment" }, references),
+    ).toBe(false);
+  });
+
+  it("is false for a Content-ID the HTML never references", () => {
+    expect(isInlinePart({ ...base, contentId: "other@x" }, references)).toBe(false);
+  });
+
+  it("is false for a part without Content-ID, even with Content-Disposition: inline", () => {
+    expect(isInlinePart({ ...base, disposition: "inline" }, references)).toBe(false);
   });
 });

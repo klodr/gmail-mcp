@@ -1,6 +1,7 @@
 /**
  * Download-domain tool registrars (`download_email`,
- * `download_attachment`). Both tools write under the `GMAIL_MCP_DOWNLOAD_DIR` jail (default
+ * `download_attachment`, `download_all_attachments`). Every tool
+ * writes under the `GMAIL_MCP_DOWNLOAD_DIR` jail (default
  * `~/GmailDownloads`) via `safeWriteFile` (O_NOFOLLOW on the leaf,
  * O_EXCL against silent overwrites). PR #7 deletes the corresponding
  * switch arms from the legacy dispatcher in `src/index.ts`.
@@ -9,25 +10,33 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { gmail_v1 } from "googleapis";
+import { Zip, ZipDeflate, type FlateError } from "fflate";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { defineTool, pullToolMeta as pull } from "./_shared.js";
-import { DownloadEmailSchema, DownloadAttachmentSchema } from "../tools.js";
+import {
+  DownloadEmailSchema,
+  DownloadAttachmentSchema,
+  DownloadAllAttachmentsSchema,
+} from "../tools.js";
 import {
   resolveDownloadSavePath,
   getDownloadDirectory,
   safeWriteFile,
   toSafeAttachmentFilename,
+  claimUniqueFilename,
 } from "../utl.js";
 import { extractHeaders } from "../gmail-headers.js";
 import {
   extractEmailContent,
   extractAttachments,
   listAttachmentParts,
+  collectCidReferences,
+  isInlinePart,
   type AttachmentPart,
 } from "../mime-walkers.js";
 import { gmailMessageToJson, emailToTxt, emailToHtml } from "../email-export.js";
 import { asGmailApiError } from "../gmail-errors.js";
-import { downloadEmailOutputSchema } from "./output-schemas.js";
+import { downloadEmailOutputSchema, downloadAllAttachmentsOutputSchema } from "./output-schemas.js";
 
 type GmailMessagePart = gmail_v1.Schema$MessagePart;
 
@@ -40,6 +49,17 @@ type GmailMessagePart = gmail_v1.Schema$MessagePart;
  * API round-trips.
  */
 const MAX_CONTENT_PROBES = 10;
+
+/**
+ * Upper bound on the attachments `download_all_attachments` fetches in
+ * one call. Gmail caps a message at ~25 MB of attachments, so a
+ * legitimate message stays far below this; the cap bounds API
+ * round-trips and memory on attacker-crafted many-part messages.
+ */
+const MAX_BULK_ATTACHMENTS = 100;
+
+/** Attachment bodies fetched in parallel by `download_all_attachments`. */
+const FETCH_CONCURRENCY = 4;
 
 /**
  * Fetch the decoded bytes of one attachment part — from the payload
@@ -138,6 +158,47 @@ function jailedFilePath(directory: string, filename: string): string {
   }
   /* v8 ignore stop */
   return fullPath;
+}
+
+/**
+ * Build a ZIP archive in memory. Uses fflate's streaming `Zip` API with
+ * the entry name passed as a plain string — `zipSync` keys its input by
+ * filename in an ordinary object, where an attachment literally named
+ * `__proto__` would be swallowed by the prototype setter. Entry names
+ * are expected to be unique (see `claimUniqueFilename`); non-ASCII
+ * names are flagged UTF-8 in the archive by fflate. Every callback
+ * fires synchronously here (`ZipDeflate` is the synchronous codec), so
+ * the archive is complete when `end()` returns.
+ */
+export function buildZipArchive(
+  entries: ReadonlyArray<{ name: string; data: Uint8Array }>,
+): Buffer {
+  const chunks: Uint8Array[] = [];
+  const failures: FlateError[] = [];
+  const archive = new Zip((error, chunk) => {
+    /* v8 ignore start -- fflate only reports errors for misuse (adding
+       after end(), a >64 KiB entry name); see the re-throw below. */
+    if (error) {
+      failures.push(error);
+      return;
+    }
+    /* v8 ignore stop */
+    chunks.push(chunk);
+  });
+  for (const entry of entries) {
+    const file = new ZipDeflate(entry.name, { level: 6 });
+    archive.add(file);
+    file.push(entry.data, true);
+  }
+  archive.end();
+  /* v8 ignore start -- fflate only reports errors for misuse (adding
+     after end(), a >64 KiB entry name); the entry names we pass are
+     sanitized leaf names, so this is a defensive re-throw. */
+  if (failures.length > 0) {
+    throw new Error(`Failed to build ZIP archive: ${failures[0]?.message ?? "unknown error"}`);
+  }
+  /* v8 ignore stop */
+  return Buffer.concat(chunks);
 }
 
 export function registerDownloadTools(
@@ -288,5 +349,167 @@ export function registerDownloadTools(
     downloadAttachment.annotations,
     downloadAttachment.scopes,
     authorizedScopes,
+  );
+
+  // download_all_attachments
+  //
+  // One `messages.get`, then one `attachments.get` per part using the
+  // attachmentIds from THAT payload — names come straight from the
+  // parts, so there is no id matching involved (see
+  // `resolveOriginalFilename` for why id matching across reads fails).
+  // All bodies are fetched before anything is written: a Gmail error
+  // mid-way leaves no partial set of files or truncated ZIP behind.
+  const downloadAllAttachments = pull("download_all_attachments");
+  defineTool(
+    server,
+    "download_all_attachments",
+    downloadAllAttachments.description,
+    DownloadAllAttachmentsSchema.shape,
+    async (args) => {
+      try {
+        const savePath = resolveDownloadSavePath(args.savePath ?? getDownloadDirectory());
+        const messageResponse = await gmail.users.messages.get({
+          userId: "me",
+          id: args.messageId,
+          format: "full",
+        });
+        const payload = messageResponse.data.payload ?? {};
+        const parts = listAttachmentParts(payload);
+
+        const cidReferences = args.includeInline
+          ? new Set<string>()
+          : collectCidReferences(extractEmailContent(payload).html);
+        const selected: AttachmentPart[] = [];
+        const skipped: Array<{
+          filename: string;
+          mimeType: string;
+          size: number;
+          reason: "inline";
+        }> = [];
+        for (const part of parts) {
+          if (!args.includeInline && isInlinePart(part, cidReferences)) {
+            skipped.push({
+              filename: toSafeAttachmentFilename(part.filename, "inline-part"),
+              mimeType: part.mimeType,
+              size: part.size,
+              reason: "inline",
+            });
+          } else {
+            selected.push(part);
+          }
+        }
+
+        if (selected.length === 0) {
+          const hint =
+            skipped.length > 0
+              ? ` (${skipped.length} inline part(s) skipped; pass includeInline: true to download them)`
+              : "";
+          throw new Error(`Message ${args.messageId} has no attachments to download${hint}`);
+        }
+        if (selected.length > MAX_BULK_ATTACHMENTS) {
+          throw new Error(
+            `Message ${args.messageId} has ${selected.length} attachments; download_all_attachments handles at most ${MAX_BULK_ATTACHMENTS} per call`,
+          );
+        }
+
+        const fetched: Array<{ part: AttachmentPart; data: Buffer }> = [];
+        for (let index = 0; index < selected.length; index += FETCH_CONCURRENCY) {
+          const batch = selected.slice(index, index + FETCH_CONCURRENCY);
+          fetched.push(
+            ...(await Promise.all(
+              batch.map(async (part) => ({
+                part,
+                data: await loadAttachmentBytes(gmail, args.messageId, part),
+              })),
+            )),
+          );
+        }
+
+        const taken = new Set<string>();
+        const entries = fetched.map(({ part, data }, index) => ({
+          name: claimUniqueFilename(
+            toSafeAttachmentFilename(part.filename, `attachment-${index + 1}`),
+            taken,
+          ),
+          mimeType: part.mimeType,
+          data,
+        }));
+
+        let result: {
+          status: "saved";
+          messageId: string;
+          mode: "files" | "zip";
+          directory: string;
+          zipPath?: string;
+          zipSize?: number;
+          files: Array<{ filename: string; path?: string; size: number; mimeType: string }>;
+          skipped: typeof skipped;
+        };
+        if (args.zip) {
+          let zipName = toSafeAttachmentFilename(
+            args.zipFilename,
+            `${args.messageId}-attachments.zip`,
+          );
+          if (!zipName.toLowerCase().endsWith(".zip")) zipName += ".zip";
+          const archive = buildZipArchive(entries);
+          const zipPath = safeWriteFile(jailedFilePath(savePath, zipName), archive, {
+            onCollision: "suffix",
+          });
+          result = {
+            status: "saved",
+            messageId: args.messageId,
+            mode: "zip",
+            directory: savePath,
+            zipPath,
+            zipSize: archive.length,
+            files: entries.map((entry) => ({
+              filename: entry.name,
+              size: entry.data.length,
+              mimeType: entry.mimeType,
+            })),
+            skipped,
+          };
+        } else {
+          const files = entries.map((entry) => {
+            const writtenPath = safeWriteFile(jailedFilePath(savePath, entry.name), entry.data, {
+              onCollision: "suffix",
+            });
+            return {
+              filename: path.basename(writtenPath),
+              path: writtenPath,
+              size: entry.data.length,
+              mimeType: entry.mimeType,
+            };
+          });
+          result = {
+            status: "saved",
+            messageId: args.messageId,
+            mode: "files",
+            directory: savePath,
+            files,
+            skipped,
+          };
+        }
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          structuredContent: result,
+        };
+      } catch (error: unknown) {
+        const { code, message } = asGmailApiError(error);
+        const prefix =
+          code === undefined
+            ? "Failed to download attachments"
+            : `Failed to download attachments (HTTP ${code})`;
+        return {
+          content: [{ type: "text", text: `${prefix}: ${message}` }],
+          isError: true,
+        };
+      }
+    },
+    downloadAllAttachments.annotations,
+    downloadAllAttachments.scopes,
+    authorizedScopes,
+    downloadAllAttachmentsOutputSchema,
   );
 }

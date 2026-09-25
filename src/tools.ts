@@ -383,6 +383,38 @@ export const DownloadAttachmentSchema = z.object({
     ),
 });
 
+export const DownloadAllAttachmentsSchema = z.object({
+  messageId: GmailIdSchema.describe("ID of the email message whose attachments to download"),
+  savePath: z
+    .string()
+    .optional()
+    .describe(
+      "Absolute directory to save into, inside the download jail (defaults to the jail root: GMAIL_MCP_DOWNLOAD_DIR, or ~/GmailDownloads)",
+    ),
+  zip: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Bundle every attachment into one ZIP archive (entries keep their original filenames) instead of writing one file per attachment",
+    ),
+  zipFilename: z
+    .string()
+    .min(1)
+    .max(255)
+    .optional()
+    .describe(
+      "Name of the ZIP archive when zip is true (default: <messageId>-attachments.zip). Sanitized server-side; .zip is appended when missing",
+    ),
+  includeInline: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Also download inline parts the HTML body displays through cid: references (signature logos, embedded pictures). Default false",
+    ),
+});
+
 export const DownloadEmailSchema = z.object({
   messageId: GmailIdSchema.describe("ID of the email message to download"),
   savePath: z.string().describe("Directory path to save the email file"),
@@ -685,6 +717,19 @@ export const toolDefinitions: ToolDefinition[] = [
     schema: DownloadAttachmentSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
     annotations: { title: "Download Attachment", readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: "download_all_attachments",
+    description: [
+      "Download every attachment of one Gmail message in a single call, keeping the original filenames — as separate files, or bundled into one ZIP archive with `zip: true`.",
+      "",
+      "USE WHEN: saving all the attachments of a message at once (archival, handing a document set over, batch OCR). Inline images the HTML body displays through `cid:` (signature logos, embedded pictures) are skipped unless `includeInline: true`. Filenames are sanitized server-side (path traversal blocked, control chars stripped); duplicate names get a ` (2)`, ` (3)` … suffix.",
+      "",
+      "DO NOT USE: for a single attachment (use `download_attachment`), or to inspect attachment metadata only (use `read_email`). Every file and the ZIP are written inside the download jail (`GMAIL_MCP_DOWNLOAD_DIR`, default `~/GmailDownloads`); nothing is loaded into the LLM context.",
+    ].join("\n"),
+    schema: DownloadAllAttachmentsSchema,
+    scopes: ["gmail.readonly", "gmail.modify"],
+    annotations: { title: "Download All Attachments", readOnlyHint: true, openWorldHint: true },
   },
 
   // Thread-level operations

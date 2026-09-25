@@ -191,6 +191,48 @@ export function listAttachmentParts(payload: GmailMessagePart): AttachmentPart[]
 }
 
 /**
+ * Collect the `cid:` references of an HTML body (RFC 2392 URLs, which
+ * are percent-encoded), lower-cased so they compare against
+ * `AttachmentPart.contentId`.
+ */
+export function collectCidReferences(html: string): Set<string> {
+  const references = new Set<string>();
+  for (const match of html.matchAll(/cid:([^\s"'<>()]+)/gi)) {
+    /* v8 ignore next -- the capture group is mandatory in the regex, so
+       match[1] is always set; `?? ""` only satisfies the type checker. */
+    const raw = match[1] ?? "";
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      // Malformed percent-encoding: keep the raw token.
+    }
+    references.add(decoded.toLowerCase());
+  }
+  return references;
+}
+
+/**
+ * An inline part is one the HTML body renders in place — a signature
+ * logo, an embedded picture — rather than a file the sender attached:
+ * it carries a `Content-ID` that the HTML references through `cid:`,
+ * and it is not explicitly marked `Content-Disposition: attachment`.
+ *
+ * Deliberately narrow: a part with a `Content-ID` the HTML never
+ * references (Gmail lists those as regular attachments), or a PDF that
+ * Apple Mail sends with `Content-Disposition: inline` but no
+ * `Content-ID`, is NOT inline — skipping it would silently drop a real
+ * attachment.
+ */
+export function isInlinePart(part: AttachmentPart, cidReferences: ReadonlySet<string>): boolean {
+  return (
+    part.contentId !== undefined &&
+    part.disposition !== "attachment" &&
+    cidReferences.has(part.contentId)
+  );
+}
+
+/**
  * Walk a message payload and collect attachment metadata into the
  * caller-supplied array. Used by `get_thread` and `list_inbox_threads`,
  * which both project attachments without IDs (id is filtered before

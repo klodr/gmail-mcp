@@ -339,7 +339,8 @@ export function sanitizeAttachmentFilename(filename: string): string {
  * belt-and-braces. Falls back to `fallback` (run through the same
  * pipeline) when `filename` is empty or missing.
  *
- * Single place for the download tools' naming policy.
+ * Shared by `download_attachment` and `download_all_attachments` so
+ * both tools apply exactly the same naming policy.
  */
 export function toSafeAttachmentFilename(
   filename: string | null | undefined,
@@ -357,6 +358,29 @@ export function toSafeAttachmentFilename(
   }
   /* v8 ignore stop */
   return safe;
+}
+
+function filenameKey(name: string): string {
+  return name.normalize("NFC").toLowerCase();
+}
+
+/**
+ * Reserve a filename inside a set of names already handed out, suffixing
+ * ` (2)`, ` (3)`, … before the extension on a clash (`report.pdf`,
+ * `report (2).pdf`, …). The comparison is case-insensitive and
+ * Unicode-NFC-normalised so the names stay distinct on case-insensitive
+ * filesystems (macOS APFS default, Windows) and when a ZIP built from
+ * them is extracted there. `taken` is mutated.
+ */
+export function claimUniqueFilename(filename: string, taken: Set<string>): string {
+  let candidate = filename;
+  const extension = path.extname(filename);
+  const stem = filename.slice(0, filename.length - extension.length);
+  for (let counter = 2; taken.has(filenameKey(candidate)); counter++) {
+    candidate = `${stem} (${counter})${extension}`;
+  }
+  taken.add(filenameKey(candidate));
+  return candidate;
 }
 
 // "View this email in your browser" / "Please enable HTML" / similar

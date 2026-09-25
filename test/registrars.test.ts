@@ -3312,6 +3312,7 @@ describe("PR #3+#4+#5+#6 registrars — combined tools/list shape", () => {
           "delete_email",
           "delete_filter",
           "delete_label",
+          "download_all_attachments",
           "download_attachment",
           "download_email",
           "draft_email",

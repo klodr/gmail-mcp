@@ -69,3 +69,37 @@ export const downloadEmailOutputSchema = {
     }),
   ),
 } satisfies ZodRawShape;
+
+/**
+ * `download_all_attachments` writes every attachment of one message
+ * inside `GMAIL_MCP_DOWNLOAD_DIR` — as separate files (`mode:
+ * "files"`) or as one ZIP archive (`mode: "zip"`, with `zipPath` +
+ * `zipSize`). `files[].filename` is the sanitized, de-duplicated name
+ * on disk (files mode) or of the ZIP entry (zip mode); `files[].path`
+ * is only set in files mode. `skipped` lists the inline parts left
+ * out because `includeInline` was false.
+ */
+export const downloadAllAttachmentsOutputSchema = {
+  status: z.literal("saved"),
+  messageId: z.string(),
+  mode: z.enum(["files", "zip"]),
+  directory: z.string(),
+  zipPath: z.string().optional(),
+  zipSize: z.number().int().nonnegative().optional(),
+  files: z.array(
+    z.object({
+      filename: z.string(),
+      path: z.string().optional(),
+      size: z.number().int().nonnegative(),
+      mimeType: z.string(),
+    }),
+  ),
+  skipped: z.array(
+    z.object({
+      filename: z.string(),
+      mimeType: z.string(),
+      size: z.number().int().nonnegative(),
+      reason: z.literal("inline"),
+    }),
+  ),
+} satisfies ZodRawShape;

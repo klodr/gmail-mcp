@@ -44,8 +44,9 @@ weaknesses have been countered.
 2. **Prompt injection via inbound email asking for local-path overwrite** —
    an attacker sends a crafted email asking the agent to download
    the message or an attachment to `~/.ssh/authorized_keys`.
-   **Mitigation: download jail.** `download_email` and
-   `download_attachment` write only inside `GMAIL_MCP_DOWNLOAD_DIR`
+   **Mitigation: download jail.** `download_email`,
+   `download_attachment` and `download_all_attachments` (every file
+   and the ZIP archive) write only inside `GMAIL_MCP_DOWNLOAD_DIR`
    (default `~/GmailDownloads/`, mode `0o700`). The leaf is opened
    with `O_NOFOLLOW` so a pre-existing symlink at the destination
    cannot be used to escape. After `mkdirSync` the resolved path is
@@ -154,7 +155,7 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 
 | Weakness | Status | Mitigation |
 |---|---|---|
-| **CWE-22** Path traversal | Countered | `send_email` / `draft_email` / `reply_all` attachment paths pass through `assertAttachmentPathAllowed` (realpath-canonicalized against `GMAIL_MCP_ATTACHMENT_DIR`). `download_email` / `download_attachment` destinations pass through `resolveDownloadSavePath` (realpath + re-verify post-`mkdirSync`). |
+| **CWE-22** Path traversal | Countered | `send_email` / `draft_email` / `reply_all` attachment paths pass through `assertAttachmentPathAllowed` (realpath-canonicalized against `GMAIL_MCP_ATTACHMENT_DIR`). `download_email` / `download_attachment` / `download_all_attachments` destinations pass through `resolveDownloadSavePath` (realpath + re-verify post-`mkdirSync`); attacker-controlled attachment filenames (including ZIP entry names) go through `toSafeAttachmentFilename` (separators, control and reserved characters replaced) before use. |
 | **CWE-59** Symlink following | Countered | Every leaf file write uses `fs.openSync` with `O_NOFOLLOW`; a pre-existing symlink at the destination causes the open to fail. |
 | **CWE-78 / CWE-94** Command / code injection | N/A | No `child_process`, no `eval`, no dynamic `require`. |
 | **CWE-89** SQL injection | N/A | No database. |
