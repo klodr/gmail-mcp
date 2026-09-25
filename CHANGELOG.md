@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0](https://github.com/klodr/gmail-mcp/compare/v1.3.3...v1.4.0) (2026-09-25)
+
+
+### Added
+
+* **downloads:** add download_all_attachments with optional ZIP bundle ([2fa333b](https://github.com/klodr/gmail-mcp/commit/2fa333bd80c6c44990a59b1db9545732469543b3))
+
+
+### Fixed
+
+* **deps:** débloquer OSV-Scanner et EditorConfig ([#298](https://github.com/klodr/gmail-mcp/issues/298)) ([afe73ee](https://github.com/klodr/gmail-mcp/commit/afe73eebef039d3eae94653755815e0740cc90a3))
+* **downloads:** keep original filename across re-issued attachment ids ([2fa333b](https://github.com/klodr/gmail-mcp/commit/2fa333bd80c6c44990a59b1db9545732469543b3))
+
 ## [1.3.3](https://github.com/klodr/gmail-mcp/compare/v1.3.2...v1.3.3) (2026-07-27)
 
 
