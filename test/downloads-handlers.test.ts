@@ -510,6 +510,36 @@ describe("download_attachment — original filename with re-issued attachment id
     }
   });
 
+  it("fails instead of using the fallback name when the probe cap hides the match", async () => {
+    // 11 same-size parts with distinct names and bytes; the requested one
+    // is the 11th, beyond the 10-candidate comparison limit.
+    const parts = Array.from({ length: 11 }, (_, index) => ({
+      partId: String(index + 1),
+      filename: `statement-${String(index + 1).padStart(2, "0")}.pdf`,
+      content: `STATEMENT-${String(index + 1).padStart(2, "0")}`,
+    }));
+    const { gmail, attachmentGetSpy } = makeRotatingGmail(parts);
+    const dir = path.join(tmpDir, "probe-cap");
+    const out = await download(gmail, idFromEarlierRead("11"), dir);
+    expect(out.isError).toBe(true);
+    expect(out.text).toContain("11 attachments share its size and only 10 can be compared");
+    expect(out.text).toContain("Pass `filename` explicitly");
+    // 1 download + exactly 10 probes, and nothing written.
+    expect(attachmentGetSpy).toHaveBeenCalledTimes(11);
+    expect(fs.readdirSync(dir)).toEqual([]);
+  });
+
+  it("still resolves a same-size attachment found within the probe cap", async () => {
+    const parts = Array.from({ length: 11 }, (_, index) => ({
+      partId: String(index + 1),
+      filename: `statement-${String(index + 1).padStart(2, "0")}.pdf`,
+      content: `STATEMENT-${String(index + 1).padStart(2, "0")}`,
+    }));
+    const { gmail } = makeRotatingGmail(parts);
+    const out = await download(gmail, idFromEarlierRead("3"), path.join(tmpDir, "probe-hit"));
+    expect(out.text).toContain("File: statement-03.pdf");
+  });
+
   it("falls back to attachment-{id} when the message payload is missing", async () => {
     const { gmail } = makeRotatingGmail([{ partId: "1", filename: "a.pdf", content: "aaa" }], {
       noPayload: true,

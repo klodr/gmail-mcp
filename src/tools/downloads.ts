@@ -109,7 +109,11 @@ async function loadAttachmentBytes(
  *      bytes.
  *
  * Returns `undefined` when nothing matches (or the matching part has no
- * name); the caller then falls back to `attachment-<id prefix>`.
+ * name); the caller then falls back to `attachment-<id prefix>`. Throws
+ * when the probe cap stopped the comparison before every same-size
+ * candidate was checked: the attachment may be one of the unchecked
+ * parts, and saving it under the fallback name would silently break
+ * the "original filename" contract.
  */
 async function resolveOriginalFilename(
   gmail: gmail_v1.Gmail,
@@ -135,6 +139,11 @@ async function resolveOriginalFilename(
   for (const candidate of sameSize.slice(0, MAX_CONTENT_PROBES)) {
     const candidateBytes = await loadAttachmentBytes(gmail, messageId, candidate);
     if (candidateBytes.equals(bytes)) return candidate.filename || undefined;
+  }
+  if (sameSize.length > MAX_CONTENT_PROBES) {
+    throw new Error(
+      `Could not identify the attachment's original filename: ${sameSize.length} attachments share its size and only ${MAX_CONTENT_PROBES} can be compared. Pass \`filename\` explicitly, or use download_all_attachments.`,
+    );
   }
   return undefined;
 }
