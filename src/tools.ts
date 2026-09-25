@@ -378,7 +378,9 @@ export const DownloadAttachmentSchema = z.object({
   savePath: z
     .string()
     .optional()
-    .describe("Directory path to save the attachment (defaults to current directory)"),
+    .describe(
+      "Absolute directory to save the attachment in, inside the download jail (defaults to the jail root: GMAIL_MCP_DOWNLOAD_DIR, or ~/GmailDownloads)",
+    ),
 });
 
 export const DownloadEmailSchema = z.object({

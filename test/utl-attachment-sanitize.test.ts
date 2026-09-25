@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeAttachmentFilename } from "../src/utl.js";
+import { sanitizeAttachmentFilename, toSafeAttachmentFilename } from "../src/utl.js";
 
 describe("sanitizeAttachmentFilename", () => {
   it("passes through a safe filename unchanged", () => {
@@ -50,5 +50,27 @@ describe("sanitizeAttachmentFilename", () => {
     const once = sanitizeAttachmentFilename("..\\a/b:c*?.txt");
     const twice = sanitizeAttachmentFilename(once);
     expect(twice).toBe(once);
+  });
+});
+
+describe("toSafeAttachmentFilename", () => {
+  it("keeps a safe original filename unchanged (spaces and accents included)", () => {
+    expect(toSafeAttachmentFilename("world elite.pdf", "fallback.bin")).toBe("world elite.pdf");
+    expect(toSafeAttachmentFilename("résumé.pdf", "fallback.bin")).toBe("résumé.pdf");
+  });
+
+  it("sanitizes a hostile name into a leaf that stays inside the jail", () => {
+    expect(toSafeAttachmentFilename("../../etc/passwd", "fallback.bin")).toBe("_.._etc_passwd");
+    expect(toSafeAttachmentFilename("..\\..\\evil.exe", "fallback.bin")).toBe("_.._evil.exe");
+  });
+
+  it("falls back when the MIME part carries no filename", () => {
+    expect(toSafeAttachmentFilename("", "attachment-3")).toBe("attachment-3");
+    expect(toSafeAttachmentFilename(undefined, "attachment-3")).toBe("attachment-3");
+    expect(toSafeAttachmentFilename(null, "attachment-3")).toBe("attachment-3");
+  });
+
+  it("runs the fallback through the same sanitizer", () => {
+    expect(toSafeAttachmentFilename("", "../x/y.zip")).toBe("_x_y.zip");
   });
 });

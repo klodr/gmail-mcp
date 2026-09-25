@@ -18,6 +18,7 @@ import {
   collectAttachmentsForThread,
   extractAttachments,
   extractEmailContent,
+  listAttachmentParts,
 } from "../src/mime-walkers.js";
 
 type GmailMessagePart = gmail_v1_types.Schema$MessagePart;
@@ -286,5 +287,104 @@ describe("collectAttachmentsForThread — fallback defaults (parallels extractAt
       mimeType: "text/csv",
       size: 2048,
     });
+  });
+});
+
+describe("listAttachmentParts", () => {
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    errSpy.mockRestore();
+  });
+
+  it("keeps partId, Content-ID and Content-Disposition of every attachment-bearing part", () => {
+    const payload: GmailMessagePart = {
+      partId: "",
+      mimeType: "multipart/mixed",
+      parts: [
+        {
+          partId: "0",
+          mimeType: "multipart/related",
+          parts: [
+            { partId: "0.0", mimeType: "text/html", body: { data: "PGI-", size: 3 } },
+            {
+              partId: "0.1",
+              filename: "image001.jpg",
+              mimeType: "image/jpeg",
+              headers: [
+                { name: "content-id", value: " <Image001.JPG@01DC> " },
+                { name: "Content-Disposition", value: 'INLINE; filename="image001.jpg"' },
+              ],
+              body: { attachmentId: "att-img", size: 1491 },
+            },
+          ],
+        },
+        {
+          partId: "1",
+          filename: "plus.pdf",
+          mimeType: "application/pdf",
+          headers: [{ name: "Content-Disposition", value: "attachment" }],
+          body: { attachmentId: "att-pdf", size: 164_560 },
+        },
+      ],
+    };
+    expect(listAttachmentParts(payload)).toEqual([
+      {
+        partId: "0.1",
+        filename: "image001.jpg",
+        mimeType: "image/jpeg",
+        size: 1491,
+        attachmentId: "att-img",
+        contentId: "image001.jpg@01dc",
+        disposition: "inline",
+      },
+      {
+        partId: "1",
+        filename: "plus.pdf",
+        mimeType: "application/pdf",
+        size: 164_560,
+        attachmentId: "att-pdf",
+        disposition: "attachment",
+      },
+    ]);
+  });
+
+  it("includes named parts whose body Gmail inlined, and skips unnamed inline bodies", () => {
+    const payload: GmailMessagePart = {
+      mimeType: "multipart/mixed",
+      parts: [
+        { mimeType: "text/plain", body: { data: "Ym9keQ", size: 4 } },
+        { filename: "note.txt", mimeType: "text/plain", body: { data: "aGk", size: 2 } },
+        { body: { attachmentId: "att-bare" } },
+      ],
+    };
+    expect(listAttachmentParts(payload)).toEqual([
+      { partId: "", filename: "note.txt", mimeType: "text/plain", size: 2, data: "aGk" },
+      {
+        partId: "",
+        filename: "",
+        mimeType: "application/octet-stream",
+        size: 0,
+        attachmentId: "att-bare",
+      },
+    ]);
+  });
+
+  it("walks up to MAX_MIME_DEPTH and drops deeper parts with a structured warning", () => {
+    const atCap = listAttachmentParts(buildLinearTree(MAX_MIME_DEPTH));
+    expect(atCap).toHaveLength(MAX_MIME_DEPTH - 1);
+
+    const tooDeep = listAttachmentParts(buildLinearTree(MAX_MIME_DEPTH + 8));
+    expect(tooDeep).toHaveLength(MAX_MIME_DEPTH);
+    const warnings = errSpy.mock.calls
+      .flat()
+      .filter((c): c is string => typeof c === "string")
+      .filter((c) => c.includes("mime_depth_exceeded"));
+    expect(warnings.length).toBeGreaterThan(0);
+    expect((JSON.parse(warnings[0]) as Record<string, unknown>).walker).toBe("listAttachmentParts");
   });
 });

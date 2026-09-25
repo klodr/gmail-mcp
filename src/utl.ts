@@ -331,6 +331,34 @@ export function sanitizeAttachmentFilename(filename: string): string {
   return cleaned;
 }
 
+/**
+ * Turn an attachment filename (attacker-controlled MIME `filename`, or
+ * a caller-supplied override) into a safe leaf name for the download
+ * jail: `sanitizeAttachmentFilename` first so backslash-separated
+ * segments survive for `path.basename` to strip, then `basename` as
+ * belt-and-braces. Falls back to `fallback` (run through the same
+ * pipeline) when `filename` is empty or missing.
+ *
+ * Single place for the download tools' naming policy.
+ */
+export function toSafeAttachmentFilename(
+  filename: string | null | undefined,
+  fallback: string,
+): string {
+  const safe = path.basename(sanitizeAttachmentFilename(filename || fallback));
+  /* v8 ignore start -- defence-in-depth fallback that's unreachable
+     through the public surface today: sanitizeAttachmentFilename
+     collapses empty/NUL/control inputs to the literal "attachment",
+     so path.basename never returns "" or "." here. Kept as a guard
+     against a future sanitize change that returns "" or "." instead
+     of "attachment". */
+  if (safe === "" || safe === ".") {
+    return path.basename(sanitizeAttachmentFilename(fallback));
+  }
+  /* v8 ignore stop */
+  return safe;
+}
+
 // "View this email in your browser" / "Please enable HTML" / similar
 // one-liners that many senders stuff into the text/plain part when the
 // real message is in text/html. Matching is conservative — we only flag
