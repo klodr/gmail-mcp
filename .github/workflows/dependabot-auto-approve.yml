@@ -36,9 +36,23 @@ jobs:
 
       # `update-type` is the highest bump in the PR, so a group that
       # contains a single major is not approved.
+      # The review is bound to the head SHA this run was triggered for: if
+      # anyone pushed after Dependabot, the approval would otherwise land on
+      # that newer, unvetted commit.
       - name: Approve minor and patch updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-minor' || steps.metadata.outputs.update-type == 'version-update:semver-patch'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr review --approve "$PR_URL"
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current_sha=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)
+          if [ "${current_sha}" != "${HEAD_SHA}" ]; then
+            echo "::notice::PR head moved from ${HEAD_SHA} to ${current_sha} since this run started; not approving."
+            exit 0
+          fi
+          gh api --method POST "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            -f commit_id="${HEAD_SHA}" \
+            -f event=APPROVE \
+            -f body="Auto-approved: Dependabot minor/patch update (dependabot-auto-approve.yml)."
