@@ -1,0 +1,58 @@
+name: Dependabot auto-approve
+
+# Approves Dependabot PRs whose highest bump is minor or patch, so they
+# stop piling up behind the one-approval rule on `main`. Majors are left
+# for a human review. This workflow never merges: the maintainer still
+# merges, so downstream workflows (release-please, CodeQL on `main`) run
+# under a real user instead of the GITHUB_TOKEN, which would not trigger
+# them.
+#
+# Relies on the repository setting "Allow GitHub Actions to create and
+# approve pull requests". The approval is dismissed on every Dependabot
+# rebase (dismiss-stale-reviews) and re-issued by the `synchronize` run.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  approve:
+    # Author AND sender: the PR was opened by Dependabot and the event being
+    # processed (open or push) was performed by Dependabot. A commit pushed
+    # by anyone else onto a Dependabot branch is never auto-approved, so the
+    # bot approval cannot stand in for a review of someone else's push.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.sender.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      # `update-type` is the highest bump in the PR, so a group that
+      # contains a single major is not approved.
+      # The review is bound to the head SHA this run was triggered for: if
+      # anyone pushed after Dependabot, the approval would otherwise land on
+      # that newer, unvetted commit.
+      - name: Approve minor and patch updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-minor' || steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current_sha=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)
+          if [ "${current_sha}" != "${HEAD_SHA}" ]; then
+            echo "::notice::PR head moved from ${HEAD_SHA} to ${current_sha} since this run started; not approving."
+            exit 0
+          fi
+          gh api --method POST "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            -f commit_id="${HEAD_SHA}" \
+            -f event=APPROVE \
+            -f body="Auto-approved: Dependabot minor/patch update (dependabot-auto-approve.yml)."
