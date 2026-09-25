@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1](https://github.com/klodr/gmail-mcp/compare/v1.4.0...v1.4.1) (2026-09-25)
+
+
+### Fixed
+
+* **deps:** bump nodemailer to 10.0.10, googleapis to 181 and google-auth-library to 11 ([fce49a1](https://github.com/klodr/gmail-mcp/commit/fce49a11cda7f6a0a8b60d4d0f1e96b01d657ae0))
+
+
+### Changed
+
+* auto-approve dependabot minor and patch updates ([#308](https://github.com/klodr/gmail-mcp/issues/308)) ([47c66e0](https://github.com/klodr/gmail-mcp/commit/47c66e0aab84750db9b9265ed8930e8f7632f658))
+* bump actions/attest from 4.2.0 to 4.2.2 ([#272](https://github.com/klodr/gmail-mcp/issues/272)) ([7ee0833](https://github.com/klodr/gmail-mcp/commit/7ee083368434260d5518cc8193e3652008d52324))
+* bump actions/checkout from 7.0.0 to 7.0.1 ([#264](https://github.com/klodr/gmail-mcp/issues/264)) ([a339f01](https://github.com/klodr/gmail-mcp/commit/a339f01da4212e77d9bdb5a12256a30c2ff25605))
+* bump github/codeql-action/upload-sarif from 4.37.1 to 4.38.1 ([#274](https://github.com/klodr/gmail-mcp/issues/274)) ([899a430](https://github.com/klodr/gmail-mcp/commit/899a430e7362af7650ecefe3034712acfe1e67a4))
+* bump ossf/scorecard-action from 2.4.3 to 2.4.4 ([#267](https://github.com/klodr/gmail-mcp/issues/267)) ([3ad2682](https://github.com/klodr/gmail-mcp/commit/3ad26825ec00a26813a22a7c32c884ffd2a86359))
+* **deps-dev:** bump the dev-dependencies group across 1 directory with 17 updates ([#306](https://github.com/klodr/gmail-mcp/issues/306)) ([3adb230](https://github.com/klodr/gmail-mcp/commit/3adb230451557a129833c22db78e493502b9492c))
+
 ## [1.4.0](https://github.com/klodr/gmail-mcp/compare/v1.3.3...v1.4.0) (2026-09-25)
 
 
