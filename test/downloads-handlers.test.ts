@@ -773,7 +773,9 @@ describe("download_all_attachments", () => {
     const zipPath = path.join(fs.realpathSync(dir), "M-1-attachments.zip");
     expect(out.result?.mode).toBe("zip");
     expect(out.result?.zipPath).toBe(zipPath);
-    expect(out.result?.zipSize).toBe(fs.statSync(zipPath).size);
+    // Read the archive once (no stat-then-read race, CodeQL js/file-system-race).
+    const zipBytes = fs.readFileSync(zipPath);
+    expect(out.result?.zipSize).toBe(zipBytes.length);
     expect(out.result?.files.map((f) => f.filename)).toEqual([
       "plus.pdf",
       "résumé.pdf",
@@ -783,7 +785,7 @@ describe("download_all_attachments", () => {
     expect(out.result?.files.every((f) => f.path === undefined)).toBe(true);
     expect(out.result?.skipped.map((s) => s.filename)).toEqual(["image001.jpg"]);
 
-    const entries = readZip(fs.readFileSync(zipPath));
+    const entries = readZip(zipBytes);
     expect(entries.map((e) => [e.name, e.data.toString("utf8"), e.utf8])).toEqual([
       ["plus.pdf", "PDF-PLUS", false],
       // Non-ASCII names carry the ZIP UTF-8 flag (general purpose bit 11).
