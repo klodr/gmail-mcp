@@ -170,7 +170,8 @@ src/
     threads.ts          thread-level read + list_inbox_threads
     labels.ts           label CRUD
     filters.ts          filter CRUD + create_filter_from_template
-    downloads.ts        download_email + download_attachment
+    downloads.ts        download_email + download_attachment +
+                        download_all_attachments (files or ZIP)
     output-schemas.ts   JSON schemas for tool outputs
     index.ts            registrar entry point
   middleware.ts         audit log + dry-run

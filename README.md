@@ -54,6 +54,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Thread-level tools (`get_thread`, `list_inbox_threads`, `get_inbox_with_threads`) | ❌ | ✅ | ✅ |
 | Download email to disk (`json`/`eml`/`txt`/`html`) | ❌ | ✅ | ✅ |
 | Download attachment | ✅ | ✅ | ✅ |
+| Download all attachments of a message at once, optionally as one ZIP (original filenames kept) | ❌ | ❌ | ✅ |
 | **OAuth / authorization** | | | |
 | `--scopes` flag for least-privilege auth | ❌ | ✅ | ✅ |
 | Tool list filtered by granted scopes | ❌ | ✅ | ✅ |
@@ -205,7 +206,7 @@ Configure each module via the env vars below:
 | Knob | Env var | Default | Notes |
 |---|---|---|---|
 | Attachment jail | `GMAIL_MCP_ATTACHMENT_DIR=/abs/path` | `~/GmailAttachments/` (auto-created mode `0o700`) | Every attachment path (`send_email`, `draft_email`, `update_draft`, `reply_all`, `reply_to_email`, `forward_email`) must live inside this directory after `realpath` canonicalization. Symlinks pointing outside are rejected. Blocks prompt-injected exfiltration of `~/.ssh/id_rsa`, `~/.gmail-mcp/credentials.json`, `~/.claude.json`, etc. |
-| Download jail | `GMAIL_MCP_DOWNLOAD_DIR=/abs/path` | `~/GmailDownloads/` (auto-created mode `0o700`) | `download_email` and `download_attachment` write exclusively here. The leaf is opened with `O_NOFOLLOW`; post-`mkdir` the resolved path is re-verified against the jail root (TOCTOU defense). |
+| Download jail | `GMAIL_MCP_DOWNLOAD_DIR=/abs/path` | `~/GmailDownloads/` (auto-created mode `0o700`) | `download_email`, `download_attachment` and `download_all_attachments` (each file and the ZIP) write exclusively here. The leaf is opened with `O_NOFOLLOW`; post-`mkdir` the resolved path is re-verified against the jail root (TOCTOU defense). |
 | OAuth keys path | `GMAIL_OAUTH_PATH=/abs/path/gcp-oauth.keys.json` | `~/.gmail-mcp/gcp-oauth.keys.json` | Google Desktop/Web OAuth client credentials. |
 | Credentials path | `GMAIL_CREDENTIALS_PATH=/abs/path/credentials.json` | `~/.gmail-mcp/credentials.json` | Access/refresh tokens. File mode `0o600`. |
 | Rate limit state dir | `GMAIL_MCP_STATE_DIR=/abs/path` | `~/.gmail-mcp/` | Where the rolling call-history for rate limiting is persisted (`ratelimit.json`, mode `0o600`). Same directory is reused for any future state files. |
@@ -218,7 +219,7 @@ Configure each module via the env vars below:
 
 The exact set depends on the OAuth scopes granted at `auth` time. Full catalog:
 
-- **Messages** — `send_email`, `draft_email`, `read_email`, `search_emails`, `modify_email`, `delete_email`, `download_email`, `download_attachment`, `batch_modify_emails`, `batch_delete_emails`, `reply_all`, `reply_to_email`, `forward_email`
+- **Messages** — `send_email`, `draft_email`, `read_email`, `search_emails`, `modify_email`, `delete_email`, `download_email`, `download_attachment`, `download_all_attachments`, `batch_modify_emails`, `batch_delete_emails`, `reply_all`, `reply_to_email`, `forward_email`
 - **Drafts** — `list_drafts`, `get_draft`, `update_draft`, `delete_draft`, `send_draft` (full `users.drafts.*` surface; `draft_email` above creates the initial draft)
 - **Threads** — `get_thread`, `list_inbox_threads`, `get_inbox_with_threads`, `modify_thread`
 - **Labels** — `list_email_labels`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`

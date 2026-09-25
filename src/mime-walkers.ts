@@ -110,6 +110,129 @@ export function extractAttachments(payload: GmailMessagePart): EmailAttachment[]
 }
 
 /**
+ * One attachment-bearing MIME part, as seen by the download tools.
+ *
+ * `partId` is the only per-part identifier that is stable across
+ * `messages.get` calls: Gmail re-issues a fresh `attachmentId` on
+ * every read of the same message (all of them stay valid for
+ * `messages.attachments.get`), so an `attachmentId` obtained from one
+ * read never string-matches the one returned by a later read.
+ *
+ * `filename` is the raw, attacker-controlled MIME `filename` ("" when
+ * absent) — callers must pass it through `toSafeAttachmentFilename`
+ * before touching the filesystem. `data` is set instead of
+ * `attachmentId` when Gmail inlined the part body in the payload.
+ */
+export interface AttachmentPart {
+  partId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId?: string;
+  data?: string;
+  /** `Content-ID` without the surrounding `<>`, lower-cased. */
+  contentId?: string;
+  /** `Content-Disposition` type (`inline`, `attachment`, …), lower-cased. */
+  disposition?: string;
+}
+
+function headerValue(part: GmailMessagePart, name: string): string | undefined {
+  const lower = name.toLowerCase();
+  const header = part.headers?.find((h) => h.name?.toLowerCase() === lower);
+  return header?.value ?? undefined;
+}
+
+/**
+ * List every attachment-bearing part of a message: parts whose body is
+ * stored out-of-line (`body.attachmentId`) plus named parts whose body
+ * Gmail inlined in the payload (`filename` + `body.data`). Keeps the
+ * `partId`, `Content-ID` and `Content-Disposition` the download tools
+ * need to resolve original filenames and to tell inline images apart
+ * from real attachments.
+ *
+ * Depth-bounded by `MAX_MIME_DEPTH`.
+ */
+export function listAttachmentParts(payload: GmailMessagePart): AttachmentPart[] {
+  const parts: AttachmentPart[] = [];
+
+  function walk(part: GmailMessagePart, depth: number) {
+    if (depth > MAX_MIME_DEPTH) {
+      logDepthExceeded("listAttachmentParts", depth);
+      return;
+    }
+    const attachmentId = part.body?.attachmentId ?? undefined;
+    const inlineData = part.filename && part.body?.data ? part.body.data : undefined;
+    if (attachmentId || inlineData) {
+      const contentId = headerValue(part, "Content-ID")
+        ?.trim()
+        .replace(/^<(.*)>$/, "$1")
+        .toLowerCase();
+      const disposition = headerValue(part, "Content-Disposition")
+        ?.split(";")[0]
+        ?.trim()
+        .toLowerCase();
+      parts.push({
+        partId: part.partId ?? "",
+        filename: part.filename ?? "",
+        mimeType: part.mimeType || "application/octet-stream",
+        size: part.body?.size ?? 0,
+        ...(attachmentId ? { attachmentId } : { data: inlineData }),
+        ...(contentId ? { contentId } : {}),
+        ...(disposition ? { disposition } : {}),
+      });
+    }
+    for (const subpart of part.parts ?? []) {
+      walk(subpart, depth + 1);
+    }
+  }
+
+  walk(payload, 0);
+  return parts;
+}
+
+/**
+ * Collect the `cid:` references of an HTML body (RFC 2392 URLs, which
+ * are percent-encoded), lower-cased so they compare against
+ * `AttachmentPart.contentId`.
+ */
+export function collectCidReferences(html: string): Set<string> {
+  const references = new Set<string>();
+  for (const match of html.matchAll(/cid:([^\s"'<>()]+)/gi)) {
+    /* v8 ignore next -- the capture group is mandatory in the regex, so
+       match[1] is always set; `?? ""` only satisfies the type checker. */
+    const raw = match[1] ?? "";
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      // Malformed percent-encoding: keep the raw token.
+    }
+    references.add(decoded.toLowerCase());
+  }
+  return references;
+}
+
+/**
+ * An inline part is one the HTML body renders in place — a signature
+ * logo, an embedded picture — rather than a file the sender attached:
+ * it carries a `Content-ID` that the HTML references through `cid:`,
+ * and it is not explicitly marked `Content-Disposition: attachment`.
+ *
+ * Deliberately narrow: a part with a `Content-ID` the HTML never
+ * references (Gmail lists those as regular attachments), or a PDF that
+ * Apple Mail sends with `Content-Disposition: inline` but no
+ * `Content-ID`, is NOT inline — skipping it would silently drop a real
+ * attachment.
+ */
+export function isInlinePart(part: AttachmentPart, cidReferences: ReadonlySet<string>): boolean {
+  return (
+    part.contentId !== undefined &&
+    part.disposition !== "attachment" &&
+    cidReferences.has(part.contentId)
+  );
+}
+
+/**
  * Walk a message payload and collect attachment metadata into the
  * caller-supplied array. Used by `get_thread` and `list_inbox_threads`,
  * which both project attachments without IDs (id is filtered before
