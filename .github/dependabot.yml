@@ -6,6 +6,11 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # Wait a week before proposing a new version (security updates are not
+    # delayed): minor/patch PRs are auto-approved, this is the buffer that
+    # lets a compromised release be yanked first.
+    cooldown:
+      default-days: 7
     # Keep @types/node pinned on the 22.x line so its type surface
     # tracks engines.node (>=22.23.1). A semver-major bump would declare
     # APIs the runtime doesn't guarantee. Reopen only when we move the
@@ -14,14 +19,26 @@ updates:
       - dependency-name: "@types/node"
         update-types:
           - "version-update:semver-major"
+    # Groups carry minor + patch only: a semver-major bump arrives as its
+    # own PR, so it never rides along in a group that
+    # dependabot-auto-approve.yml would approve.
     groups:
       types:
         patterns:
           - "@types/*"
+        update-types:
+          - "minor"
+          - "patch"
       dev-dependencies:
         dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
       production-dependencies:
         dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
     commit-message:
       # Conventional Commits: type=chore, scope=deps|deps-dev. The pre-merge
       # title check enforces the type vocabulary (feat/fix/docs/chore/refactor/
@@ -37,5 +54,14 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    # One PR for every action. Without a group, codeql-action alone opens
+    # three PRs per release (init / analyze / upload-sarif) that each fail
+    # CI on their own, because init and analyze must share a version.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "ci"
