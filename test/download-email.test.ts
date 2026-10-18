@@ -181,6 +181,15 @@ describe("download_email formats", () => {
       expect(out).toContain("<body><p>Bonjour</p></body>");
     });
 
+    it("blocks frames, whose document would run its own scripts", () => {
+      expect(EXPORTED_HTML_CSP).toContain("frame-src 'none'");
+      const out = emailToHtml({
+        text: "",
+        html: '<p>x</p><iframe src="frame.html"></iframe>',
+      });
+      expect(out.indexOf(`content="${EXPORTED_HTML_CSP}"`)).toBeLessThan(out.indexOf("<iframe"));
+    });
+
     it("keeps styles and images allowed so the copy renders like the original", () => {
       expect(EXPORTED_HTML_CSP).not.toMatch(/default-src|img-src|style-src/);
       expect(EXPORTED_HTML_CSP).toContain("script-src 'none'");

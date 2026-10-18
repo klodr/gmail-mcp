@@ -154,13 +154,14 @@ export function emailToTxt(
 /**
  * Content-Security-Policy stamped into every exported HTML file. The HTML
  * is the sender's, and the saved file is opened later in a browser from
- * `file://`: scripts, plugins, `<base>` rewrites and form submissions are
- * blocked, which Gmail never runs either. Styles and images are left
+ * `file://`: scripts, plugins, frames (a framed page runs its own
+ * scripts), `<base>` rewrites and form submissions are blocked, none of
+ * which Gmail renders either. Styles and images are left
  * alone so the copy still renders like the original (blocking remote
  * images would also stop tracking pixels, but changes the rendering).
  */
 export const EXPORTED_HTML_CSP =
-  "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+  "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
 
 const CSP_META = `<meta http-equiv="Content-Security-Policy" content="${EXPORTED_HTML_CSP}">`;
 // Anchored at the very start (`^\s*`, `[^>]*`): linear, and it cannot be
