@@ -38,6 +38,17 @@
 //               reorder surrounding text inside the MCP text block
 //               just like the explicit overrides; CR finding on #50),
 //             U+2060 (WJ), U+FEFF (ZWNBSP / BOM)
+// Other invisible format characters a sender can hide text with:
+//             U+00AD (soft hyphen), U+061C (Arabic letter mark, a BiDi
+//             control), U+180E (Mongolian vowel separator),
+//             U+2061-U+2064 (invisible math operators),
+//             U+FFF9-U+FFFB (interlinear annotation),
+//             U+E0000-U+E007F (tag characters: invisible on screen but
+//               read by the model, a known prompt-smuggling channel)
+// Variation selectors (\p{Variation_Selector}: U+FE00-U+FE0F,
+//             U+E0100-U+E01EF, Mongolian FVS): a run of them can encode
+//             arbitrary bytes after a visible character; emoji lose
+//             only their presentation hint
 // Preserved whitespace: \t (U+0009), \n (U+000A), \r (U+000D)
 //
 // Compiled via `new RegExp(<string>)` with `\u` escapes rather than a
@@ -46,7 +57,8 @@
 // (alert #28) because the scanner reads the literal byte-for-byte and
 // the high-bit UTF-8 sequences look like an unbounded range to it. The
 // string-compiled regex is semantically identical but the source is no
-// longer ambiguous to CodeQL or to `no-irregular-whitespace`.
+// longer ambiguous to CodeQL or to `no-irregular-whitespace`. The `u`
+// flag is required for the astral ranges (`\u{E0000}`…).
 const CONTROL_AND_INVISIBLE = new RegExp(
   "[" +
     String.raw`\u0000-\u0008` + // C0 minus \t, \n, \v, \f, \r
@@ -58,8 +70,16 @@ const CONTROL_AND_INVISIBLE = new RegExp(
     String.raw`\u2060` + // WORD JOINER
     String.raw`\u2066-\u2069` + // BiDi isolates (LRI/RLI/FSI/PDI)
     String.raw`\uFEFF` + // ZWNBSP / BOM
-    "]",
-  "g",
+    String.raw`\u00AD\u061C\u180E` + // soft hyphen, ALM, MVS
+    String.raw`\u2061-\u2064` + // invisible math operators
+    String.raw`\uFFF9-\uFFFB` + // interlinear annotation
+    String.raw`\u{E0000}-\u{E007F}` + // tag characters
+    "]" +
+    // Variation selectors stay outside the class: inside one they trip
+    // `no-misleading-character-class`, and the property also covers the
+    // supplementary block.
+    String.raw`|\p{Variation_Selector}`,
+  "gu",
 );
 
 export function stripControl(text: string): string {
@@ -72,16 +92,39 @@ const FENCE_CLOSE = "\n</untrusted-tool-output>";
 // the fence (the model would see content that follows as instructions, not
 // data). Replace the `<` of any matching closing tag with the JSON Unicode
 // escape `<`, which renders identically to a human reader but no
-// longer matches the literal close-tag scanner. We only neutralise the
-// closing tag — opening tags inside the body are harmless.
-const CLOSE_TAG_RE = /<\/untrusted-tool-output>/gi;
+// longer matches the literal close-tag scanner. Whitespace variants
+// (`</untrusted-tool-output >`, `< / untrusted-tool-output>`) read as
+// the same tag to a model, so they are neutralised too. We only
+// neutralise the closing tag — opening tags inside the body are
+// harmless.
+const CLOSE_TAG_RE = /<\s*\/\s*untrusted-tool-output\s*>/gi;
 
 export function fence(text: string): string {
   return (
     FENCE_OPEN +
-    text.replaceAll(CLOSE_TAG_RE, String.raw`\u003c/untrusted-tool-output>`) +
+    text.replaceAll(CLOSE_TAG_RE, (tag) => String.raw`\u003c` + tag.slice(1)) +
     FENCE_CLOSE
   );
+}
+
+/**
+ * `stripControl` applied to every string (keys and values) of a JSON-like
+ * value: the `structuredContent` channel carries the same sender-controlled
+ * fields as the text block (subjects, display names, filenames), and some
+ * clients hand it to the model too. No fence here — it is typed data, so
+ * only the invisible characters are removed.
+ */
+export function stripControlDeep(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (typeof value === "string") return stripControl(value);
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return value;
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => stripControlDeep(item, seen));
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    out[stripControl(key)] = stripControlDeep(item, seen);
+  }
+  return out;
 }
 
 export function sanitizeForLlm(text: string): string {

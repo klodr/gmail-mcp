@@ -23,7 +23,7 @@ import {
   RateLimitError,
   WRITE_TOOLS,
 } from "./rate-limit.js";
-import { sanitizeForLlm } from "./sanitize.js";
+import { sanitizeForLlm, stripControlDeep } from "./sanitize.js";
 
 // The canonical write-tool set lives in `src/rate-limit.ts`
 // (`WRITE_TOOLS`, derived from the rate-limit buckets): every tool that
@@ -151,9 +151,11 @@ function attachStructuredContent(result: ToolResult): ToolResult {
  * and wraps the payload in `<untrusted-tool-output>` so the LLM treats
  * it as DATA, not instructions — see `src/sanitize.ts` for rationale.
  *
- * Only `type: "text"` items are rewritten; non-text content (images,
- * resources) flows through unchanged. `structuredContent` is never
- * touched — it is the programmatic-consumer channel and stays raw.
+ * Only `type: "text"` items are fenced; non-text content (images,
+ * resources) flows through unchanged. `structuredContent` is the typed,
+ * programmatic-consumer channel: it is not fenced, but its strings get
+ * the same invisible-character stripping, since it carries the same
+ * sender-controlled fields and some clients forward it to the model.
  */
 function sanitizeToolResult(result: ToolResult): ToolResult {
   return {
@@ -161,6 +163,12 @@ function sanitizeToolResult(result: ToolResult): ToolResult {
     content: result.content.map((item) =>
       item.type === "text" ? { ...item, text: sanitizeForLlm(item.text) } : item,
     ),
+    ...(result.structuredContent === undefined
+      ? {}
+      : {
+          structuredContent: stripControlDeep(result.structuredContent) as
+            Record<string, unknown> | unknown[],
+        }),
   };
 }
 
