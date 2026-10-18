@@ -318,9 +318,9 @@ export function sanitizeHeaderValue(value: string): string {
  *
  * Display-spoofing and length hardening (the sender also controls
  * how the name LOOKS in Finder / Explorer):
- * - NFC-normalise first, consistent with `filenameKey`, so `é` written
- *   as `e` + combining acute and as the precomposed code point give
- *   the same on-disk name.
+ * - NFC-normalise (after the step below), consistent with
+ *   `filenameKey`, so `é` written as `e` + combining acute and as the
+ *   precomposed code point give the same on-disk name.
  * - Strip every invisible format character (`\p{Cf}`): bidi controls
  *   such as U+202E (which renders `invoice_<U+202E>fdp.app` as
  *   `invoice_ppa.pdf`), zero-width spaces/joiners, soft hyphen, BOM,
@@ -385,8 +385,11 @@ export function sanitizeAttachmentFilename(filename: string): string {
     truncateFilenameToBytes(
       trimTrailingDotsAndSpaces(
         filename
-          .normalize("NFC")
+          // Strip format characters BEFORE normalising: a zero-width
+          // character between a base letter and its combining mark would
+          // otherwise block composition until a second pass (idempotence).
           .replaceAll(ATTACHMENT_FORMAT_CHARS, "")
+          .normalize("NFC")
           .replaceAll(ATTACHMENT_HOSTILE_CHARS, "_")
           .replace(/^\.+/, ""),
       ),

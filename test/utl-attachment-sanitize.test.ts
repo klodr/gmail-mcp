@@ -132,6 +132,12 @@ describe("sanitizeAttachmentFilename — display spoofing and length", () => {
     expect(sanitizeAttachmentFilename(hidden)).toBe("report.pdf");
   });
 
+  it("composes a mark split from its letter by a zero-width character, in one pass", () => {
+    const out = sanitizeAttachmentFilename("e\u200B\u0301.pdf");
+    expect(out).toBe("\u00E9.pdf");
+    expect(sanitizeAttachmentFilename(out)).toBe(out);
+  });
+
   it("NFC-normalises, consistent with the collision key", () => {
     expect(sanitizeAttachmentFilename("résumé.pdf")).toBe("résumé.pdf");
   });
