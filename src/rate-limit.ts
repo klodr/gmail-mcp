@@ -9,8 +9,8 @@
  * is checked first, so an explicit "Daily Limit Exceeded" is surfaced
  * when both caps are hit at the same instant.
  *
- * Read tools (get/list/search/download/*) are intentionally NOT in
- * TOOL_BUCKET: they do not forge state, and Google's Gmail API quota is
+ * Read tools (get/list/search/*) and the local-only `download_*` tools
+ * are intentionally NOT in TOOL_BUCKET: they do not forge Gmail state, and Google's Gmail API quota is
  * measured per-user/second at the platform level. The goal of this
  * limiter is to cap irreversible, destructive, or spam-shaped actions
  * that a prompt-injected agent could fire in a loop.
@@ -47,6 +47,8 @@ const TOOL_BUCKET: Record<string, string> = {
   // Outbound mail (irreversible, spammable → the primary risk we cap)
   send_email: "send",
   reply_all: "send",
+  reply_to_email: "send",
+  forward_email: "send",
 
   // Deletion (irreversible; Gmail trashes first but batch deletes bypass trash)
   delete_email: "delete",
@@ -56,6 +58,9 @@ const TOOL_BUCKET: Record<string, string> = {
   modify_email: "modify",
   batch_modify_emails: "modify",
   modify_thread: "modify",
+  // Spam reports are label moves (reversible from the Spam folder)
+  move_to_spam: "modify",
+  move_to_spam_batch: "modify",
 
   // Drafts (reversible, higher allowance)
   draft_email: "drafts",
@@ -78,7 +83,32 @@ const TOOL_BUCKET: Record<string, string> = {
   create_filter: "filters",
   delete_filter: "filters",
   create_filter_from_template: "filters",
+
+  // Recipient allowlist edits (`pair_recipient` add/remove/list)
+  pair_recipient: "pairing",
 };
+
+/**
+ * The canonical "this tool mutates Gmail-side state" set, derived from
+ * TOOL_BUCKET so the dry-run gate (`src/middleware.ts`) and the rate
+ * limiter can never drift apart: a write tool is dry-run'd if and only
+ * if it is rate-limited. `test/write-tools-coherence.test.ts` checks it
+ * against every registered tool definition.
+ */
+export const WRITE_TOOLS: ReadonlySet<string> = new Set(Object.keys(TOOL_BUCKET));
+
+/**
+ * Tools that write ONLY to the local filesystem, inside the download
+ * jail (`GMAIL_MCP_DOWNLOAD_DIR`), and never mutate the mailbox. They
+ * carry `readOnlyHint: false` (they do change the environment) but are
+ * deliberately neither rate-limited nor dry-run'd: there is no Gmail
+ * write to preview or to cap, and the jail owns their hardening.
+ */
+export const LOCAL_WRITE_TOOLS: ReadonlySet<string> = new Set([
+  "download_attachment",
+  "download_all_attachments",
+  "download_email",
+]);
 
 interface BucketLimit {
   daily: number;
@@ -114,6 +144,7 @@ const DEFAULT_BUCKET_LIMITS: Record<string, BucketLimit> = {
   drafts: { daily: 300, monthly: 3000 },
   labels: { daily: 50, monthly: 500 },
   filters: { daily: 20, monthly: 200 },
+  pairing: { daily: 50, monthly: 500 },
 };
 
 function parseOverride(raw: string): BucketLimit | null {

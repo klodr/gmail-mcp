@@ -716,7 +716,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DownloadAttachmentSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Download Attachment", readOnlyHint: true, openWorldHint: true },
+    annotations: {
+      title: "Download Attachment",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+    },
   },
   {
     name: "download_all_attachments",
@@ -729,7 +734,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DownloadAllAttachmentsSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Download All Attachments", readOnlyHint: true, openWorldHint: true },
+    annotations: {
+      title: "Download All Attachments",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+    },
   },
 
   // Thread-level operations
@@ -803,7 +813,12 @@ export const toolDefinitions: ToolDefinition[] = [
     ].join("\n"),
     schema: DownloadEmailSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
-    annotations: { title: "Download Email", readOnlyHint: true, openWorldHint: true },
+    annotations: {
+      title: "Download Email",
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+    },
   },
 
   // Email write operations

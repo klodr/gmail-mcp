@@ -17,44 +17,21 @@
  * change on top of an already-merged, tested helper.
  */
 import { type AuditResult, logAudit, redactSensitive } from "./audit-log.js";
-import { enforceRateLimit, formatRateLimitError, RateLimitError } from "./rate-limit.js";
+import {
+  enforceRateLimit,
+  formatRateLimitError,
+  RateLimitError,
+  WRITE_TOOLS,
+} from "./rate-limit.js";
 import { sanitizeForLlm } from "./sanitize.js";
 
-/**
- * Tool names that mutate Gmail state (outbound mail, label / filter /
- * thread writes). Dry-run short-circuits these before any Gmail API
- * call is made; read-only tools (`list_*`, `get_*`, `read_*`,
- * `search_*`, `download_*`) bypass dry-run entirely — there is nothing
- * to preview, and `download_*` only writes to a local jail inside
- * `GMAIL_MCP_DOWNLOAD_DIR`, which is an LLM-visible side effect that
- * the download-path hardening (see `src/index.ts`) owns rather than
- * the dry-run gate (CR #52).
- *
- * Keep in sync with the rate-limit buckets in `src/rate-limit.ts` —
- * every tool listed here should have a rate-limit entry, and vice
- * versa. The two lists are the canonical "this is a write operation"
- * signal used across the stack.
- */
-const WRITE_TOOLS = new Set<string>([
-  "send_email",
-  "reply_all",
-  "draft_email",
-  "update_draft",
-  "delete_draft",
-  "send_draft",
-  "delete_email",
-  "modify_email",
-  "batch_modify_emails",
-  "batch_delete_emails",
-  "create_label",
-  "update_label",
-  "delete_label",
-  "get_or_create_label",
-  "create_filter",
-  "delete_filter",
-  "create_filter_from_template",
-  "modify_thread",
-]);
+// The canonical write-tool set lives in `src/rate-limit.ts`
+// (`WRITE_TOOLS`, derived from the rate-limit buckets): every tool that
+// is rate-limited is also dry-run'd, and vice versa. Read-only tools
+// (`list_*`, `get_*`, `read_*`, `search_*`) and the local-only
+// `download_*` tools (`LOCAL_WRITE_TOOLS`: they write inside the
+// `GMAIL_MCP_DOWNLOAD_DIR` jail, never to the mailbox) bypass dry-run —
+// there is no Gmail write to preview (CR #52).
 
 /**
  * Dry-run gate. Set `GMAIL_MCP_DRY_RUN=true` to make every write tool
