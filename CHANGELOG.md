@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4](https://github.com/klodr/gmail-mcp/compare/v1.4.3...v1.4.4) (2026-10-18)
+
+
+### Fixed
+
+* hardening pass and upstream ports from the 1.4.3 audit ([#324](https://github.com/klodr/gmail-mcp/issues/324)) ([10e11b3](https://github.com/klodr/gmail-mcp/commit/10e11b330b0641d169572d6b00751c644d7da17a))
+
+
+### Changed
+
+* bump the github-actions group across 1 directory with 7 updates ([#323](https://github.com/klodr/gmail-mcp/issues/323)) ([abe514c](https://github.com/klodr/gmail-mcp/commit/abe514cb8aee399e8af5a2f6cb9160669caa171c))
+
 ## [1.4.3](https://github.com/klodr/gmail-mcp/compare/v1.4.2...v1.4.3) (2026-10-18)
 
 
