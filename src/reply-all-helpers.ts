@@ -128,7 +128,11 @@ function splitOnUnquotedCommas(headerValue: string): string[] {
 function pickCandidateAddress(token: string): string | null {
   const trimmed = token.trim();
   if (!trimmed) return null;
-  const bracketMatches = [...trimmed.matchAll(/<([^<>]*@[^<>]*)>/g)];
+  // `[^<>@]*` before the `@` (not `[^<>]*`) keeps the scan linear: the
+  // header is sender-controlled, and the looser form backtracks over
+  // every `@` of a long unterminated `<@@@…` run (quadratic). The
+  // captured span is identical — both halves already exclude `<` / `>`.
+  const bracketMatches = [...trimmed.matchAll(/<([^<>@]*@[^<>]*)>/g)];
   const lastBracket = bracketMatches.at(-1)?.[1]?.trim();
   if (lastBracket) return lastBracket;
   if (trimmed.includes("@")) {

@@ -342,3 +342,17 @@ describe("buildForwardQuotedBody", () => {
     expect(out.endsWith("To: bob@example.com\n\n")).toBe(true);
   });
 });
+
+describe("parseEmailAddresses — linear on hostile headers", () => {
+  it("handles a long unterminated '<@@@…' run quickly", () => {
+    const start = performance.now();
+    expect(parseEmailAddresses("<" + "@".repeat(100_000))).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it("still picks the last bracketed address of a malformed list", () => {
+    expect(parseEmailAddresses('"Alice <alias@meta>" <alice@example.com>, junk;')).toContain(
+      "alice@example.com",
+    );
+  });
+});
