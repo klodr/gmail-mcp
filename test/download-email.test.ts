@@ -15,6 +15,7 @@ import {
   gmailMessageToJson,
   emailToTxt,
   emailToHtml,
+  EXPORTED_HTML_CSP,
   parseEmailAddress,
   parseEmailAddresses,
 } from "../src/email-export.js";
@@ -135,14 +136,47 @@ describe("download_email formats", () => {
   describe("HTML format", () => {
     it("returns raw HTML content", () => {
       const html = emailToHtml(mockContent);
-      expect(html).toBe(mockContent.html);
       expect(html).toContain("<b>HTML</b>");
+      expect(html).toContain(`content="${EXPORTED_HTML_CSP}"`);
     });
 
     it("throws when no HTML content available", () => {
       expect(() => emailToHtml({ text: "plain only", html: "" })).toThrow(
         "This email has no HTML content",
       );
+    });
+
+    it("stamps the CSP inside an existing <head>, right after the tag", () => {
+      const out = emailToHtml({
+        text: "",
+        html: "<html><head><title>t</title></head><body><header>h</header></body></html>",
+      });
+      expect(out.indexOf('http-equiv="Content-Security-Policy"')).toBeGreaterThan(
+        out.indexOf("<head>"),
+      );
+      expect(out.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(
+        out.indexOf("<title>"),
+      );
+      // <header> must not be mistaken for <head>.
+      expect(out).toContain("<header>h</header>");
+      expect(out.match(/Content-Security-Policy/g)).toHaveLength(1);
+    });
+
+    it("adds a <head> after <html> when the document has none", () => {
+      const out = emailToHtml({ text: "", html: '<HTML lang="fr"><body>x</body></HTML>' });
+      expect(out).toMatch(/^<HTML lang="fr"><head><meta http-equiv="Content-Security-Policy"/);
+    });
+
+    it("wraps a bare fragment in a complete document", () => {
+      const out = emailToHtml({ text: "", html: "<p>Bonjour</p>" });
+      expect(out.startsWith("<!DOCTYPE html><html><head>")).toBe(true);
+      expect(out).toContain(`content="${EXPORTED_HTML_CSP}"`);
+      expect(out).toContain("<body><p>Bonjour</p></body>");
+    });
+
+    it("keeps styles and images allowed so the copy renders like the original", () => {
+      expect(EXPORTED_HTML_CSP).not.toMatch(/default-src|img-src|style-src/);
+      expect(EXPORTED_HTML_CSP).toContain("script-src 'none'");
     });
   });
 });

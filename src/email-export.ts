@@ -152,11 +152,49 @@ export function emailToTxt(
 }
 
 /**
- * Extract HTML content from email, or throw if none exists
+ * Content-Security-Policy stamped into every exported HTML file. The HTML
+ * is the sender's, and the saved file is opened later in a browser from
+ * `file://`: scripts, plugins, `<base>` rewrites and form submissions are
+ * blocked, which Gmail never runs either. Styles and images are left
+ * alone so the copy still renders like the original (blocking remote
+ * images would also stop tracking pixels, but changes the rendering).
+ */
+export const EXPORTED_HTML_CSP =
+  "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+
+const CSP_META = `<meta http-equiv="Content-Security-Policy" content="${EXPORTED_HTML_CSP}">`;
+// `[^>]*` keeps both scans linear. `\b` keeps `<header>` from matching `<head`.
+const HEAD_OPEN_RE = /<head\b[^>]*>/i;
+const HTML_OPEN_RE = /<html\b[^>]*>/i;
+
+/**
+ * Put the CSP `<meta>` where browsers honour it: a CSP meta is only
+ * applied from inside `<head>`, so it goes right after an existing
+ * `<head>` tag, else into a new `<head>` right after `<html>`, else the
+ * fragment is wrapped in a complete document.
+ */
+function withExportCsp(html: string): string {
+  const head = HEAD_OPEN_RE.exec(html);
+  if (head) {
+    const at = head.index + head[0].length;
+    return html.slice(0, at) + CSP_META + html.slice(at);
+  }
+  const root = HTML_OPEN_RE.exec(html);
+  if (root) {
+    const at = root.index + root[0].length;
+    return html.slice(0, at) + `<head>${CSP_META}</head>` + html.slice(at);
+  }
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">${CSP_META}</head><body>${html}</body></html>`;
+}
+
+/**
+ * Extract HTML content from email, or throw if none exists. The result
+ * carries a restrictive CSP (see `EXPORTED_HTML_CSP`); use the `eml`
+ * format for a byte-faithful copy.
  */
 export function emailToHtml(emailContent: { text: string; html: string }): string {
   if (!emailContent.html) {
     throw new Error("This email has no HTML content");
   }
-  return emailContent.html;
+  return withExportCsp(emailContent.html);
 }

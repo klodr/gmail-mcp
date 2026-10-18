@@ -805,7 +805,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "download_email",
     description: [
-      "Save one Gmail message to a file (json, eml, txt, or html).",
+      "Save one Gmail message to a file (json, eml, txt, or html). The html file gets a Content-Security-Policy that blocks scripts, plugins and form submission when it is opened later; use eml for a byte-faithful copy.",
       "",
       "USE WHEN: persisting a message to disk for archival, evidence, or downstream processing. Returns metadata + the path written — bodies are NOT loaded into the LLM context, so this is the right choice for large messages.",
       "",
