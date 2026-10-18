@@ -2297,6 +2297,22 @@ describe("PR #7 registrars — reply_to_email (sender-only)", () => {
   });
 });
 
+// Decode the body of a single-part message built by createEmailMessage:
+// non-ASCII bodies travel as base64 (RFC 2045), ASCII ones as 7bit.
+function decodedBodyOf(message: string): { encoding: string; body: string } {
+  const split = message.indexOf("\r\n\r\n");
+  const head = message.slice(0, split);
+  const body = message.slice(split + 4);
+  const encoding = /^Content-Transfer-Encoding:\s*(\S+)$/im.exec(head)?.[1] ?? "";
+  return {
+    encoding,
+    body:
+      encoding.toLowerCase() === "base64"
+        ? Buffer.from(body.replaceAll("\r\n", ""), "base64").toString("utf8")
+        : body,
+  };
+}
+
 describe("PR #7 registrars — forward_email", () => {
   it("fetches the source, builds Fwd: subject + quoted body, and sends to the new recipients", async () => {
     await withFix(["gmail.send", "gmail.readonly"], async (fix) => {
@@ -2327,14 +2343,17 @@ describe("PR #7 registrars — forward_email", () => {
       // exact strings guards against a regression that drops a
       // header line or restyles the separator (Gmail's UI is
       // strict about the exact ASCII for thread inference).
-      expect(decoded).toContain("FYI — see below.");
-      expect(decoded).toContain("---------- Forwarded message ---------");
-      expect(decoded).toContain("From: Alice <alice@example.com>");
-      expect(decoded).toContain("Subject: Test message msg_orig");
-      expect(decoded).toContain("To: bob@example.com");
+      // The preface carries an em dash, so the body is base64 (RFC 2045).
+      const { encoding, body } = decodedBodyOf(decoded);
+      expect(encoding).toBe("base64");
+      expect(body).toContain("FYI — see below.");
+      expect(body).toContain("---------- Forwarded message ---------");
+      expect(body).toContain("From: Alice <alice@example.com>");
+      expect(body).toContain("Subject: Test message msg_orig");
+      expect(body).toContain("To: bob@example.com");
       // Original body verbatim — pinned so the mime-walker
       // extractEmailContent path stays wired.
-      expect(decoded).toContain("default body content");
+      expect(body).toContain("default body content");
     });
   });
 

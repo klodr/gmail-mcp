@@ -20,6 +20,7 @@ import {
   pickBody,
   pickBodyAnnotated,
   HTML_FALLBACK_NOTE,
+  encodeBodyPart,
 } from "../src/utl.js";
 
 // Resolve src directory
@@ -276,5 +277,59 @@ describe("pickBodyAnnotated — HTML fallback marker (Qodo #41)", () => {
     const { body, source } = pickBodyAnnotated(text, html);
     expect(source).toBe("html");
     expect(body.startsWith(HTML_FALLBACK_NOTE)).toBe(true);
+  });
+});
+
+describe("body Content-Transfer-Encoding (RFC 2045)", () => {
+  const base = { subject: "S", to: ["bob@example.com"] };
+  const partsOf = (raw: string) =>
+    raw.split(/\r\n--[^\r\n]+/).filter((p) => p.includes("Content-Transfer-Encoding"));
+  const decode = (part: string) => {
+    const body = part.slice(part.indexOf("\r\n\r\n") + 4).trim();
+    return /Content-Transfer-Encoding: base64/.test(part)
+      ? Buffer.from(body.replaceAll("\r\n", ""), "base64").toString("utf8")
+      : body;
+  };
+
+  it("keeps a pure-ASCII body as readable 7bit", () => {
+    const raw = createEmailMessage({ ...base, body: "Hello Bob,\nsee you." });
+    expect(raw).toContain("Content-Transfer-Encoding: 7bit");
+    expect(raw).toContain("Hello Bob,\nsee you.");
+  });
+
+  it("sends an accented body as base64 that decodes back exactly", () => {
+    const body = "Bonjour, voici le relevé — à très vite 😀";
+    const raw = createEmailMessage({ ...base, body });
+    expect(raw).toContain("Content-Transfer-Encoding: base64");
+    expect(raw).not.toContain("relevé");
+    expect(decode(partsOf(raw)[0] ?? raw)).toBe(body);
+  });
+
+  it("base64-encodes an ASCII body whose line exceeds 998 octets", () => {
+    const body = "x".repeat(1200);
+    const { encoding, text } = encodeBodyPart(body);
+    expect(encoding).toBe("base64");
+    expect(text.split("\r\n").every((line) => line.length <= 76)).toBe(true);
+    expect(Buffer.from(text.replaceAll("\r\n", ""), "base64").toString("utf8")).toBe(body);
+  });
+
+  it("encodes each multipart/alternative part on its own", () => {
+    const raw = createEmailMessage({
+      ...base,
+      body: "Plain ASCII text",
+      htmlBody: "<p>Réunion à 10h</p>",
+      mimeType: "multipart/alternative",
+    });
+    const parts = partsOf(raw);
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toContain("Content-Transfer-Encoding: 7bit");
+    expect(parts[1]).toContain("Content-Transfer-Encoding: base64");
+    expect(decode(parts[0] ?? "")).toBe("Plain ASCII text");
+    expect(decode(parts[1] ?? "")).toBe("<p>Réunion à 10h</p>");
+  });
+
+  it("never emits a line longer than 998 octets", () => {
+    const raw = createEmailMessage({ ...base, body: `é${"y".repeat(5000)}` });
+    expect(raw.split("\r\n").every((line) => Buffer.byteLength(line) <= 998)).toBe(true);
   });
 });

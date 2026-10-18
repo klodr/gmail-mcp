@@ -560,6 +560,41 @@ export interface ValidatedEmailArgs {
   threadId?: string;
 }
 
+/**
+ * RFC 2045 §2.7: `7bit` promises ASCII-only lines of at most 998 octets.
+ * A body that does not keep that promise (any accent, emoji, CJK, or a
+ * very long line) is sent as base64 wrapped at 76 characters instead,
+ * the encoding nodemailer already uses for the attachment path. Pure
+ * ASCII bodies stay readable `7bit`, unchanged.
+ */
+const MAX_7BIT_LINE_OCTETS = 998;
+const BASE64_LINE_CHARS = 76;
+
+export function encodeBodyPart(content: string): { encoding: "7bit" | "base64"; text: string } {
+  // UTF-8 byte length equals the UTF-16 length only when every code unit
+  // is ASCII (any other code point needs 2-4 bytes for 1-2 code units).
+  const isAscii = Buffer.byteLength(content, "utf8") === content.length;
+  if (isAscii && content.split(/\r?\n/).every((line) => line.length <= MAX_7BIT_LINE_OCTETS)) {
+    return { encoding: "7bit", text: content };
+  }
+  const encoded = Buffer.from(content, "utf8").toString("base64");
+  const lines: string[] = [];
+  for (let at = 0; at < encoded.length; at += BASE64_LINE_CHARS) {
+    lines.push(encoded.slice(at, at + BASE64_LINE_CHARS));
+  }
+  return { encoding: "base64", text: lines.join("\r\n") };
+}
+
+function bodyPartLines(contentType: string, content: string): string[] {
+  const { encoding, text } = encodeBodyPart(content);
+  return [
+    `Content-Type: ${contentType}; charset=UTF-8`,
+    `Content-Transfer-Encoding: ${encoding}`,
+    "",
+    text,
+  ];
+}
+
 export function createEmailMessage(validatedArgs: ValidatedEmailArgs): string {
   const encodedSubject = encodeEmailHeader(sanitizeHeaderValue(validatedArgs.subject));
   // Determine content type based on available content and explicit mimeType
@@ -618,35 +653,19 @@ export function createEmailMessage(validatedArgs: ValidatedEmailArgs): string {
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       "",
       `--${boundary}`,
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: 7bit",
-      "",
-      validatedArgs.body,
+      ...bodyPartLines("text/plain", validatedArgs.body),
       "",
       `--${boundary}`,
-      "Content-Type: text/html; charset=UTF-8",
-      "Content-Transfer-Encoding: 7bit",
-      "",
-      validatedArgs.htmlBody || validatedArgs.body,
+      ...bodyPartLines("text/html", validatedArgs.htmlBody || validatedArgs.body),
       "",
       `--${boundary}--`,
     );
   } else if (mimeType === "text/html") {
     // HTML-only email
-    emailParts.push(
-      "Content-Type: text/html; charset=UTF-8",
-      "Content-Transfer-Encoding: 7bit",
-      "",
-      validatedArgs.htmlBody || validatedArgs.body,
-    );
+    emailParts.push(...bodyPartLines("text/html", validatedArgs.htmlBody || validatedArgs.body));
   } else {
     // Plain text email (default)
-    emailParts.push(
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: 7bit",
-      "",
-      validatedArgs.body,
-    );
+    emailParts.push(...bodyPartLines("text/plain", validatedArgs.body));
   }
 
   return emailParts.join("\r\n");
