@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3](https://github.com/klodr/gmail-mcp/compare/v1.4.2...v1.4.3) (2026-10-18)
+
+
+### Fixed
+
+* **deps:** clear every OSV finding blocking the required scan ([#319](https://github.com/klodr/gmail-mcp/issues/319)) ([96a9dd3](https://github.com/klodr/gmail-mcp/commit/96a9dd3984e1f50afdfa30b93520f6e9b597afd9))
+
+
+### Changed
+
+* **deps-dev:** bump the dev-dependencies group across 1 directory with 8 updates ([#322](https://github.com/klodr/gmail-mcp/issues/322)) ([ffc2b03](https://github.com/klodr/gmail-mcp/commit/ffc2b032d5741caeea1dbfe1b2b75c1302cb3775))
+* **deps:** bump googleapis from 181.0.0 to 185.0.0 ([#313](https://github.com/klodr/gmail-mcp/issues/313)) ([254491f](https://github.com/klodr/gmail-mcp/commit/254491f8dd51493d44709ccb142cf0446af2d738))
+* **deps:** bump the production-dependencies group across 1 directory with 2 updates ([#321](https://github.com/klodr/gmail-mcp/issues/321)) ([3b5ba75](https://github.com/klodr/gmail-mcp/commit/3b5ba751a470bb5af8befab1401d713a77a971f5))
+
 ## [1.4.2](https://github.com/klodr/gmail-mcp/compare/v1.4.1...v1.4.2) (2026-09-25)
 
 
