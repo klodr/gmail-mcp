@@ -316,17 +316,83 @@ export function sanitizeHeaderValue(value: string): string {
  * `startsWith(savePath + path.sep)` containment check, plus the
  * `safeWriteFile` open-with-O_NOFOLLOW/O_EXCL pattern.
  *
- * Idempotent. Unicode characters outside the hostile set (accents,
- * emojis, CJK) pass through untouched — intentional so a user
- * downloading `résumé.pdf` sees `résumé.pdf` on disk, not `r_sum_.pdf`.
+ * Display-spoofing and length hardening (the sender also controls
+ * how the name LOOKS in Finder / Explorer):
+ * - NFC-normalise first, consistent with `filenameKey`, so `é` written
+ *   as `e` + combining acute and as the precomposed code point give
+ *   the same on-disk name.
+ * - Strip every invisible format character (`\p{Cf}`): bidi controls
+ *   such as U+202E (which renders `invoice_<U+202E>fdp.app` as
+ *   `invoice_ppa.pdf`), zero-width spaces/joiners, soft hyphen, BOM,
+ *   and the U+E0000–E007F tag block.
+ * - Strip trailing dots and spaces, which Windows drops silently and
+ *   which hide the real extension (`report.pdf. `).
+ * - Cap the name at `ATTACHMENT_FILENAME_MAX_BYTES` UTF-8 bytes,
+ *   cutting the stem on a code-point boundary and keeping the
+ *   extension, so the write never fails with ENAMETOOLONG (255 bytes on
+ *   APFS / ext4) even after a collision suffix such as ` (12)`.
+ *
+ * Idempotent. Other Unicode characters (accents, emojis, CJK) pass
+ * through untouched — intentional so a user downloading `résumé.pdf`
+ * sees `résumé.pdf` on disk, not `r_sum_.pdf`.
  */
 const ATTACHMENT_HOSTILE_CHARS = new RegExp(
   "[" + String.raw`\u0000-\u001F` + String.raw`\u007F-\u009F` + String.raw`/\\:*?"<>|` + "]",
   "g",
 );
 
+const ATTACHMENT_FORMAT_CHARS = /\p{Cf}/gu;
+
+/**
+ * Byte budget for a sanitised attachment name: 255 (the APFS / ext4 /
+ * NTFS leaf limit) minus headroom for the ` (N)` suffix that
+ * `safeWriteFile` / `claimUniqueFilename` append on a collision.
+ */
+export const ATTACHMENT_FILENAME_MAX_BYTES = 240;
+
+// An "extension" longer than this is treated as part of the stem, so a
+// hostile `a.<300 bytes>` name cannot keep an oversized tail.
+const ATTACHMENT_EXTENSION_MAX_BYTES = 32;
+
+// Linear scan from the end: an anchored `/[. ]+$/` regex is quadratic on
+// a long run of dots/spaces followed by another character, and the input
+// here is the raw, sender-controlled name.
+function trimTrailingDotsAndSpaces(name: string): string {
+  let end = name.length;
+  while (end > 0 && (name[end - 1] === "." || name[end - 1] === " ")) end--;
+  return name.slice(0, end);
+}
+
+function truncateFilenameToBytes(name: string, maxBytes: number): string {
+  if (Buffer.byteLength(name, "utf8") <= maxBytes) return name;
+  let extension = path.extname(name);
+  if (Buffer.byteLength(extension, "utf8") > ATTACHMENT_EXTENSION_MAX_BYTES) extension = "";
+  const stemBudget = maxBytes - Buffer.byteLength(extension, "utf8");
+  let stem = "";
+  let used = 0;
+  // Iterate by code point so a surrogate pair (emoji) is never split.
+  for (const char of name.slice(0, name.length - extension.length)) {
+    const size = Buffer.byteLength(char, "utf8");
+    if (used + size > stemBudget) break;
+    stem += char;
+    used += size;
+  }
+  return stem + extension;
+}
+
 export function sanitizeAttachmentFilename(filename: string): string {
-  const cleaned = filename.replaceAll(ATTACHMENT_HOSTILE_CHARS, "_").replace(/^\.+/, "");
+  const cleaned = trimTrailingDotsAndSpaces(
+    truncateFilenameToBytes(
+      trimTrailingDotsAndSpaces(
+        filename
+          .normalize("NFC")
+          .replaceAll(ATTACHMENT_FORMAT_CHARS, "")
+          .replaceAll(ATTACHMENT_HOSTILE_CHARS, "_")
+          .replace(/^\.+/, ""),
+      ),
+      ATTACHMENT_FILENAME_MAX_BYTES,
+    ),
+  );
   if (cleaned === "" || /^_+$/.test(cleaned)) return "attachment";
   return cleaned;
 }

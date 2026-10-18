@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ATTACHMENT_FILENAME_MAX_BYTES,
   claimUniqueFilename,
   sanitizeAttachmentFilename,
   toSafeAttachmentFilename,
@@ -115,5 +116,67 @@ describe("claimUniqueFilename", () => {
     expect(claimUniqueFilename("README", taken)).toBe("README (2)");
     expect(claimUniqueFilename("archive.tar.gz", taken)).toBe("archive.tar.gz");
     expect(claimUniqueFilename("archive.tar.gz", taken)).toBe("archive.tar (2).gz");
+  });
+});
+
+describe("sanitizeAttachmentFilename — display spoofing and length", () => {
+  const bytes = (s: string) => Buffer.byteLength(s, "utf8");
+
+  it("strips a right-to-left override that disguises the real extension", () => {
+    // Renders as "invoice_ppa.pdf" in Finder while really ending in ".app".
+    expect(sanitizeAttachmentFilename("invoice_\u202Efdp.app")).toBe("invoice_fdp.app");
+  });
+
+  it("strips zero-width, soft-hyphen, BOM and tag characters", () => {
+    const hidden = "re\u200Bp\u200Dor\u00ADt\uFEFF\u{E0041}\u{E0042}.pdf";
+    expect(sanitizeAttachmentFilename(hidden)).toBe("report.pdf");
+  });
+
+  it("NFC-normalises, consistent with the collision key", () => {
+    expect(sanitizeAttachmentFilename("résumé.pdf")).toBe("résumé.pdf");
+  });
+
+  it("strips trailing dots and spaces that hide the extension", () => {
+    expect(sanitizeAttachmentFilename("report.pdf. . ")).toBe("report.pdf");
+    expect(sanitizeAttachmentFilename("...  ")).toBe("attachment");
+  });
+
+  it("caps long names in UTF-8 bytes and keeps the extension", () => {
+    const out = sanitizeAttachmentFilename(`${"a".repeat(400)}.pdf`);
+    expect(bytes(out)).toBeLessThanOrEqual(ATTACHMENT_FILENAME_MAX_BYTES);
+    expect(out.endsWith(".pdf")).toBe(true);
+  });
+
+  it("never splits a multi-byte code point when truncating", () => {
+    const out = sanitizeAttachmentFilename(`${"é\u{1F600}".repeat(120)}.docx`);
+    expect(bytes(out)).toBeLessThanOrEqual(ATTACHMENT_FILENAME_MAX_BYTES);
+    expect(out.endsWith(".docx")).toBe(true);
+    // A split surrogate pair or a cut UTF-8 sequence would not round-trip.
+    expect(Buffer.from(out, "utf8").toString("utf8")).toBe(out);
+    expect(/[\uD800-\uDFFF]/u.test(out)).toBe(false);
+  });
+
+  it("drops an oversized pseudo-extension instead of keeping it whole", () => {
+    const out = sanitizeAttachmentFilename(`a.${"b".repeat(400)}`);
+    expect(bytes(out)).toBeLessThanOrEqual(ATTACHMENT_FILENAME_MAX_BYTES);
+  });
+
+  it("stays linear on a huge run of trailing spaces", () => {
+    const start = performance.now();
+    sanitizeAttachmentFilename(`${" ".repeat(200_000)}x`);
+    sanitizeAttachmentFilename(`x${" .".repeat(200_000)}`);
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it("is idempotent on every hardened shape", () => {
+    for (const name of [
+      "invoice_\u202Efdp.app",
+      "report.pdf. . ",
+      `${"é".repeat(300)}.pdf`,
+      "résumé.pdf",
+    ]) {
+      const once = sanitizeAttachmentFilename(name);
+      expect(sanitizeAttachmentFilename(once)).toBe(once);
+    }
   });
 });
