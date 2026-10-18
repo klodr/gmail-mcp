@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { gmail_v1 } from "googleapis";
-import { sendOrDraftEmail, type EmailSendArgs } from "../src/email-send.js";
+import { sendOrDraftEmail, threadMessagesForReply, type EmailSendArgs } from "../src/email-send.js";
 import { _resetDefaultSenderCache } from "../src/sender-resolver.js";
 
 // Build a mocked gmail client. Each method records its calls; any
@@ -229,6 +229,45 @@ describe("sendOrDraftEmail — thread-header auto-resolve", () => {
     expect(calls.threadGet).toHaveLength(1);
     expect(args.inReplyTo).toBe("<b@x>");
     expect(args.references).toBe("<a@x> <b@x>");
+  });
+
+  const msg = (id: string, internalDate?: string, labelIds?: string[]) => ({
+    payload: { headers: [{ name: "Message-ID", value: `<${id}@x>` }] },
+    ...(internalDate === undefined ? {} : { internalDate }),
+    ...(labelIds === undefined ? {} : { labelIds }),
+  });
+
+  it("never threads onto a pending draft, even a newer one", async () => {
+    const { client } = mockGmail({
+      threadGet: {
+        messages: [
+          msg("first", "1000", ["INBOX"]),
+          msg("reply", "2000", ["INBOX"]),
+          msg("draft", "3000", ["DRAFT"]),
+        ],
+      },
+    });
+    const args = baseArgs({ from: "me@example.com", threadId: "T-draft" });
+    await sendOrDraftEmail(client, "send", args);
+    expect(args.inReplyTo).toBe("<reply@x>");
+    expect(args.references).toBe("<first@x> <reply@x>");
+  });
+
+  it("picks the latest message by internalDate, not by array position", async () => {
+    const { client } = mockGmail({
+      threadGet: {
+        messages: [msg("late", "3000"), msg("early", "1000"), msg("middle", "2000")],
+      },
+    });
+    const args = baseArgs({ from: "me@example.com", threadId: "T-order" });
+    await sendOrDraftEmail(client, "send", args);
+    expect(args.inReplyTo).toBe("<late@x>");
+    expect(args.references).toBe("<early@x> <middle@x> <late@x>");
+  });
+
+  it("keeps the API order when a message has no internalDate", () => {
+    const ordered = threadMessagesForReply([msg("b", "2000"), msg("a"), msg("c", "1000")]);
+    expect(ordered.map((m) => m.payload?.headers?.[0]?.value)).toEqual(["<b@x>", "<a@x>", "<c@x>"]);
   });
 
   it("continues without throwing when the thread fetch fails", async () => {

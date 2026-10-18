@@ -62,6 +62,28 @@ export async function buildEncodedRawMessage(args: EmailSendArgs): Promise<strin
 }
 
 /**
+ * The thread messages a reply can hang off, oldest first. Drafts are
+ * dropped: `threads.get` returns pending drafts too, and a draft newer
+ * than the last received message would otherwise become the
+ * `In-Reply-To` parent (and enter `References`) although it was never
+ * delivered, which breaks the thread for the recipient. When every
+ * message carries an `internalDate` the list is ordered by it, original
+ * order breaking ties; otherwise the API order is kept.
+ */
+export function threadMessagesForReply(
+  messages: gmail_v1.Schema$Message[],
+): gmail_v1.Schema$Message[] {
+  const delivered = messages
+    .filter((message) => !(message.labelIds ?? []).includes("DRAFT"))
+    .map((message, index) => ({ message, index, date: Number(message.internalDate) }));
+  const allDated = delivered.every(
+    ({ message, date }) => Boolean(message.internalDate) && Number.isFinite(date),
+  );
+  if (allDated) delivered.sort((a, b) => a.date - b.date || a.index - b.index);
+  return delivered.map(({ message }) => message);
+}
+
+/**
  * Send a Gmail message or save it as a draft.
  *
  * Mutates `validatedArgs` in place when:
@@ -119,7 +141,7 @@ export async function sendOrDraftEmail(
           metadataHeaders: ["Message-ID"],
         });
 
-        const threadMessages = threadResponse.data.messages || [];
+        const threadMessages = threadMessagesForReply(threadResponse.data.messages || []);
         if (threadMessages.length > 0) {
           // Collect all Message-ID values for the References chain
           const allMessageIds: string[] = [];
@@ -131,7 +153,7 @@ export async function sendOrDraftEmail(
             }
           }
 
-          // Last message's Message-ID becomes In-Reply-To.
+          // Latest delivered message's Message-ID becomes In-Reply-To.
           // threadMessages.length > 0 is guaranteed by the outer if;
           // the `?.` keeps the compiler happy under noUncheckedIndexedAccess.
           const lastMessage = threadMessages.at(-1);
