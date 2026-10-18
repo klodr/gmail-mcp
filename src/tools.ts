@@ -1263,7 +1263,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "reply_to_email",
     description: [
-      "Reply to a thread, addressing the original sender ONLY (no Cc, no broadcast). The MCP fetches the source message, picks the original `From:` as the sole recipient, preserves `Subject:` (with `Re:` prefix added if absent), and sets `In-Reply-To` / `References` headers automatically. **The reply is sent immediately.**",
+      "Reply to a thread, addressing the original sender ONLY (no Cc, no broadcast). The MCP fetches the source message, picks the original `Reply-To:` mailbox when the message sets one, otherwise its `From:` (RFC 5322 §3.6.2; `Sender:` is never used), as the sole recipient, preserves `Subject:` (with `Re:` prefix added if absent), and sets `In-Reply-To` / `References` headers automatically. **The reply is sent immediately.**",
       "",
       "USE WHEN: replying privately to the person who sent the message — the safe default for a sender-only follow-up where `reply_all` would over-broadcast to everyone on the original `To:`/`Cc:` list.",
       "",

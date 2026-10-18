@@ -216,10 +216,12 @@ export function registerMessagingTools(
   );
 
   // reply_to_email — sender-only reply (no Cc broadcast). Resolves
-  // the reply destination per RFC 5322 §3.6.2 precedence:
-  // `Reply-To:` → `Sender:` → `From:`, accepting **exactly one
-  // mailbox** at each level. Multi-mailbox or empty headers without
-  // a downstream disambiguator → bail with isError so the agent
+  // the reply destination per RFC 5322 §3.6.2: `Reply-To:` when
+  // present, otherwise `From:`, accepting **exactly one mailbox**.
+  // `Sender:` names the transmitting agent (a list server, a
+  // secretary) and is never a reply target, so a mailing-list message
+  // is answered to its author, not to the list's bounce address.
+  // Multi-mailbox or empty headers → bail with isError so the agent
   // chooses explicitly (a sender-only tool cannot guess which of N
   // co-authors / N reply targets is the intended single recipient).
   // Threading headers (In-Reply-To / References / Subject Re:
@@ -242,41 +244,31 @@ export function registerMessagingTools(
       const get = makeHeaderGetter(headers);
       const originalReplyTo = get("reply-to");
       const originalFrom = get("from");
-      const originalSender = get("sender");
       const originalSubject = get("subject");
       const originalMessageId = get("message-id");
       const originalReferences = get("references");
 
-      // Resolver invariant (RFC 5322 §3.6.2): destination is
-      // chosen in precedence order Reply-To > Sender > From, and
+      // Resolver invariant (RFC 5322 §3.6.2): the destination is
+      // `Reply-To:` when the source sets it, otherwise `From:`, and
       // the picked header MUST contain exactly one parsed mailbox.
       // Zero or multiple at the chosen level → fail closed; a
       // sender-only tool cannot guess which of N targets was
       // intended without risking a misrouted private reply.
       const replyToAddresses = parseEmailAddresses(originalReplyTo);
-      const senderAddresses = parseEmailAddresses(originalSender);
       const fromAddresses = parseEmailAddresses(originalFrom);
       let replyToAddress: string | undefined;
       if (replyToAddresses.length === 1) {
         replyToAddress = replyToAddresses[0];
-      } else if (replyToAddresses.length === 0 && senderAddresses.length === 1) {
-        replyToAddress = senderAddresses[0];
-      } else if (
-        replyToAddresses.length === 0 &&
-        senderAddresses.length === 0 &&
-        fromAddresses.length === 1
-      ) {
+      } else if (replyToAddresses.length === 0 && fromAddresses.length === 1) {
         replyToAddress = fromAddresses[0];
       }
       if (!replyToAddress) {
         const reason =
           replyToAddresses.length > 1
             ? "source message has multiple Reply-To: mailboxes (a sender-only reply cannot pick one arbitrarily)"
-            : senderAddresses.length > 1
-              ? "source message has multiple Sender: mailboxes"
-              : fromAddresses.length === 0
-                ? "source message has no From: / Sender: / Reply-To: header"
-                : "source message has multiple From: mailboxes and no single Reply-To: / Sender: disambiguator";
+            : fromAddresses.length === 0
+              ? "source message has no From: / Reply-To: header"
+              : "source message has multiple From: mailboxes and no single Reply-To: disambiguator";
         throw new Error(`Could not determine a unique recipient for reply (${reason})`);
       }
       const replyTo = [replyToAddress];

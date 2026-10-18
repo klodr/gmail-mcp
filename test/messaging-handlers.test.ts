@@ -2,8 +2,8 @@
  * End-to-end coverage for the messaging.ts handlers that the existing
  * registrars.test.ts doesn't exercise:
  *
- *   - reply_to_email recipient-resolver branches (Reply-To / Sender /
- *     From precedence + multi-mailbox bail).
+ *   - reply_to_email recipient-resolver branches (Reply-To / From
+ *     precedence, Sender ignored, multi-mailbox bail).
  *   - forward_email basic + cc/bcc paths.
  *
  * send_email / draft_email / reply_all are already covered in
@@ -119,7 +119,51 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
     }
   });
 
-  it("picks the Sender address when From has multiple mailboxes and Reply-To is absent", async () => {
+  it("picks the Reply-To address when the source sets exactly one", async () => {
+    const { gmail, sendSpy } = makeMockGmail([
+      { name: "From", value: "alice@example.com" },
+      { name: "Reply-To", value: "support@example.com" },
+      { name: "Subject", value: "Ticket" },
+      { name: "Message-ID", value: "<rt@example.com>" },
+    ]);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_to_email",
+        arguments: { messageId: "M-rt", body: "noted" },
+      });
+      expect(sendSpy).toHaveBeenCalledOnce();
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toContain(
+        "To: support@example.com",
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  it("ignores Sender: a mailing-list message is answered to its From author", async () => {
+    const { gmail, sendSpy } = makeMockGmail([
+      { name: "From", value: "alice@example.com" },
+      { name: "Sender", value: "list-bounces@lists.example.org" },
+      { name: "Subject", value: "List post" },
+      { name: "Message-ID", value: "<list@example.com>" },
+    ]);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_to_email",
+        arguments: { messageId: "M2", body: "noted" },
+      });
+      expect(sendSpy).toHaveBeenCalledOnce();
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toContain("To: alice@example.com");
+      expect(text).not.toContain("list-bounces@");
+    } finally {
+      await close();
+    }
+  });
+
+  it("fails closed on multiple From mailboxes even with a single Sender", async () => {
     const { gmail, sendSpy } = makeMockGmail([
       { name: "From", value: "alice@example.com, bob@example.com" },
       { name: "Sender", value: "shared@example.com" },
@@ -130,11 +174,12 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
     try {
       const out = await client.callTool({
         name: "reply_to_email",
-        arguments: { messageId: "M2", body: "noted" },
+        arguments: { messageId: "M2b", body: "noted" },
       });
-      expect(sendSpy).toHaveBeenCalledOnce();
-      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toContain(
-        "To: shared@example.com",
+      expect(out.isError).toBe(true);
+      expect(sendSpy).not.toHaveBeenCalled();
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
+        /multiple From: mailboxes/,
       );
     } finally {
       await close();
@@ -164,7 +209,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
     }
   });
 
-  it("fails with the no-headers error when From / Sender / Reply-To are all empty", async () => {
+  it("fails with the no-headers error when From / Reply-To are both empty", async () => {
     const { gmail } = makeMockGmail([
       { name: "Subject", value: "Headerless" },
       { name: "Message-ID", value: "<noh@example.com>" },
@@ -178,15 +223,15 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       expect(out.isError).toBe(true);
       // The 277-278 reason branch — nothing to reply to.
       expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
-        /no From: \/ Sender: \/ Reply-To: header/,
+        /no From: \/ Reply-To: header/,
       );
     } finally {
       await close();
     }
   });
 
-  it("fails with the multi-Sender error when Sender has 2+ mailboxes (no Reply-To)", async () => {
-    const { gmail } = makeMockGmail([
+  it("replies to From when Sender has 2+ mailboxes (Sender is never a target)", async () => {
+    const { gmail, sendSpy } = makeMockGmail([
       { name: "From", value: "alice@example.com" },
       { name: "Sender", value: "shared-a@example.com, shared-b@example.com" },
       { name: "Subject", value: "Ambiguous Sender" },
@@ -196,19 +241,18 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
     try {
       const out = await client.callTool({
         name: "reply_to_email",
-        arguments: { messageId: "M-ms", body: "ignored" },
+        arguments: { messageId: "M-ms", body: "ok" },
       });
-      expect(out.isError).toBe(true);
-      // The 275-276 reason branch — multi-mailbox Sender header.
-      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
-        /multiple Sender: mailboxes/,
+      expect(sendSpy).toHaveBeenCalledOnce();
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toContain(
+        "To: alice@example.com",
       );
     } finally {
       await close();
     }
   });
 
-  it("fails with the multi-From error when From has 2+ mailboxes and no Reply-To/Sender disambiguator", async () => {
+  it("fails with the multi-From error when From has 2+ mailboxes and no Reply-To disambiguator", async () => {
     const { gmail } = makeMockGmail([
       { name: "From", value: "alice@example.com, bob@example.com" },
       { name: "Subject", value: "Co-authored no Sender" },
@@ -221,7 +265,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
         arguments: { messageId: "M-mf", body: "ignored" },
       });
       expect(out.isError).toBe(true);
-      // The 279 reason branch — multi-From with no Reply-To / Sender disambiguator.
+      // The reason branch for multi-From with no Reply-To disambiguator.
       expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
         /multiple From: mailboxes/,
       );

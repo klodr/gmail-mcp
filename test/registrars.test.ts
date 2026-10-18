@@ -2204,7 +2204,7 @@ describe("PR #7 registrars — reply_to_email (sender-only)", () => {
         })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
         expect(result.isError).toBe(true);
         expect(result.content[0]?.text).toContain("Could not determine a unique recipient");
-        expect(result.content[0]?.text).toContain("no From: / Sender: / Reply-To: header");
+        expect(result.content[0]?.text).toContain("no From: / Reply-To: header");
         expect(fix.calls.messageSend).toHaveLength(0);
       },
       { messageFromOverride: "" },
@@ -2236,13 +2236,12 @@ describe("PR #7 registrars — reply_to_email (sender-only)", () => {
     );
   });
 
-  it("prefers Sender: when the source carries one (RFC 5322 §3.6.2)", async () => {
-    // CR finding (PR #99): when both From: and Sender: are
-    // present, RFC 5322 §3.6.2 says Sender identifies the agent
-    // that physically transmitted the message. Replying to Sender
-    // is the conservative choice when From: is multi-party. Pin
-    // the resolver: a multi-From + single-Sender source addresses
-    // the reply To: the Sender mailbox.
+  it("never replies to Sender: a multi-From source fails closed even with one Sender", async () => {
+    // RFC 5322 §3.6.2 routes replies to Reply-To, else From. Sender
+    // only names the transmitting agent (a list server, a secretary):
+    // answering it sent mailing-list replies to the bounce address.
+    // A multi-From + single-Sender source is therefore as ambiguous
+    // as a bare multi-From one, and the resolver must not send.
     await withFix(
       ["gmail.send", "gmail.readonly"],
       async (fix) => {
@@ -2253,15 +2252,9 @@ describe("PR #7 registrars — reply_to_email (sender-only)", () => {
             body: "Acknowledged.",
           },
         })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
-        expect(result.isError).toBeFalsy();
-        expect(result.content[0]?.text).toContain("Reply sent successfully");
-        expect(fix.calls.messageSend).toHaveLength(1);
-        const sent = fix.calls.messageSend[0] as { requestBody: { raw: string } };
-        const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
-        const toLine = /^To:\s*(.+)$/m.exec(decoded)?.[1] ?? "";
-        // Pin: To is the Sender mailbox, not the first From entry.
-        expect(toLine).toContain("ops@example.com");
-        expect(toLine).not.toContain("alice@example.com");
+        expect(result.isError).toBe(true);
+        expect(result.content[0]?.text).toContain("multiple From: mailboxes");
+        expect(fix.calls.messageSend).toHaveLength(0);
       },
       {
         messageFromOverride: "alice@example.com, david@example.com",
