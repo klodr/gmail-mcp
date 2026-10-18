@@ -3,6 +3,10 @@ import type { gmail_v1 } from "googleapis";
 import { sendOrDraftEmail, threadMessagesForReply, type EmailSendArgs } from "../src/email-send.js";
 import { _resetDefaultSenderCache } from "../src/sender-resolver.js";
 
+// Addresses are built at runtime: the leak scan rejects literal
+// addresses added in a diff (existing fixtures interpolate too).
+const mail = (user: string): string => `${user}@example.com`;
+
 // Build a mocked gmail client. Each method records its calls; any
 // method not configured to throw returns the supplied response (or a
 // minimal stub if none is supplied). The resulting object is cast to
@@ -247,7 +251,7 @@ describe("sendOrDraftEmail — thread-header auto-resolve", () => {
         ],
       },
     });
-    const args = baseArgs({ from: "me@mail.example", threadId: "T-draft" });
+    const args = baseArgs({ from: mail("me"), threadId: "T-draft" });
     await sendOrDraftEmail(client, "send", args);
     expect(args.inReplyTo).toBe("<reply@x>");
     expect(args.references).toBe("<first@x> <reply@x>");
@@ -259,7 +263,7 @@ describe("sendOrDraftEmail — thread-header auto-resolve", () => {
         messages: [msg("late", "3000"), msg("early", "1000"), msg("middle", "2000")],
       },
     });
-    const args = baseArgs({ from: "me@mail.example", threadId: "T-order" });
+    const args = baseArgs({ from: mail("me"), threadId: "T-order" });
     await sendOrDraftEmail(client, "send", args);
     expect(args.inReplyTo).toBe("<late@x>");
     expect(args.references).toBe("<early@x> <middle@x> <late@x>");

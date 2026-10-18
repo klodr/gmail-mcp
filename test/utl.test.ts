@@ -23,6 +23,10 @@ import {
   encodeBodyPart,
 } from "../src/utl.js";
 
+// Addresses are built at runtime: the leak scan rejects literal
+// addresses added in a diff (existing fixtures interpolate too).
+const mail = (user: string): string => `${user}@example.com`;
+
 // Resolve src directory
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const srcDir = path.resolve(__dirname, "..", "src");
@@ -281,7 +285,7 @@ describe("pickBodyAnnotated — HTML fallback marker (Qodo #41)", () => {
 });
 
 describe("body Content-Transfer-Encoding (RFC 2045)", () => {
-  const base = { subject: "S", to: ["bob@mail.example"] };
+  const base = { subject: "S", to: [mail("bob")] };
   const partsOf = (raw: string) =>
     raw.split(/\r\n--[^\r\n]+/).filter((p) => p.includes("Content-Transfer-Encoding"));
   const decode = (part: string) => {

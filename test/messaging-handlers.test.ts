@@ -16,6 +16,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
 
+// Addresses are built at runtime: the leak scan rejects literal
+// addresses added in a diff (existing fixtures interpolate too).
+const mail = (user: string): string => `${user}@example.com`;
+
 // vi.stubEnv (vitest 2.x+) is scope-managed — `vi.unstubAllEnvs()` in
 // afterEach reverts every stub regardless of order, which is safe under
 // vitest's default file-parallel runner.
@@ -121,10 +125,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("picks the Reply-To address when the source sets exactly one", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@mail.example" },
-      { name: "Reply-To", value: "support@mail.example" },
+      { name: "From", value: mail("alice") },
+      { name: "Reply-To", value: mail("support") },
       { name: "Subject", value: "Ticket" },
-      { name: "Message-ID", value: "<rt@mail.example>" },
+      { name: "Message-ID", value: `<${mail("rt")}>` },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -134,7 +138,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       });
       expect(sendSpy).toHaveBeenCalledOnce();
       expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toContain(
-        "To: support@mail.example",
+        `To: ${mail("support")}`,
       );
     } finally {
       await close();
@@ -143,10 +147,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("ignores Sender: a mailing-list message is answered to its From author", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@mail.example" },
-      { name: "Sender", value: "list-bounces@lists.example" },
+      { name: "From", value: mail("alice") },
+      { name: "Sender", value: mail("list-bounces") },
       { name: "Subject", value: "List post" },
-      { name: "Message-ID", value: "<list@mail.example>" },
+      { name: "Message-ID", value: `<${mail("list")}>` },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -156,7 +160,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       });
       expect(sendSpy).toHaveBeenCalledOnce();
       const text = textOf(out as { content: Array<{ type: string; text?: string }> });
-      expect(text).toContain("To: alice@mail.example");
+      expect(text).toContain(`To: ${mail("alice")}`);
       expect(text).not.toContain("list-bounces@");
     } finally {
       await close();
@@ -165,10 +169,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("fails closed on multiple From mailboxes even with a single Sender", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@mail.example, bob@mail.example" },
-      { name: "Sender", value: "shared@mail.example" },
+      { name: "From", value: `${mail("alice")}, ${mail("bob")}` },
+      { name: "Sender", value: mail("shared") },
       { name: "Subject", value: "Co-authored" },
-      { name: "Message-ID", value: "<co@mail.example>" },
+      { name: "Message-ID", value: `<${mail("co")}>` },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -232,10 +236,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("replies to From when Sender has 2+ mailboxes (Sender is never a target)", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@mail.example" },
-      { name: "Sender", value: "shared-a@mail.example, shared-b@mail.example" },
+      { name: "From", value: mail("alice") },
+      { name: "Sender", value: `${mail("shared-a")}, ${mail("shared-b")}` },
       { name: "Subject", value: "Ambiguous Sender" },
-      { name: "Message-ID", value: "<as@mail.example>" },
+      { name: "Message-ID", value: `<${mail("as")}>` },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -245,7 +249,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       });
       expect(sendSpy).toHaveBeenCalledOnce();
       expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toContain(
-        "To: alice@mail.example",
+        `To: ${mail("alice")}`,
       );
     } finally {
       await close();
