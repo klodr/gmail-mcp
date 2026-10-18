@@ -1,0 +1,16 @@
+# OSV-Scanner configuration — https://google.github.io/osv-scanner/configuration/
+#
+# Every entry here is a known finding with no fixed release, reviewed and
+# accepted for a limited time. `ignoreUntil` forces a re-review: the scan
+# fails again on that date, so an exception cannot outlive its reason.
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2027-01-31T00:00:00Z
+reason = """
+braces <= 3.0.3: stack exhaustion on deeply nested brace patterns. No fixed
+release exists. Dev-only: reached through micromatch, required by
+markdownlint-cli2 and globby (yaml-lint) to expand the lint globs written in
+this repository's own scripts and config. Never shipped in the published
+package and never fed untrusted input.
+"""

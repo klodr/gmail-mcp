@@ -64,7 +64,7 @@
   },
   "packageManager": "npm@10.9.7",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "email-addresses": "^5.0.0",
     "fflate": "^0.8.3",
     "google-auth-library": "^11.1.0",
@@ -95,7 +95,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.4",
     "lockfile-lint": "^5.0.0",
-    "markdownlint-cli2": "^0.23.0",
+    "markdownlint-cli2": "^0.23.3",
     "prettier": "^3.8.3",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
@@ -109,13 +109,14 @@
     ]
   },
   "overrides": {
-    "fast-uri": "^3.1.6",
+    "fast-uri": "^3.1.8",
     "esbuild": "0.28.1",
     "js-yaml@^4.0.0": "^4.3.2",
-    "js-yaml@^5.0.0": "5.2.2",
+    "js-yaml@^5.0.0": "^5.4.1",
     "@hono/node-server": "2.0.12",
-    "smol-toml": "^1.8.0",
-    "google-auth-library": "$google-auth-library"
+    "smol-toml": "^1.9.0",
+    "google-auth-library": "$google-auth-library",
+    "katex": "^0.18.2"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,mts}": [
