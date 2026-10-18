@@ -648,6 +648,83 @@ describe("authenticate", () => {
     expect(stored.tokens).toMatchObject({ access_token: "at", refresh_token: "rt" });
   });
 
+  describe("refresh_token preservation", () => {
+    async function runGrant(granted: Record<string, unknown>): Promise<{
+      stored: { tokens: Record<string, unknown> };
+      authUrlOpts: Record<string, unknown>;
+    }> {
+      const port = await pickFreePort();
+      const cb = `http://127.0.0.1:${port}/oauth2callback`;
+      const client = makeClient(cb);
+      let authUrlOpts: Record<string, unknown> = {};
+      const original = client.generateAuthUrl.bind(client);
+      (
+        client as unknown as { generateAuthUrl: (o: Record<string, unknown>) => string }
+      ).generateAuthUrl = (o) => {
+        authUrlOpts = o;
+        return original(o);
+      };
+      (
+        client as unknown as {
+          getToken: (code: string) => Promise<{ tokens: Record<string, unknown> }>;
+        }
+      ).getToken = async () => Promise.resolve({ tokens: granted });
+      const flow = authenticate({
+        oauth2Client: client,
+        oauthCallbackUrl: cb,
+        scopes: ["gmail.readonly"],
+        credentialsPath,
+        openBrowser: () => undefined,
+        log,
+        generateState: () => "test-state-deterministic",
+      });
+      const res = await fetch(`${cb}?code=c&state=test-state-deterministic`);
+      expect(res.status).toBe(200);
+      await flow;
+      const fd = openSync(credentialsPath, "r");
+      try {
+        expect(fstatSync(fd).mode & 0o777).toBe(0o600);
+        return {
+          stored: JSON.parse(readFileSync(fd, "utf-8")) as { tokens: Record<string, unknown> },
+          authUrlOpts,
+        };
+      } finally {
+        closeSync(fd);
+      }
+    }
+
+    it("asks Google for consent and keeps the stored refresh_token when the grant omits it", async () => {
+      mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      writeFileSync(
+        credentialsPath,
+        JSON.stringify({ tokens: { access_token: "old-at", refresh_token: "old-rt" }, scopes: [] }),
+      );
+      const { stored, authUrlOpts } = await runGrant({ access_token: "new-at" });
+      expect(authUrlOpts).toMatchObject({ access_type: "offline", prompt: "consent" });
+      expect(stored.tokens).toMatchObject({ access_token: "new-at", refresh_token: "old-rt" });
+    });
+
+    it("also reads the legacy flat credentials shape", async () => {
+      mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      writeFileSync(
+        credentialsPath,
+        JSON.stringify({ access_token: "a", refresh_token: "legacy-rt" }),
+      );
+      const { stored } = await runGrant({ access_token: "new-at" });
+      expect(stored.tokens.refresh_token).toBe("legacy-rt");
+    });
+
+    it("prefers a refresh_token returned by the new grant", async () => {
+      mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      writeFileSync(
+        credentialsPath,
+        JSON.stringify({ tokens: { refresh_token: "old-rt" }, scopes: [] }),
+      );
+      const { stored } = await runGrant({ access_token: "new-at", refresh_token: "new-rt" });
+      expect(stored.tokens.refresh_token).toBe("new-rt");
+    });
+  });
+
   it("rejects a multi-byte state without throwing TypeError on Buffer mismatch", async () => {
     // Defence regression: the previous shape compared
     // `String.length` (UTF-16 code units) and only later built

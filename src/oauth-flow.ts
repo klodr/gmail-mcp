@@ -341,6 +341,34 @@ export interface AuthenticateOpts {
   generateState?: () => string;
 }
 
+/**
+ * Keep the stored `refresh_token` when a new grant comes back without
+ * one (Google only returns it on first consent unless `prompt=consent`,
+ * which `authenticate` now sends; this covers any other path). Reads
+ * both the v1.2.0+ `{ tokens, scopes }` shape and the legacy flat shape.
+ * A missing, unreadable or oversized file simply means there is nothing
+ * to keep.
+ */
+function withPreviousRefreshToken<T extends { refresh_token?: string | null }>(
+  tokens: T,
+  credentialsPath: string,
+): T {
+  if (tokens.refresh_token) return tokens;
+  try {
+    const stored = readJsonBounded(credentialsPath) as {
+      tokens?: { refresh_token?: unknown };
+      refresh_token?: unknown;
+    };
+    const previous = (stored.tokens ?? stored).refresh_token;
+    if (typeof previous === "string" && previous !== "") {
+      return { ...tokens, refresh_token: previous };
+    }
+  } catch {
+    // No previous credentials to carry over.
+  }
+  return tokens;
+}
+
 export async function authenticate(opts: AuthenticateOpts): Promise<void> {
   /* v8 ignore next 3 -- default log is exercised end-to-end via the
      real CLI (`gmail-mcp auth`) but every unit test injects an explicit
@@ -430,6 +458,10 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
     httpServer.listen(port, hostname, () => {
       const authUrl = opts.oauth2Client.generateAuthUrl({
         access_type: "offline",
+        // Without `consent`, Google omits the refresh_token when the
+        // account already granted this client once, and the token
+        // stored below would die with its one-hour access token.
+        prompt: "consent",
         scope: scopeUrls,
         state: expectedState,
       });
@@ -529,7 +561,8 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         }
 
         try {
-          const { tokens } = await opts.oauth2Client.getToken(code);
+          const { tokens: grantedTokens } = await opts.oauth2Client.getToken(code);
+          const tokens = withPreviousRefreshToken(grantedTokens, opts.credentialsPath);
           opts.oauth2Client.setCredentials(tokens);
 
           // writeFileSync's `mode` only applies on CREATE; force
