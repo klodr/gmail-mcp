@@ -259,11 +259,11 @@ describe("wrapToolHandler", () => {
 
   describe("structuredContent auto-attachment", () => {
     it("strips invisible characters from structuredContent strings, unfenced", async () => {
-      const payload = { subject: "inv\u202Eoice", from: "a\u200Bb@example.com" };
+      const payload = { subject: "inv\u202Eoice", from: "a\u200Bb@mail.example" };
       const result = await wrapToolHandler("list_email_labels", {}, async () => ({
         content: [{ type: "text", text: JSON.stringify(payload) }],
       }));
-      expect(result.structuredContent).toEqual({ subject: "invoice", from: "ab@example.com" });
+      expect(result.structuredContent).toEqual({ subject: "invoice", from: "ab@mail.example" });
       expect(JSON.stringify(result.structuredContent)).not.toContain("untrusted-tool-output");
     });
 

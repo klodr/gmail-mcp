@@ -121,10 +121,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("picks the Reply-To address when the source sets exactly one", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@example.com" },
-      { name: "Reply-To", value: "support@example.com" },
+      { name: "From", value: "alice@mail.example" },
+      { name: "Reply-To", value: "support@mail.example" },
       { name: "Subject", value: "Ticket" },
-      { name: "Message-ID", value: "<rt@example.com>" },
+      { name: "Message-ID", value: "<rt@mail.example>" },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -134,7 +134,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       });
       expect(sendSpy).toHaveBeenCalledOnce();
       expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toContain(
-        "To: support@example.com",
+        "To: support@mail.example",
       );
     } finally {
       await close();
@@ -143,10 +143,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("ignores Sender: a mailing-list message is answered to its From author", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@example.com" },
-      { name: "Sender", value: "list-bounces@lists.example.org" },
+      { name: "From", value: "alice@mail.example" },
+      { name: "Sender", value: "list-bounces@lists.example" },
       { name: "Subject", value: "List post" },
-      { name: "Message-ID", value: "<list@example.com>" },
+      { name: "Message-ID", value: "<list@mail.example>" },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -156,7 +156,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       });
       expect(sendSpy).toHaveBeenCalledOnce();
       const text = textOf(out as { content: Array<{ type: string; text?: string }> });
-      expect(text).toContain("To: alice@example.com");
+      expect(text).toContain("To: alice@mail.example");
       expect(text).not.toContain("list-bounces@");
     } finally {
       await close();
@@ -165,10 +165,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("fails closed on multiple From mailboxes even with a single Sender", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@example.com, bob@example.com" },
-      { name: "Sender", value: "shared@example.com" },
+      { name: "From", value: "alice@mail.example, bob@mail.example" },
+      { name: "Sender", value: "shared@mail.example" },
       { name: "Subject", value: "Co-authored" },
-      { name: "Message-ID", value: "<co@example.com>" },
+      { name: "Message-ID", value: "<co@mail.example>" },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -232,10 +232,10 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
 
   it("replies to From when Sender has 2+ mailboxes (Sender is never a target)", async () => {
     const { gmail, sendSpy } = makeMockGmail([
-      { name: "From", value: "alice@example.com" },
-      { name: "Sender", value: "shared-a@example.com, shared-b@example.com" },
+      { name: "From", value: "alice@mail.example" },
+      { name: "Sender", value: "shared-a@mail.example, shared-b@mail.example" },
       { name: "Subject", value: "Ambiguous Sender" },
-      { name: "Message-ID", value: "<as@example.com>" },
+      { name: "Message-ID", value: "<as@mail.example>" },
     ]);
     const { client, close } = await makeClient(gmail);
     try {
@@ -245,7 +245,7 @@ describe("registerMessagingTools — reply_to_email recipient resolver", () => {
       });
       expect(sendSpy).toHaveBeenCalledOnce();
       expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toContain(
-        "To: alice@example.com",
+        "To: alice@mail.example",
       );
     } finally {
       await close();

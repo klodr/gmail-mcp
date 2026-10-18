@@ -351,8 +351,8 @@ describe("parseEmailAddresses — linear on hostile headers", () => {
   });
 
   it("still picks the last bracketed address of a malformed list", () => {
-    expect(parseEmailAddresses('"Alice <alias@meta>" <alice@example.com>, junk;')).toContain(
-      "alice@example.com",
+    expect(parseEmailAddresses('"Alice <alias@meta>" <alice@mail.example>, junk;')).toContain(
+      "alice@mail.example",
     );
   });
 });

@@ -2334,7 +2334,7 @@ describe("PR #7 registrars — forward_email", () => {
       // forward under the original conversation and the recipient
       // sees an out-of-context reply chain.
       expect(sent.requestBody.threadId).toBeUndefined();
-      const decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
+      let decoded = Buffer.from(sent.requestBody.raw, "base64url").toString("utf-8");
       // Subject prefixed Fwd:, To carries the new recipient.
       expect(decoded).toMatch(/^Subject:\s*Fwd: Test message msg_orig$/m);
       expect(decoded).toMatch(/^To:\s*carol@example\.com$/m);
@@ -2343,17 +2343,19 @@ describe("PR #7 registrars — forward_email", () => {
       // exact strings guards against a regression that drops a
       // header line or restyles the separator (Gmail's UI is
       // strict about the exact ASCII for thread inference).
-      // The preface carries an em dash, so the body is base64 (RFC 2045).
+      // The preface carries an em dash, so the body is base64 (RFC 2045):
+      // decode it before checking the quoted content.
       const { encoding, body } = decodedBodyOf(decoded);
       expect(encoding).toBe("base64");
-      expect(body).toContain("FYI — see below.");
-      expect(body).toContain("---------- Forwarded message ---------");
-      expect(body).toContain("From: Alice <alice@example.com>");
-      expect(body).toContain("Subject: Test message msg_orig");
-      expect(body).toContain("To: bob@example.com");
+      decoded = body;
+      expect(decoded).toContain("FYI — see below.");
+      expect(decoded).toContain("---------- Forwarded message ---------");
+      expect(decoded).toContain("From: Alice <alice@example.com>");
+      expect(decoded).toContain("Subject: Test message msg_orig");
+      expect(decoded).toContain("To: bob@example.com");
       // Original body verbatim — pinned so the mime-walker
       // extractEmailContent path stays wired.
-      expect(body).toContain("default body content");
+      expect(decoded).toContain("default body content");
     });
   });
 

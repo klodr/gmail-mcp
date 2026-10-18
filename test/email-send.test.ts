@@ -247,7 +247,7 @@ describe("sendOrDraftEmail — thread-header auto-resolve", () => {
         ],
       },
     });
-    const args = baseArgs({ from: "me@example.com", threadId: "T-draft" });
+    const args = baseArgs({ from: "me@mail.example", threadId: "T-draft" });
     await sendOrDraftEmail(client, "send", args);
     expect(args.inReplyTo).toBe("<reply@x>");
     expect(args.references).toBe("<first@x> <reply@x>");
@@ -259,7 +259,7 @@ describe("sendOrDraftEmail — thread-header auto-resolve", () => {
         messages: [msg("late", "3000"), msg("early", "1000"), msg("middle", "2000")],
       },
     });
-    const args = baseArgs({ from: "me@example.com", threadId: "T-order" });
+    const args = baseArgs({ from: "me@mail.example", threadId: "T-order" });
     await sendOrDraftEmail(client, "send", args);
     expect(args.inReplyTo).toBe("<late@x>");
     expect(args.references).toBe("<early@x> <middle@x> <late@x>");
