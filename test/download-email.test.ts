@@ -146,30 +146,37 @@ describe("download_email formats", () => {
       );
     });
 
-    it("stamps the CSP inside an existing <head>, right after the tag", () => {
+    const CSP_TAG = 'http-equiv="Content-Security-Policy"';
+
+    it("puts the CSP first in the real <head>, before any sender markup", () => {
       const out = emailToHtml({
         text: "",
-        html: "<html><head><title>t</title></head><body><header>h</header></body></html>",
+        html: "<html><head><title>t</title><script>x()</script></head><body><header>h</header></body></html>",
       });
-      expect(out.indexOf('http-equiv="Content-Security-Policy"')).toBeGreaterThan(
-        out.indexOf("<head>"),
-      );
-      expect(out.indexOf('http-equiv="Content-Security-Policy"')).toBeLessThan(
-        out.indexOf("<title>"),
-      );
-      // <header> must not be mistaken for <head>.
+      expect(out.startsWith(`<html><head><meta charset="utf-8"><meta ${CSP_TAG}`)).toBe(true);
+      expect(out.indexOf(CSP_TAG)).toBeLessThan(out.indexOf("<script>"));
       expect(out).toContain("<header>h</header>");
       expect(out.match(/Content-Security-Policy/g)).toHaveLength(1);
     });
 
-    it("adds a <head> after <html> when the document has none", () => {
-      const out = emailToHtml({ text: "", html: '<HTML lang="fr"><body>x</body></HTML>' });
-      expect(out).toMatch(/^<HTML lang="fr"><head><meta http-equiv="Content-Security-Policy"/);
+    it("is not fooled by a <head> hidden in a comment", () => {
+      const out = emailToHtml({
+        text: "",
+        html: "<!-- <head> --><html><head><script>x()</script></head><body>b</body></html>",
+      });
+      // The CSP precedes the comment, so it sits in the head the browser builds.
+      expect(out.indexOf(CSP_TAG)).toBeLessThan(out.indexOf("<!--"));
     });
 
-    it("wraps a bare fragment in a complete document", () => {
-      const out = emailToHtml({ text: "", html: "<p>Bonjour</p>" });
+    it("keeps a leading doctype first so the rendering mode does not change", () => {
+      const out = emailToHtml({ text: "", html: "<!DOCTYPE html>\n<html><body>x</body></html>" });
       expect(out.startsWith("<!DOCTYPE html><html><head>")).toBe(true);
+      expect(out.match(/<!DOCTYPE/gi)).toHaveLength(1);
+    });
+
+    it("wraps a bare fragment without adding a doctype (quirks mode kept)", () => {
+      const out = emailToHtml({ text: "", html: "<p>Bonjour</p>" });
+      expect(out.startsWith("<html><head>")).toBe(true);
       expect(out).toContain(`content="${EXPORTED_HTML_CSP}"`);
       expect(out).toContain("<body><p>Bonjour</p></body>");
     });

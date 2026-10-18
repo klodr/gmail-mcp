@@ -163,28 +163,25 @@ export const EXPORTED_HTML_CSP =
   "script-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
 const CSP_META = `<meta http-equiv="Content-Security-Policy" content="${EXPORTED_HTML_CSP}">`;
-// `[^>]*` keeps both scans linear. `\b` keeps `<header>` from matching `<head`.
-const HEAD_OPEN_RE = /<head\b[^>]*>/i;
-const HTML_OPEN_RE = /<html\b[^>]*>/i;
+// Anchored at the very start (`^\s*`, `[^>]*`): linear, and it cannot be
+// fooled by a doctype-looking string inside a comment further down.
+const LEADING_DOCTYPE_RE = /^\s*(<!doctype[^>]*>)/i;
 
 /**
- * Put the CSP `<meta>` where browsers honour it: a CSP meta is only
- * applied from inside `<head>`, so it goes right after an existing
- * `<head>` tag, else into a new `<head>` right after `<html>`, else the
- * fragment is wrapped in a complete document.
+ * Wrap the sender's HTML in a document whose `<head>` starts with the CSP
+ * `<meta>` (a CSP meta is only enforced from inside the head). Searching
+ * the sender's markup for its own `<head>` is unreliable: a `<head>` inside
+ * a comment, a script string or an attribute would receive the tag and the
+ * browser would ignore it. The HTML parser merges the sender's own
+ * `<html>` / `<head>` / `<body>` tags into this document, so the copy
+ * renders as before. A leading doctype is kept first, so the rendering
+ * mode (standards or quirks) does not change; the UTF-8 charset matches the
+ * encoding the file is written in.
  */
 function withExportCsp(html: string): string {
-  const head = HEAD_OPEN_RE.exec(html);
-  if (head) {
-    const at = head.index + head[0].length;
-    return html.slice(0, at) + CSP_META + html.slice(at);
-  }
-  const root = HTML_OPEN_RE.exec(html);
-  if (root) {
-    const at = root.index + root[0].length;
-    return html.slice(0, at) + `<head>${CSP_META}</head>` + html.slice(at);
-  }
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">${CSP_META}</head><body>${html}</body></html>`;
+  const doctype = LEADING_DOCTYPE_RE.exec(html);
+  const rest = doctype ? html.slice(doctype[0].length) : html;
+  return `${doctype?.[1] ?? ""}<html><head><meta charset="utf-8">${CSP_META}</head><body>${rest}</body></html>`;
 }
 
 /**
