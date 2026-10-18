@@ -281,7 +281,7 @@ describe("pickBodyAnnotated — HTML fallback marker (Qodo #41)", () => {
 });
 
 describe("body Content-Transfer-Encoding (RFC 2045)", () => {
-  const base = { subject: "S", to: ["bob@example.com"] };
+  const base = { subject: "S", to: ["bob@mail.example"] };
   const partsOf = (raw: string) =>
     raw.split(/\r\n--[^\r\n]+/).filter((p) => p.includes("Content-Transfer-Encoding"));
   const decode = (part: string) => {
@@ -294,7 +294,8 @@ describe("body Content-Transfer-Encoding (RFC 2045)", () => {
   it("keeps a pure-ASCII body as readable 7bit", () => {
     const raw = createEmailMessage({ ...base, body: "Hello Bob,\nsee you." });
     expect(raw).toContain("Content-Transfer-Encoding: 7bit");
-    expect(raw).toContain("Hello Bob,\nsee you.");
+    expect(raw).toContain("Hello Bob,\r\nsee you.");
+    expect(raw).not.toMatch(/[^\r]\n/);
   });
 
   it("sends an accented body as base64 that decodes back exactly", () => {
@@ -303,6 +304,12 @@ describe("body Content-Transfer-Encoding (RFC 2045)", () => {
     expect(raw).toContain("Content-Transfer-Encoding: base64");
     expect(raw).not.toContain("relevé");
     expect(decode(partsOf(raw)[0] ?? raw)).toBe(body);
+  });
+
+  it("canonicalises bare LF and lone CR to CRLF before encoding", () => {
+    expect(encodeBodyPart("a\nb\rc\r\nd").text).toBe("a\r\nb\r\nc\r\nd");
+    const { text } = encodeBodyPart("é\nz");
+    expect(Buffer.from(text.replaceAll("\r\n", ""), "base64").toString("utf8")).toBe("é\r\nz");
   });
 
   it("base64-encodes an ASCII body whose line exceeds 998 octets", () => {

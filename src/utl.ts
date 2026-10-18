@@ -568,19 +568,23 @@ export interface ValidatedEmailArgs {
  * A body that does not keep that promise (any accent, emoji, CJK, or a
  * very long line) is sent as base64 wrapped at 76 characters instead,
  * the encoding nodemailer already uses for the attachment path. Pure
- * ASCII bodies stay readable `7bit`, unchanged.
+ * ASCII bodies stay readable `7bit`. Line breaks are canonicalised to
+ * CRLF first in both cases.
  */
 const MAX_7BIT_LINE_OCTETS = 998;
 const BASE64_LINE_CHARS = 76;
 
 export function encodeBodyPart(content: string): { encoding: "7bit" | "base64"; text: string } {
+  // RFC 2045 §6.8 / RFC 5322 §2.3: text line breaks are CRLF in canonical
+  // form, before any transfer encoding. Bare LF and lone CR become CRLF.
+  const canonical = content.replaceAll(/\r\n|\r|\n/g, "\r\n");
   // UTF-8 byte length equals the UTF-16 length only when every code unit
   // is ASCII (any other code point needs 2-4 bytes for 1-2 code units).
-  const isAscii = Buffer.byteLength(content, "utf8") === content.length;
-  if (isAscii && content.split(/\r?\n/).every((line) => line.length <= MAX_7BIT_LINE_OCTETS)) {
-    return { encoding: "7bit", text: content };
+  const isAscii = Buffer.byteLength(canonical, "utf8") === canonical.length;
+  if (isAscii && canonical.split("\r\n").every((line) => line.length <= MAX_7BIT_LINE_OCTETS)) {
+    return { encoding: "7bit", text: canonical };
   }
-  const encoded = Buffer.from(content, "utf8").toString("base64");
+  const encoded = Buffer.from(canonical, "utf8").toString("base64");
   const lines: string[] = [];
   for (let at = 0; at < encoded.length; at += BASE64_LINE_CHARS) {
     lines.push(encoded.slice(at, at + BASE64_LINE_CHARS));
