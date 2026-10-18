@@ -52,12 +52,28 @@ export function scopeNamesToUrls(scopes: string[]): string[] {
   return scopes.map((name: string) => scopeNameToUrl(name));
 }
 
+// Mail scopes that mail.google.com (full access) also satisfies: Google
+// treats it as a superset of them. It does NOT cover the settings scopes:
+// Gmail's settings endpoints (filters, forwarding, send-as) only accept
+// gmail.settings.basic / gmail.settings.sharing.
+const MAIL_GOOGLE_COM_COVERS: ReadonlySet<string> = new Set([
+  "gmail.readonly",
+  "gmail.modify",
+  "gmail.compose",
+  "gmail.send",
+  "gmail.labels",
+]);
+
 // Check if the authorized scopes grant access to a tool
 // Returns true if ANY of the tool's required scopes are present in authorizedScopes
+// (or covered by a granted mail.google.com)
 export function hasScope(authorizedScopes: string[], requiredScopes: string[]): boolean {
   // Normalize to shorthand names for comparison (handles both URL and shorthand input)
   const normalizedAuth = new Set(authorizedScopes.map((url: string) => scopeUrlToName(url)));
-  return requiredScopes.some((scope) => normalizedAuth.has(scope));
+  const hasFullAccess = normalizedAuth.has("mail.google.com");
+  return requiredScopes.some(
+    (scope) => normalizedAuth.has(scope) || (hasFullAccess && MAIL_GOOGLE_COM_COVERS.has(scope)),
+  );
 }
 
 // Parse scope input from CLI (comma-separated or space-separated)
