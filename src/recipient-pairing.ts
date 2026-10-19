@@ -23,11 +23,13 @@
  *   the install. Turning it on requires one explicit env flag plus
  *   at least one paired address to avoid a "fresh install refuses
  *   every send" lockout.
- * - With the gate ON, the model cannot pair an address on its own:
- *   `pair_recipient add` asks the human to confirm through MCP
- *   elicitation, or refuses and points to the CLI
+ * - With the gate ON, the model cannot pair an address through
+ *   gmail-mcp: `pair_recipient add` asks the human to confirm through
+ *   MCP elicitation, or refuses and points to the CLI
  *   (`npx @klodr/gmail-mcp pair add <address>`). Otherwise a hostile
  *   email could tell the agent to pair, then mail, its own address.
+ *   This holds as long as the MCP client does not also give the model
+ *   unchecked terminal or file access (the CLI, `paired.json`).
  */
 
 import fs from "node:fs";

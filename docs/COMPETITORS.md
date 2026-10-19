@@ -125,7 +125,7 @@ Not value judgments — scope decisions.
   - Path-jail defenses (`GMAIL_MCP_ATTACHMENT_DIR`, `GMAIL_MCP_DOWNLOAD_DIR` with `O_NOFOLLOW` + post-`mkdir` realpath re-verification)
   - OAuth scope filtering at startup — tool list is filtered before the LLM ever sees it
   - Cryptographic MIME boundaries, CRLF sanitization on both email-assembly paths
-  - Outbound guard rails: an optional recipient allowlist the model cannot extend on its own (human confirmation by MCP elicitation, or a CLI command), forwarding filters refused, write caps that count every message of a batch
+  - Outbound guard rails: an optional recipient allowlist the model cannot extend through gmail-mcp (human confirmation by MCP elicitation, or a CLI command), forwarding filters refused, write caps that count every message of a batch
   - Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web); exported HTML with scripts and remote content blocked
   - OAuth loopback flow with `state` and PKCE
   - `.coderabbit.yaml` assertive-profile gate that every PR must pass

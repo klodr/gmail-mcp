@@ -67,9 +67,9 @@ export interface RunServerOpts {
  * `pair add <address> | pair remove <address> | pair list` — the
  * human-side door to the paired-recipient allowlist. When
  * `GMAIL_MCP_RECIPIENT_PAIRING=true`, the model cannot pair an address
- * on its own (see `pair_recipient`), so this command is how a person
- * at a terminal approves one when the MCP client cannot ask them to
- * confirm. Needs no OAuth keys: it only touches `paired.json`.
+ * through gmail-mcp (see `pair_recipient`), so this command is how a
+ * person at a terminal approves one when the MCP client cannot ask
+ * them to confirm. Needs no OAuth keys: it only touches `paired.json`.
  */
 export function runPairCommand(
   args: readonly string[],
