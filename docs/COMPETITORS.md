@@ -126,7 +126,7 @@ Not value judgments — scope decisions.
   - OAuth scope filtering at startup — tool list is filtered before the LLM ever sees it
   - Cryptographic MIME boundaries, CRLF sanitization on both email-assembly paths
   - Outbound guard rails: an optional recipient allowlist the model cannot extend through gmail-mcp (human confirmation by MCP elicitation, or a CLI command), forwarding filters refused, write caps that count every message of a batch
-  - Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web); exported HTML with scripts and remote content blocked
+  - Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web); exported HTML with scripts blocked and remote content blocked by default (opt-in per call with `allowRemoteImages`, or `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`)
   - OAuth loopback flow with `state` and PKCE
   - `.coderabbit.yaml` assertive-profile gate that every PR must pass
 
