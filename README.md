@@ -121,7 +121,7 @@ Or directly via `npx`:
 npx -y @klodr/gmail-mcp
 ```
 
-Requires **Node.js 22+**.
+Requires **Node.js 24.18.1+** (tested on Node 24 and 26).
 
 ## ⚙️ Configuration
 
