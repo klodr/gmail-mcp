@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/klodr/gmail-mcp/compare/v1.5.0...v2.0.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* Node 22 is no longer supported; Node >= 24.18.1 is required.
+
+### Added
+
+* require node 24.18.1 and test on node 24 and 26 ([#332](https://github.com/klodr/gmail-mcp/issues/332)) ([ff40464](https://github.com/klodr/gmail-mcp/commit/ff404640825ff4b01a8b4d694d7e8bc8dbee1f59))
+
 ## [1.5.0](https://github.com/klodr/gmail-mcp/compare/v1.4.5...v1.5.0) (2026-10-19)
 
 
