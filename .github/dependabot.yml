@@ -11,8 +11,8 @@ updates:
     # lets a compromised release be yanked first.
     cooldown:
       default-days: 7
-    # Keep @types/node pinned on the 22.x line so its type surface
-    # tracks engines.node (>=22.23.1). A semver-major bump would declare
+    # Keep @types/node pinned on the 24.x line so its type surface
+    # tracks engines.node (>=24.18.1). A semver-major bump would declare
     # APIs the runtime doesn't guarantee. Reopen only when we move the
     # engines floor to a newer LTS.
     ignore:

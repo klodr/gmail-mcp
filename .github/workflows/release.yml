@@ -26,10 +26,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.0
 
-      - name: Setup Node 22
+      - name: Setup Node 26
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
+          node-version: "26"
           cache: "npm"
 
       - name: Install dependencies
@@ -54,14 +54,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.0
 
-      - name: Setup Node 24
+      - name: Setup Node 26
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # Node 24 ships npm >= 11.5.1, which supports OIDC trusted
+          # Node 26 ships npm 11.x (>= 11.5.1), which supports OIDC trusted
           # publishing out of the box (no global npm install needed).
-          node-version: "24"
+          node-version: "26"
           # No npm cache here: keep the publish job's environment minimal
-          # for OIDC trusted publishing (per CodeRabbit review).
+          # for OIDC trusted publishing (per CodeRabbit review). setup-node
+          # v7 caches automatically when package.json declares
+          # packageManager, so the cache must be switched off explicitly.
+          package-manager-cache: false
           # No registry-url: setup-node would write an npm auth line
           # reading NODE_AUTH_TOKEN, which (left empty) makes npm take
           # the classic-auth path instead of the OIDC exchange.

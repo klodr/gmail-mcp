@@ -27,8 +27,8 @@ body:
     id: node
     attributes:
       label: Node.js version
-      description: "Output of `node --version`. The project requires ≥ 22."
-      placeholder: "e.g. v22.19.0"
+      description: "Output of `node --version`. The project requires ≥ 24.18.1."
+      placeholder: "e.g. v26.12.0"
     validations:
       required: true
 
