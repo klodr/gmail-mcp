@@ -5,7 +5,7 @@
  * to the CLI. `list` / `remove` stay available, and with the gate OFF
  * `add` behaves as before.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema, type ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../src/server.js";
+import { PAIRING_CONFIRM_TIMEOUT_MS_DEFAULT } from "../src/tools/messaging.js";
 import { resetRateLimitHistory } from "../src/rate-limit.js";
 import { addPairedAddress, readPairedList } from "../src/recipient-pairing.js";
 
@@ -36,6 +37,7 @@ afterEach(() => {
   delete process.env.GMAIL_MCP_PAIRED_PATH;
   delete process.env.GMAIL_MCP_STATE_DIR;
   delete process.env.GMAIL_MCP_RECIPIENT_PAIRING;
+  delete process.env.GMAIL_MCP_PAIRING_CONFIRM_TIMEOUT_MS;
   rmSync(stateDir, { recursive: true, force: true });
 });
 
@@ -44,8 +46,12 @@ afterEach(() => {
  * elicitation and replies with it (or throws, for the error path);
  * `answer` undefined → a client without elicitation support.
  */
-async function connect(answer?: () => ElicitResult): Promise<{
+async function connect(
+  answer?: () => ElicitResult | Promise<ElicitResult>,
+  capabilities?: Record<string, unknown>,
+): Promise<{
   client: Client;
+  server: ReturnType<typeof createServer>;
   asked: string[];
   close: () => Promise<void>;
 }> {
@@ -56,7 +62,7 @@ async function connect(answer?: () => ElicitResult): Promise<{
   const asked: string[] = [];
   const client = new Client(
     { name: "pairing-confirm-test", version: "0.0.0" },
-    answer ? { capabilities: { elicitation: { form: {} } } } : {},
+    { capabilities: capabilities ?? (answer ? { elicitation: { form: {} } } : {}) },
   );
   if (answer) {
     client.setRequestHandler(ElicitRequestSchema, (request) => {
@@ -68,6 +74,7 @@ async function connect(answer?: () => ElicitResult): Promise<{
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   return {
     client,
+    server,
     asked,
     close: async () => {
       await Promise.all([client.close(), server.close()]);
@@ -140,6 +147,62 @@ describe("pair_recipient add with the pairing gate on", () => {
       expect(out.content[0]?.text).toContain("no elicitation support");
       expect(out.content[0]?.text).toContain(`npx @klodr/gmail-mcp pair add ${mail("x")}`);
       expect(existsSync(join(stateDir, "paired.json"))).toBe(false);
+    } finally {
+      await fix.close();
+    }
+  });
+
+  it("refuses with the clear message when the client only declares URL elicitation", async () => {
+    const fix = await connect(undefined, { elicitation: { url: {} } });
+    try {
+      const out = await add(fix.client, mail("x"));
+      expect(out.isError).toBe(true);
+      expect(out.content[0]?.text).toContain("no elicitation support for forms");
+      expect(out.content[0]?.text).not.toContain("confirmation request failed");
+      expect(out.content[0]?.text).toContain(`npx @klodr/gmail-mcp pair add ${mail("x")}`);
+      expect(fix.asked).toEqual([]);
+      expect(readPairedList()).toEqual([]);
+    } finally {
+      await fix.close();
+    }
+  });
+
+  it.each([
+    ["unset", undefined, PAIRING_CONFIRM_TIMEOUT_MS_DEFAULT],
+    ["set", "120000", 120_000],
+    ["not a number", "soon", PAIRING_CONFIRM_TIMEOUT_MS_DEFAULT],
+    ["zero", "0", PAIRING_CONFIRM_TIMEOUT_MS_DEFAULT],
+    ["negative", "-5", PAIRING_CONFIRM_TIMEOUT_MS_DEFAULT],
+  ])(
+    "passes an explicit timeout to the confirmation request (env %s)",
+    async (_label, raw, expected) => {
+      if (raw !== undefined) process.env.GMAIL_MCP_PAIRING_CONFIRM_TIMEOUT_MS = raw;
+      const fix = await connect(() => ({ action: "accept", content: { confirm: true } }));
+      const spy = vi.spyOn(fix.server.server, "elicitInput");
+      try {
+        await add(fix.client, mail("x"));
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0]?.[1]).toEqual({ timeout: expected });
+      } finally {
+        spy.mockRestore();
+        await fix.close();
+      }
+    },
+  );
+
+  it("does not pair when the human does not answer before the timeout", async () => {
+    process.env.GMAIL_MCP_PAIRING_CONFIRM_TIMEOUT_MS = "50";
+    const fix = await connect(
+      () =>
+        new Promise<ElicitResult>((resolve) => {
+          setTimeout(() => resolve({ action: "accept", content: { confirm: true } }), 500);
+        }),
+    );
+    try {
+      const out = await add(fix.client, mail("x"));
+      expect(out.isError).toBe(true);
+      expect(out.content[0]?.text).toContain("the confirmation request failed");
+      expect(readPairedList()).toEqual([]);
     } finally {
       await fix.close();
     }

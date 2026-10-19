@@ -105,10 +105,13 @@ weaknesses have been countered.
     statement to this new address". **Mitigations:** optional recipient
     allowlist (`GMAIL_MCP_RECIPIENT_PAIRING=true`) on every send, reply,
     forward and draft path, `send_draft` included; the model cannot
-    extend the allowlist by itself (`pair_recipient add` needs a human
-    confirmation through MCP elicitation, or the
+    extend the allowlist through gmail-mcp (`pair_recipient add` needs
+    a human confirmation through MCP form elicitation, or the
     `npx @klodr/gmail-mcp pair add` command); `send_draft` refuses a
-    draft whose recipients do not parse.
+    draft whose recipients do not parse. **Residual risk:** a client
+    that also grants the model unchecked terminal or file access lets
+    it run that command or edit `paired.json` itself; the guarantee
+    relies on the client's permissions for those.
 12. **Prompt injection asking for a forwarding rule** — a filter that
     forwards matching mail is a permanent, silent exfiltration channel.
     **Mitigation:** `createFilter` refuses `action.forward` for every

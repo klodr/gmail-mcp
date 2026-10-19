@@ -44,6 +44,24 @@ import {
 } from "../reply-all-helpers.js";
 import { extractEmailContent } from "../mime-walkers.js";
 
+/** Default wait for the pairing confirmation form: 10 minutes. */
+export const PAIRING_CONFIRM_TIMEOUT_MS_DEFAULT = 10 * 60_000;
+
+/**
+ * How long `pair_recipient add` waits for the human to answer the
+ * confirmation form. The SDK's default request timeout is 60 s, too
+ * short for someone who is away from the screen; the default here is
+ * 10 minutes, overridable with `GMAIL_MCP_PAIRING_CONFIRM_TIMEOUT_MS`
+ * (a positive integer, in milliseconds; anything else falls back to
+ * the default). The MCP client also applies its own timeout to the
+ * tool call, which may end the wait sooner.
+ */
+function pairingConfirmTimeoutMs(): number {
+  const raw = process.env["GMAIL_MCP_PAIRING_CONFIRM_TIMEOUT_MS"];
+  const parsed = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : PAIRING_CONFIRM_TIMEOUT_MS_DEFAULT;
+}
+
 export function registerMessagingTools(
   server: McpServer,
   gmail: gmail_v1.Gmail,
@@ -96,31 +114,36 @@ export function registerMessagingTools(
    */
   async function confirmPairing(address: string): Promise<string | null> {
     const cli = pairCommandHint(address);
-    if (!server.server.getClientCapabilities()?.elicitation) {
+    // `elicitInput({ mode: "form" })` needs the `form` sub-capability:
+    // a client that only declares URL elicitation cannot show the box.
+    if (!server.server.getClientCapabilities()?.elicitation?.form) {
       return (
         `Recipient pairing is enabled, so "${address}" cannot be paired on the model's request alone, ` +
-        `and this MCP client cannot ask you to confirm (no elicitation support). Pair it yourself from a terminal: ${cli}`
+        `and this MCP client cannot ask you to confirm (no elicitation support for forms). Pair it yourself from a terminal: ${cli}`
       );
     }
     try {
-      const answer = await server.server.elicitInput({
-        mode: "form",
-        message:
-          `gmail-mcp: the assistant asks to add "${address}" to the paired recipients. ` +
-          "Once paired, it can send, reply and forward to this address without asking again.",
-        requestedSchema: {
-          type: "object",
-          properties: {
-            confirm: {
-              type: "boolean",
-              title: `Pair ${address}`,
-              description: "Tick to allow emails to this address.",
-              default: false,
+      const answer = await server.server.elicitInput(
+        {
+          mode: "form",
+          message:
+            `gmail-mcp: the assistant asks to add "${address}" to the paired recipients. ` +
+            "Once paired, it can send, reply and forward to this address without asking again.",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              confirm: {
+                type: "boolean",
+                title: `Pair ${address}`,
+                description: "Tick to allow emails to this address.",
+                default: false,
+              },
             },
+            required: ["confirm"],
           },
-          required: ["confirm"],
         },
-      });
+        { timeout: pairingConfirmTimeoutMs() },
+      );
       if (answer.action === "accept" && answer.content?.["confirm"] === true) return null;
       return answer.action === "accept"
         ? `"${address}" was not paired: the confirmation was left unticked.`
