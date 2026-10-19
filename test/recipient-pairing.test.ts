@@ -279,6 +279,21 @@ describe("recipient-pairing", () => {
       );
     });
 
+    it("still honours an entry written raw by an older version", () => {
+      process.env[ENV_RECIPIENT_PAIRING] = "true";
+      writeFileSync(
+        join(tmpDir, "paired.json"),
+        JSON.stringify({
+          version: 1,
+          addresses: [`bob martin <${mail("bob")}>`],
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+      expect(isAddressPaired(mail("bob"))).toBe(true);
+      expect(() => requirePairedRecipients([mail("bob")])).not.toThrow();
+      expect(() => requirePairedRecipients([mail("eve")])).toThrow(/not in the paired allowlist/);
+    });
+
     it("can still remove an entry written raw by an older version", () => {
       const legacy = `bob martin <${mail("bob")}>`;
       writeFileSync(

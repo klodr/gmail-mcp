@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   ENV_QUARANTINE,
   isQuarantineEnabled,
@@ -36,8 +36,16 @@ function fakeDeps(platform: NodeJS.Platform, failWith?: Error) {
   return { deps, calls };
 }
 
-afterEach(() => {
+// Independent of the caller's environment: a GMAIL_MCP_QUARANTINE set
+// before the run must not change what these tests expect.
+let savedQuarantine: string | undefined;
+beforeEach(() => {
+  savedQuarantine = process.env[ENV_QUARANTINE];
   delete process.env[ENV_QUARANTINE];
+});
+afterEach(() => {
+  if (savedQuarantine === undefined) delete process.env[ENV_QUARANTINE];
+  else process.env[ENV_QUARANTINE] = savedQuarantine;
 });
 
 describe("macQuarantineValue", () => {

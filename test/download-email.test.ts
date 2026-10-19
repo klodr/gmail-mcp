@@ -16,7 +16,7 @@ import {
   emailToTxt,
   emailToHtml,
   EXPORTED_HTML_CSP,
-  BLOCK_REMOTE_IMAGES_CSP,
+  BLOCK_REMOTE_CONTENT_CSP,
   ENV_EXPORT_REMOTE_IMAGES,
   remoteImagesAllowed,
   parseEmailAddress,
@@ -138,7 +138,7 @@ describe("download_email formats", () => {
 
   describe("HTML format", () => {
     // Default policy: the base CSP plus the remote-image block.
-    const DEFAULT_POLICY = `${EXPORTED_HTML_CSP}; ${BLOCK_REMOTE_IMAGES_CSP}`;
+    const DEFAULT_POLICY = `${EXPORTED_HTML_CSP}; ${BLOCK_REMOTE_CONTENT_CSP}`;
 
     it("returns raw HTML content", () => {
       const html = emailToHtml(mockContent);
@@ -149,6 +149,13 @@ describe("download_email formats", () => {
     it("blocks remote images by default and lets them through on request", () => {
       const html = '<p>x</p><img src="https://tracker.example.invalid/p.gif">';
       expect(emailToHtml({ text: "", html })).toContain("img-src data: cid:");
+      // A tracking stylesheet is blocked too, inline <style> is not.
+      const styled = emailToHtml({
+        text: "",
+        html: "<style>@import url(https://tracker.example.invalid/open.css); p{color:red}</style><p>x</p>",
+      });
+      expect(styled).toContain("style-src 'unsafe-inline' data:");
+      expect(styled).toContain("<style>@import");
       const allowed = emailToHtml({ text: "", html }, true);
       expect(allowed).toContain(`content="${EXPORTED_HTML_CSP}"`);
       expect(allowed).not.toContain("img-src");
@@ -222,7 +229,10 @@ describe("download_email formats", () => {
     it("keeps styles allowed and leaves images to the separate remote-image switch", () => {
       expect(EXPORTED_HTML_CSP).not.toMatch(/default-src|img-src|style-src/);
       expect(EXPORTED_HTML_CSP).toContain("script-src 'none'");
-      expect(BLOCK_REMOTE_IMAGES_CSP).toBe("img-src data: cid:");
+      expect(BLOCK_REMOTE_CONTENT_CSP).toContain("img-src data: cid:");
+      // Inline styles keep the rendering; remote stylesheets / fonts do not load.
+      expect(BLOCK_REMOTE_CONTENT_CSP).toContain("style-src 'unsafe-inline' data:");
+      expect(BLOCK_REMOTE_CONTENT_CSP).toContain("font-src data:");
     });
   });
 });

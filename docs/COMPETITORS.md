@@ -121,12 +121,12 @@ Not value judgments — scope decisions.
   - CodeQL Advanced + Socket Security + OpenSSF Scorecard + Snyk on every PR
   - Sigstore keyless signing + SLSA in-toto attestations + SPDX/CycloneDX SBOMs on every release
   - npm provenance statements
-  - 939 vitest tests + fast-check property-based fuzz suite + hardening-specific test file
+  - 940 vitest tests + fast-check property-based fuzz suite + hardening-specific test file
   - Path-jail defenses (`GMAIL_MCP_ATTACHMENT_DIR`, `GMAIL_MCP_DOWNLOAD_DIR` with `O_NOFOLLOW` + post-`mkdir` realpath re-verification)
   - OAuth scope filtering at startup — tool list is filtered before the LLM ever sees it
   - Cryptographic MIME boundaries, CRLF sanitization on both email-assembly paths
   - Outbound guard rails: an optional recipient allowlist the model cannot extend on its own (human confirmation by MCP elicitation, or a CLI command), forwarding filters refused, write caps that count every message of a batch
-  - Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web); exported HTML with scripts and remote images blocked
+  - Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web); exported HTML with scripts and remote content blocked
   - OAuth loopback flow with `state` and PKCE
   - `.coderabbit.yaml` assertive-profile gate that every PR must pass
 

@@ -163,18 +163,21 @@ export const EXPORTED_HTML_CSP =
   "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
 
 /**
- * Added by default: remote images (`<img src="https://…">`, CSS
- * backgrounds) are not fetched when the saved file is opened, so a
- * tracking pixel cannot report when and from where the copy was read —
- * what Outlook does by default. Inline (`data:`) images still render.
- * Opt out per call (`allowRemoteImages: true`) or globally with
+ * Added by default: nothing remote is fetched when the saved file is
+ * opened — images (`<img src="https://…">`, CSS backgrounds),
+ * stylesheets (`<link rel="stylesheet">`, `@import`), fonts and media —
+ * so a tracking pixel or a tracking stylesheet cannot report when and
+ * from where the copy was read, as Outlook blocks remote content by
+ * default. Inline `<style>` / `style=` and `data:` resources still
+ * render. Opt out per call (`allowRemoteImages: true`) or globally with
  * `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`.
  */
-export const BLOCK_REMOTE_IMAGES_CSP = "img-src data: cid:";
+export const BLOCK_REMOTE_CONTENT_CSP =
+  "img-src data: cid:; style-src 'unsafe-inline' data:; font-src data:; media-src data:";
 
 export const ENV_EXPORT_REMOTE_IMAGES = "GMAIL_MCP_EXPORT_REMOTE_IMAGES";
 
-/** Whether exported HTML may load remote images (default: no). */
+/** Whether exported HTML may load remote images and other remote content (default: no). */
 export function remoteImagesAllowed(override?: boolean): boolean {
   return override ?? process.env[ENV_EXPORT_REMOTE_IMAGES] === "true";
 }
@@ -182,7 +185,7 @@ export function remoteImagesAllowed(override?: boolean): boolean {
 function cspMeta(allowRemoteImages: boolean): string {
   const policy = allowRemoteImages
     ? EXPORTED_HTML_CSP
-    : `${EXPORTED_HTML_CSP}; ${BLOCK_REMOTE_IMAGES_CSP}`;
+    : `${EXPORTED_HTML_CSP}; ${BLOCK_REMOTE_CONTENT_CSP}`;
   return `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
 }
 // Anchored at the very start (`^\s*`, `[^>]*`): linear, and it cannot be
@@ -209,7 +212,7 @@ function withExportCsp(html: string, allowRemoteImages: boolean): string {
 /**
  * Extract HTML content from email, or throw if none exists. The result
  * carries a restrictive CSP (see `EXPORTED_HTML_CSP`), which also blocks
- * remote images unless `allowRemoteImages` is true; use the `eml` format
+ * remote content unless `allowRemoteImages` is true; use the `eml` format
  * for a byte-faithful copy.
  */
 export function emailToHtml(

@@ -129,10 +129,20 @@ function tryNormalise(email: string): string | null {
   }
 }
 
+/**
+ * The allowlist as a set of bare addresses. Entries written by an older
+ * version were stored verbatim (`bob martin <address>`): they are
+ * normalised here too, so an upgrade does not silently start refusing a
+ * recipient that was paired with its display name.
+ */
+function pairedAddressSet(): Set<string> {
+  return new Set(readPairedList().map((entry) => tryNormalise(entry) ?? entry));
+}
+
 export function isAddressPaired(email: string): boolean {
   const needle = tryNormalise(email);
   if (!needle) return false;
-  return readPairedList().includes(needle);
+  return pairedAddressSet().has(needle);
 }
 
 /**
@@ -186,7 +196,7 @@ export function removePairedAddress(email: string): { removed: boolean; address:
 export function requirePairedRecipients(recipients: readonly string[]): void {
   if (!isPairingEnabled()) return;
   if (recipients.length === 0) return;
-  const paired = new Set(readPairedList());
+  const paired = pairedAddressSet();
   const rejected: string[] = [];
   for (const r of recipients) {
     if (!r.trim()) continue;

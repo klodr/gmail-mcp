@@ -32,7 +32,7 @@ A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, C
 >
 > - **Secure** — input sanitization, recipient pairing, rate limiting, sender resolution, and audit logging are enforced *in the server* (not in the operator's attention). The Gmail surface is mediated, not exposed raw.
 > - **Autonomous** — designed to stay safe when no human is watching every action. Different threat model from upstream's "I use it daily in my own workflow"; the in-process middleware is what bridges that gap.
-> - **Tested** — 939 vitest cases across 43 files, **99.37%** statement coverage (91% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
+> - **Tested** — 940 vitest cases across 43 files, **99.37%** statement coverage (91% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
 > - **Resilient under acceleration** — 17 CI/CD workflows (CodeQL, OSV, Gitleaks, leak-detect, Scorecard, Socket, SLSA, lockfile lint, signed releases…) track the security ecosystem at the pace it actually changes — days, sometimes hours. Recent concrete instance: **qs CVE-2026-8723**, surfaced and shipped within hours of the public advisory across the klodr/* MCP family.
 >
 > Full rationale and the per-tool design trade-offs live in [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md).
@@ -76,7 +76,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Write caps per tool family over 24 h and 30 days; batch tools count every message, not every call | ❌ | ❌ | ✅ |
 | Filters that forward mail are refused (a forwarding rule silently redirects all future matching mail) | ❌ `create_filter` accepts `action.forward` | ❌ `create_filter` accepts `action.forward` | ✅ refused, with the reason |
 | Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web), as Mail and Outlook do | ❌ | ❌ | ✅ |
-| Exported HTML: scripts, frames and forms blocked; remote images (tracking pixels) blocked unless asked for | — (no HTML export) | ❌ no CSP | ✅ |
+| Exported HTML: scripts, frames and forms blocked; remote images, stylesheets and fonts (tracking pixels) blocked unless asked for | — (no HTML export) | ❌ no CSP | ✅ |
 | **MCP protocol & tool surface** | | | |
 | MCP SDK version | v0.4.x | v1.27.x | v1.32.x |
 | Tool annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) | ❌ | ✅ | ✅ |
@@ -93,7 +93,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: signed builds (Sigstore + SLSA in-toto attestation + npm provenance) | ❌ | ❌ | ✅ |
 | Release: single-file ESM bundle | ❌ | ❌ | ✅ |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**939 tests**, 43 files) |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**940 tests**, 43 files) |
 | Statement coverage across `src/**` | 0% | 16.14% | **99.37%** (91% branch) |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
@@ -207,8 +207,8 @@ The runtime constraints that an autonomous LLM client cannot violate are enforce
 - **`sender-resolver.ts`** — resolves the `from` parameter against the account's authorized send-as aliases only. Spoofing the sender field is rejected before the Gmail API send call.
 - **`rate-limit.ts`** — bounds write volume per tool family (`send`, `delete`, `modify`, `drafts`, `labels`, `filters`, `pairing`) over rolling daily/monthly windows. The batch tools (`batch_modify_emails`, `batch_delete_emails`, `move_to_spam_batch`) count each message they touch, so one call on 1 000 messages uses 1 000 units, not 1. The state is persisted to disk so it survives restarts. Disable with `GMAIL_MCP_RATE_LIMIT_DISABLE=true` for test runs only.
 - **`quarantine.ts`** — marks every file written by `download_attachment`, `download_all_attachments` and `download_email` as downloaded from the internet, as Mail and Outlook do: the `com.apple.quarantine` attribute on macOS (Gatekeeper checks an executable or script when it is opened), the Mark of the Web on Windows; nothing on Linux. Never blocking: if the mark cannot be set, the file is still saved. Off with `GMAIL_MCP_QUARANTINE=false`.
-- **Forwarding filters refused** (`filter-manager.ts`) — `create_filter` and the filter templates never install a rule that forwards mail: such a rule silently redirects every future matching message, and Google allows it only with the `gmail.settings.sharing` scope, which this server never requests. Create those in the Gmail web interface.
-- **Exported HTML** (`email-export.ts`) — the file `download_email` writes in `html` format carries a Content-Security-Policy blocking scripts, plugins, frames, `<base>` rewrites and form submissions, and remote images by default, so a tracking pixel cannot report when and where the copy is opened (inline images still render). Allow remote images per call with `allowRemoteImages: true` or globally with `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`.
+- **Forwarding filters refused** (`filter-manager.ts`) — `create_filter` and the filter templates never install a rule that forwards mail: such a rule silently redirects every future matching message, and Gmail forwards only to a verified forwarding address, whose registration needs the `gmail.settings.sharing` scope this server never requests. Create those in the Gmail web interface.
+- **Exported HTML** (`email-export.ts`) — the file `download_email` writes in `html` format carries a Content-Security-Policy blocking scripts, plugins, frames, `<base>` rewrites and form submissions, and remote images, stylesheets and fonts by default, so a tracking pixel or stylesheet cannot report when and where the copy is opened (inline styles and images still render). Allow remote images per call with `allowRemoteImages: true` or globally with `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`.
 - **`send_draft` recipient check** — the staged draft is read before sending, and a To / Cc / Bcc header that does not parse as a list of addresses is refused, so a draft's destination is always known.
 - **`gmail-errors.ts`** — normalizes Gmail API failure modes into typed errors so retries and surfacing to the LLM are deterministic.
 - **`middleware.ts`** — composes the always-on chain and binds it to every tool entry point. New tools inherit the pipeline by construction.

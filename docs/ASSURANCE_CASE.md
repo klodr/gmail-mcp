@@ -112,7 +112,8 @@ weaknesses have been countered.
 12. **Prompt injection asking for a forwarding rule** — a filter that
     forwards matching mail is a permanent, silent exfiltration channel.
     **Mitigation:** `createFilter` refuses `action.forward` for every
-    caller; the `gmail.settings.sharing` scope it would need is never
+    caller; Gmail forwards only to a verified forwarding address, and
+    the `gmail.settings.sharing` scope needed to register one is never
     requested.
 13. **Prompt-injected write loop** — repeated sends or bulk label /
     archive / delete calls. **Mitigation:** per-family daily and
@@ -125,7 +126,7 @@ weaknesses have been countered.
 15. **Active content or tracking in an exported message** — the
     sender's HTML saved by `download_email`. **Mitigation:** a
     Content-Security-Policy in the saved file blocks scripts, frames,
-    forms and, by default, remote images.
+    forms and, by default, remote images, stylesheets and fonts.
 16. **OAuth client swapped through a project folder** — a
     `gcp-oauth.keys.json` lying in whatever folder the MCP client starts
     the server from. **Mitigation:** only the `auth` subcommand imports
@@ -189,9 +190,9 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 |---|---|---|
 | **CWE-22** Path traversal | Countered | `send_email` / `draft_email` / `reply_all` attachment paths pass through `assertAttachmentPathAllowed` (realpath-canonicalized against `GMAIL_MCP_ATTACHMENT_DIR`). `download_email` / `download_attachment` / `download_all_attachments` destinations pass through `resolveDownloadSavePath` (realpath + re-verify post-`mkdirSync`); attacker-controlled attachment filenames (including ZIP entry names) go through `toSafeAttachmentFilename` (separators, control and reserved characters replaced) before use. |
 | **CWE-59** Symlink following | Countered | Every leaf file write uses `fs.openSync` with `O_NOFOLLOW`; a pre-existing symlink at the destination causes the open to fail. |
-| **CWE-78 / CWE-94** Command / code injection | Countered | No `eval`, no dynamic `require`. The one subprocess is the quarantine mark on macOS: `execFileSync("/usr/bin/xattr", [...])` with an argument array (no shell), a fixed binary, and the path of the file the server just wrote inside the download jail. |
+| **CWE-78 / CWE-94** Command / code injection | Countered | No `eval`, no dynamic `require`. Two subprocesses, both a fixed program with an argument array (no shell): the browser opener (`open` package) during `auth`, given the Google consent URL that `google-auth-library` builds; and `/usr/bin/xattr` on macOS for the download quarantine, given the path of the file the server just wrote inside the download jail. |
 | **CWE-89** SQL injection | N/A | No database. |
-| **CWE-79** XSS | Mitigated | The MCP never renders HTML. The `html` file written by `download_email` (`emailToHtml()`) is wrapped in a document whose `<head>` starts with a Content-Security-Policy blocking scripts, plugins, frames, `<base>` and form submissions, and remote images unless `allowRemoteImages` / `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`; `read_email` returns HTML as text inside the untrusted-output fence for the client to treat as data. |
+| **CWE-79** XSS | Mitigated | The MCP never renders HTML. The `html` file written by `download_email` (`emailToHtml()`) is wrapped in a document whose `<head>` starts with a Content-Security-Policy blocking scripts, plugins, frames, `<base>` and form submissions, and remote images, stylesheets and fonts unless `allowRemoteImages` / `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`; `read_email` returns HTML as text inside the untrusted-output fence for the client to treat as data. |
 | **CWE-88 / CWE-93 / CWE-113** CRLF / header injection | Countered | `sanitizeHeaderValue` strips `\r`, `\n`, `\0` from every user-supplied RFC-822 header value (`From`, `To`, `Cc`, `Bcc`, `Subject`, `In-Reply-To`, `References`). |
 | **CWE-117** Log injection | N/A | MCP emits no log file of its own (tracked as a future audit-log feature in [SECURITY.md](../.github/SECURITY.md)). |
 | **CWE-200 / CWE-209** Information exposure / verbose errors | Countered | Error messages never include the OAuth refresh token or the Google OAuth client secret. |

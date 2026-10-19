@@ -434,7 +434,7 @@ export const DownloadEmailSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "html format only: let the saved file load remote images when opened. Default false — remote images (and tracking pixels) are blocked, as Outlook does; GMAIL_MCP_EXPORT_REMOTE_IMAGES=true changes the default.",
+      "html format only: let the saved file load remote images, stylesheets and fonts when opened. Default false — remote content (and tracking pixels) is blocked, as Outlook does; GMAIL_MCP_EXPORT_REMOTE_IMAGES=true changes the default.",
     ),
 });
 
@@ -820,7 +820,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "download_email",
     description: [
-      "Save one Gmail message to a file (json, eml, txt, or html). The html file gets a Content-Security-Policy that blocks scripts, plugins, frames and form submission when it is opened later, and remote images too (tracking pixels) unless `allowRemoteImages: true`; use eml for a byte-faithful copy.",
+      "Save one Gmail message to a file (json, eml, txt, or html). The html file gets a Content-Security-Policy that blocks scripts, plugins, frames and form submission when it is opened later, and remote images, stylesheets and fonts too (tracking pixels) unless `allowRemoteImages: true`; use eml for a byte-faithful copy.",
       "",
       "USE WHEN: persisting a message to disk for archival, evidence, or downstream processing. Returns metadata + the path written — bodies are NOT loaded into the LLM context, so this is the right choice for large messages.",
       "",
@@ -1218,7 +1218,7 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "DO NOT USE: for common patterns (newsletter routing, vendor invoices, etc.) — `create_filter_from_template` covers those with safer defaults. Filters are not idempotent — calling twice creates two filters firing duplicate actions.",
       "",
-      "SIDE EFFECTS: writes a new filter rule on Gmail's side. Persistent. Affects every future incoming message that matches the criteria. Filters that FORWARD mail (`action.forward`) are always refused: a forwarding rule silently redirects every matching message, future ones included, and Google allows it only with the `gmail.settings.sharing` scope, which this server never requests — create those in the Gmail web interface. Requires `gmail.settings.basic` scope.",
+      "SIDE EFFECTS: writes a new filter rule on Gmail's side. Persistent. Affects every future incoming message that matches the criteria. Filters that FORWARD mail (`action.forward`) are always refused: a forwarding rule silently redirects every matching message, future ones included, and Gmail forwards only to a verified forwarding address, which needs the `gmail.settings.sharing` scope this server never requests — create those in the Gmail web interface. Requires `gmail.settings.basic` scope.",
     ].join("\n"),
     schema: CreateFilterSchema,
     scopes: ["gmail.settings.basic"],
