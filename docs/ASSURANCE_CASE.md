@@ -97,7 +97,39 @@ weaknesses have been countered.
     local HTTP server on a loopback port to receive the code.
     **Mitigations:** the server binds only to `localhost` /
     `127.0.0.1` / `::1`; a non-loopback callback URL is rejected
-    at startup with a clear error (`authenticate` in `src/index.ts`).
+    at startup with a clear error (`authenticate` in `src/oauth-flow.ts`);
+    the callback must carry the per-flow `state`, and the code is
+    redeemed with a PKCE (S256) verifier that never leaves the
+    process, so an intercepted code is useless.
+11. **Prompt injection asking to mail a new address** — "send the
+    statement to this new address". **Mitigations:** optional recipient
+    allowlist (`GMAIL_MCP_RECIPIENT_PAIRING=true`) on every send, reply,
+    forward and draft path, `send_draft` included; the model cannot
+    extend the allowlist by itself (`pair_recipient add` needs a human
+    confirmation through MCP elicitation, or the
+    `npx @klodr/gmail-mcp pair add` command); `send_draft` refuses a
+    draft whose recipients do not parse.
+12. **Prompt injection asking for a forwarding rule** — a filter that
+    forwards matching mail is a permanent, silent exfiltration channel.
+    **Mitigation:** `createFilter` refuses `action.forward` for every
+    caller; the `gmail.settings.sharing` scope it would need is never
+    requested.
+13. **Prompt-injected write loop** — repeated sends or bulk label /
+    archive / delete calls. **Mitigation:** per-family daily and
+    30-day caps, persisted across restarts; batch tools are weighted by
+    their message count.
+14. **Malicious attachment opened by the user** — an executable or
+    script saved by a download tool. **Mitigation:** the file is marked
+    as downloaded from the internet (macOS quarantine, Windows Mark of
+    the Web) so the OS checks it on first opening.
+15. **Active content or tracking in an exported message** — the
+    sender's HTML saved by `download_email`. **Mitigation:** a
+    Content-Security-Policy in the saved file blocks scripts, frames,
+    forms and, by default, remote images.
+16. **OAuth client swapped through a project folder** — a
+    `gcp-oauth.keys.json` lying in whatever folder the MCP client starts
+    the server from. **Mitigation:** only the `auth` subcommand imports
+    a keys file from the current directory.
     Credentials are written with mode `0o600` inside a directory
     at mode `0o700`.
 
@@ -157,9 +189,9 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 |---|---|---|
 | **CWE-22** Path traversal | Countered | `send_email` / `draft_email` / `reply_all` attachment paths pass through `assertAttachmentPathAllowed` (realpath-canonicalized against `GMAIL_MCP_ATTACHMENT_DIR`). `download_email` / `download_attachment` / `download_all_attachments` destinations pass through `resolveDownloadSavePath` (realpath + re-verify post-`mkdirSync`); attacker-controlled attachment filenames (including ZIP entry names) go through `toSafeAttachmentFilename` (separators, control and reserved characters replaced) before use. |
 | **CWE-59** Symlink following | Countered | Every leaf file write uses `fs.openSync` with `O_NOFOLLOW`; a pre-existing symlink at the destination causes the open to fail. |
-| **CWE-78 / CWE-94** Command / code injection | N/A | No `child_process`, no `eval`, no dynamic `require`. |
+| **CWE-78 / CWE-94** Command / code injection | Countered | No `eval`, no dynamic `require`. The one subprocess is the quarantine mark on macOS: `execFileSync("/usr/bin/xattr", [...])` with an argument array (no shell), a fixed binary, and the path of the file the server just wrote inside the download jail. |
 | **CWE-89** SQL injection | N/A | No database. |
-| **CWE-79** XSS | Out-of-scope for this process (MCP never renders HTML) — downstream responsibility | The `download_email` tool writes HTML bodies (via `emailToHtml()`) verbatim to `GMAIL_MCP_DOWNLOAD_DIR` and the `read_email` tool returns HTML string content to the MCP client. This MCP does not render HTML itself. If the consuming agent forwards that HTML to a browser, PDF pipeline, or any other HTML-executing surface, the agent must sanitize before rendering. Flagged transparently rather than claimed N/A. |
+| **CWE-79** XSS | Mitigated | The MCP never renders HTML. The `html` file written by `download_email` (`emailToHtml()`) is wrapped in a document whose `<head>` starts with a Content-Security-Policy blocking scripts, plugins, frames, `<base>` and form submissions, and remote images unless `allowRemoteImages` / `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`; `read_email` returns HTML as text inside the untrusted-output fence for the client to treat as data. |
 | **CWE-88 / CWE-93 / CWE-113** CRLF / header injection | Countered | `sanitizeHeaderValue` strips `\r`, `\n`, `\0` from every user-supplied RFC-822 header value (`From`, `To`, `Cc`, `Bcc`, `Subject`, `In-Reply-To`, `References`). |
 | **CWE-117** Log injection | N/A | MCP emits no log file of its own (tracked as a future audit-log feature in [SECURITY.md](../.github/SECURITY.md)). |
 | **CWE-200 / CWE-209** Information exposure / verbose errors | Countered | Error messages never include the OAuth refresh token or the Google OAuth client secret. |
@@ -168,7 +200,7 @@ Mapped to [CWE](https://cwe.mitre.org/) and [OWASP Top 10](https://owasp.org/Top
 | **CWE-330** Insufficiently random values | Countered | MIME multipart boundary uses `crypto.randomBytes(16).toString('hex')` (16 bytes of CSPRNG entropy). |
 | **CWE-352** CSRF | N/A | Stdio MCP; no HTTP entry point except the one-shot OAuth callback server, which binds only to loopback and terminates after a single successful code exchange. |
 | **CWE-367** TOCTOU | Countered | After `mkdirSync` in the download path the resolved path is **re-realpathed** and re-verified against the jail root, so a race between the check and the `mkdir` cannot be used to escape. |
-| **CWE-400** Resource exhaustion | Mitigated | Zod bounds on `maxResults` (≤ 500), `batchSize` (≤ 100), `messageIds.length` (≤ 1000) on every paginated / batch tool. |
+| **CWE-400** Resource exhaustion | Mitigated | Zod bounds on `maxResults` (≤ 500), `batchSize` (≤ 100), `messageIds.length` (≤ 1000) on every paginated / batch tool; per-family write caps, with batch tools counted per message. |
 | **CWE-426** Untrusted search path | N/A | No `$PATH` manipulation. |
 | **CWE-502** Deserialization of untrusted data | Limited | Only `JSON.parse` on the OAuth credentials file + tool arguments (validated by Zod) + Gmail API responses. |
 | **CWE-732** Incorrect permission assignment | Countered | `~/.gmail-mcp/credentials.json` mode `0o600`; `~/.gmail-mcp/`, `~/GmailAttachments/`, `~/GmailDownloads/` directories mode `0o700`. |

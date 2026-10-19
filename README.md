@@ -32,7 +32,7 @@ A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, C
 >
 > - **Secure** — input sanitization, recipient pairing, rate limiting, sender resolution, and audit logging are enforced *in the server* (not in the operator's attention). The Gmail surface is mediated, not exposed raw.
 > - **Autonomous** — designed to stay safe when no human is watching every action. Different threat model from upstream's "I use it daily in my own workflow"; the in-process middleware is what bridges that gap.
-> - **Tested** — 781 vitest cases across 39 files, **99.25%** statement coverage (89% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
+> - **Tested** — 939 vitest cases across 43 files, **99.37%** statement coverage (91% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
 > - **Resilient under acceleration** — 17 CI/CD workflows (CodeQL, OSV, Gitleaks, leak-detect, Scorecard, Socket, SLSA, lockfile lint, signed releases…) track the security ecosystem at the pace it actually changes — days, sometimes hours. Recent concrete instance: **qs CVE-2026-8723**, surfaced and shipped within hours of the public advisory across the klodr/* MCP family.
 >
 > Full rationale and the per-tool design trade-offs live in [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md).
@@ -55,10 +55,13 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Download email to disk (`json`/`eml`/`txt`/`html`) | ❌ | ✅ | ✅ |
 | Download attachment | ✅ | ✅ | ✅ |
 | Download all attachments of a message at once, optionally as one ZIP (original filenames kept) | ❌ | ❌ | ✅ |
+| `read_email` shows the Cc / Bcc lines (to decide between reply and reply-all) | ❌ | ✅ | ✅ |
 | **OAuth / authorization** | | | |
 | `--scopes` flag for least-privilege auth | ❌ | ✅ | ✅ |
 | Tool list filtered by granted scopes | ❌ | ✅ | ✅ |
 | OAuth credentials file mode `0o600` | ❌ | ✅ | ✅ |
+| OAuth loopback callback checked with `state` and PKCE (S256), so an intercepted authorization code cannot be redeemed | ❌ | ❌ | ✅ |
+| A `gcp-oauth.keys.json` left in the project folder is imported only by `auth`, never on a normal start | ❌ copied on every start | ❌ copied on every start | ✅ |
 | **Security — input handling** | | | |
 | CRLF header injection sanitization (`\r\n\0`) | ❌ | ⚠️ partial | ✅ |
 | Path traversal in `download_attachment` | ❌ | ✅ fixed | ✅ |
@@ -66,8 +69,16 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Symlink-safe writes (`O_NOFOLLOW` + post-`mkdir` realpath re-verification, TOCTOU defense) | ❌ | ❌ | ✅ |
 | Zod bounds on `maxResults` / `batchSize` / `messageIds` length | ❌ | ❌ | ✅ |
 | Cryptographic MIME boundary (`crypto.randomBytes`, not `Math.random`) | ❌ | ❌ | ✅ |
+| **Security — outbound mail and prompt injection** | | | |
+| Optional recipient allowlist (`GMAIL_MCP_RECIPIENT_PAIRING`): sends, replies, forwards and drafts go only to paired addresses | ❌ | ❌ | ✅ |
+| With the allowlist on, the model cannot add an address by itself: the human confirms in the MCP client, or runs `npx @klodr/gmail-mcp pair add` | ❌ | ❌ | ✅ |
+| `send_draft` refuses a draft whose To / Cc / Bcc does not parse as addresses | — (no `send_draft`) | ❌ | ✅ |
+| Write caps per tool family over 24 h and 30 days; batch tools count every message, not every call | ❌ | ❌ | ✅ |
+| Filters that forward mail are refused (a forwarding rule silently redirects all future matching mail) | ❌ `create_filter` accepts `action.forward` | ❌ `create_filter` accepts `action.forward` | ✅ refused, with the reason |
+| Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web), as Mail and Outlook do | ❌ | ❌ | ✅ |
+| Exported HTML: scripts, frames and forms blocked; remote images (tracking pixels) blocked unless asked for | — (no HTML export) | ❌ no CSP | ✅ |
 | **MCP protocol & tool surface** | | | |
-| MCP SDK version | v0.4.x | v1.27.x | v1.29.x |
+| MCP SDK version | v0.4.x | v1.27.x | v1.32.x |
 | Tool annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) | ❌ | ✅ | ✅ |
 | `llms-install.md` (LLM-readable install guide) | ❌ | ❌ | ✅ |
 | **Publishing / discoverability** | | | |
@@ -82,8 +93,8 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: signed builds (Sigstore + SLSA in-toto attestation + npm provenance) | ❌ | ❌ | ✅ |
 | Release: single-file ESM bundle | ❌ | ❌ | ✅ |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**781 tests**, 39 files) |
-| Statement coverage across `src/**` | 0% | 16.14% | **99.25%** (89% branch) |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**939 tests**, 43 files) |
+| Statement coverage across `src/**` | 0% | 16.14% | **99.37%** (91% branch) |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
 | **CI/CD hardening** | | | |
@@ -94,7 +105,9 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | `CHANGELOG.md` (Keep-a-Changelog) | ❌ | ❌ | ✅ |
 | `SECURITY.md` (vulnerability reporting) | ❌ | ❌ | ✅ |
 
-`klodr/gmail-mcp` is the only one of the three with **(a)** source-path jails that make prompt-injection attachment exfiltration inert, **(b)** a modern supply chain (Scorecard, Socket, Sigstore), and **(c)** an in-repo review policy (`.coderabbit.yaml`) that every PR must pass before merge.
+`klodr/gmail-mcp` is the only one of the three with **(a)** source-path jails that make prompt-injection attachment exfiltration inert, **(b)** outbound guard rails a hostile email cannot talk the model past — an optional recipient allowlist the model cannot extend on its own, no forwarding filters, write caps that count every message — **(c)** a modern supply chain (Scorecard, Socket, Sigstore), and **(d)** an in-repo review policy (`.coderabbit.yaml`) that every PR must pass before merge.
+
+Fork columns checked against the code of [GongRzhe `a890d19`](https://github.com/GongRzhe/Gmail-MCP-Server/commit/a890d19) (2025-08-06, archived) and [ArtyMcLabin `83e8daf`](https://github.com/ArtyMcLabin/Gmail-MCP-Server/commit/83e8daf) (`main`, 2026-08-12).
 
 ## 📦 Installation
 
@@ -192,13 +205,17 @@ The runtime constraints that an autonomous LLM client cannot violate are enforce
 
 - **`sanitize.ts`** — strips/escapes input the LLM provides (CRLF injection, control characters, NUL bytes) before it reaches Gmail headers, filenames, or filesystem paths.
 - **`sender-resolver.ts`** — resolves the `from` parameter against the account's authorized send-as aliases only. Spoofing the sender field is rejected before the Gmail API send call.
-- **`rate-limit.ts`** — bounds Gmail API call volume per tool family (`send`, `delete`, `modify`, `drafts`, `labels`, `filters`) over rolling daily/monthly windows. The state is persisted to disk so it survives restarts. Disable with `GMAIL_MCP_RATE_LIMIT_DISABLE=true` for test runs only.
+- **`rate-limit.ts`** — bounds write volume per tool family (`send`, `delete`, `modify`, `drafts`, `labels`, `filters`, `pairing`) over rolling daily/monthly windows. The batch tools (`batch_modify_emails`, `batch_delete_emails`, `move_to_spam_batch`) count each message they touch, so one call on 1 000 messages uses 1 000 units, not 1. The state is persisted to disk so it survives restarts. Disable with `GMAIL_MCP_RATE_LIMIT_DISABLE=true` for test runs only.
+- **`quarantine.ts`** — marks every file written by `download_attachment`, `download_all_attachments` and `download_email` as downloaded from the internet, as Mail and Outlook do: the `com.apple.quarantine` attribute on macOS (Gatekeeper checks an executable or script when it is opened), the Mark of the Web on Windows; nothing on Linux. Never blocking: if the mark cannot be set, the file is still saved. Off with `GMAIL_MCP_QUARANTINE=false`.
+- **Forwarding filters refused** (`filter-manager.ts`) — `create_filter` and the filter templates never install a rule that forwards mail: such a rule silently redirects every future matching message, and Google allows it only with the `gmail.settings.sharing` scope, which this server never requests. Create those in the Gmail web interface.
+- **Exported HTML** (`email-export.ts`) — the file `download_email` writes in `html` format carries a Content-Security-Policy blocking scripts, plugins, frames, `<base>` rewrites and form submissions, and remote images by default, so a tracking pixel cannot report when and where the copy is opened (inline images still render). Allow remote images per call with `allowRemoteImages: true` or globally with `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`.
+- **`send_draft` recipient check** — the staged draft is read before sending, and a To / Cc / Bcc header that does not parse as a list of addresses is refused, so a draft's destination is always known.
 - **`gmail-errors.ts`** — normalizes Gmail API failure modes into typed errors so retries and surfacing to the LLM are deterministic.
 - **`middleware.ts`** — composes the always-on chain and binds it to every tool entry point. New tools inherit the pipeline by construction.
 
 **Opt-in** (off by default, set the env var to engage):
 
-- **`recipient-pairing.ts`** — refuses to send mail to addresses that are not on the operator-controlled allow-list (`~/.gmail-mcp/paired.json`). No fresh outbound destinations from a hallucinated address. Engages when `GMAIL_MCP_RECIPIENT_PAIRING=true`; gates the `send_email` / `reply_*` / `forward_email` / `draft_email` / `update_draft` family only.
+- **`recipient-pairing.ts`** — refuses to send mail to addresses that are not on the operator-controlled allow-list (`~/.gmail-mcp/paired.json`). No fresh outbound destinations from a hallucinated address. Engages when `GMAIL_MCP_RECIPIENT_PAIRING=true`; gates the `send_email` / `reply_*` / `forward_email` / `draft_email` / `update_draft` / `send_draft` family. Addresses are compared bare (`Name <address>` matches the paired `address`). While the gate is on, the model cannot extend the list by itself: `pair_recipient add` asks the human to confirm through the MCP client (elicitation) and, where the client cannot ask, refuses and names the terminal command — `npx @klodr/gmail-mcp pair add <address>` (also `pair remove`, `pair list`). Otherwise a hostile email could tell the agent to pair its own address, then write to it.
 - **`audit-log.ts`** — append-only JSONL trail of every tool call (name, redacted args, outcome) with structural-key-preserving redaction so operators can replay decisions post-hoc. Engages when `GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl` is set.
 
 Configure each module via the env vars below:
@@ -210,8 +227,11 @@ Configure each module via the env vars below:
 | OAuth keys path | `GMAIL_OAUTH_PATH=/abs/path/gcp-oauth.keys.json` | `~/.gmail-mcp/gcp-oauth.keys.json` | Google Desktop/Web OAuth client credentials. |
 | Credentials path | `GMAIL_CREDENTIALS_PATH=/abs/path/credentials.json` | `~/.gmail-mcp/credentials.json` | Access/refresh tokens. File mode `0o600`. |
 | Rate limit state dir | `GMAIL_MCP_STATE_DIR=/abs/path` | `~/.gmail-mcp/` | Where the rolling call-history for rate limiting is persisted (`ratelimit.json`, mode `0o600`). Same directory is reused for any future state files. |
-| Rate limit overrides | `GMAIL_MCP_RATE_LIMIT_<bucket>=D/day,M/month` | see below | Override the per-bucket daily/monthly caps. Buckets: `send` (100/2000), `delete` (200/2000), `modify` (500/5000), `drafts` (300/3000), `labels` (50/500), `filters` (20/200), `pairing` (50/500). Every outbound tool (`send_email`, `reply_all`, `reply_to_email`, `forward_email`, `send_draft`) shares the `send` bucket. The `send` cap is sized at the upper end of a human professional workload (~40 emails/day with a 2.5× cushion); raise it via `GMAIL_MCP_RATE_LIMIT_send=400/day,6000/month` if you need the pre-v0.30.2 default. The bucket name is lowercase and matches the tool family. |
+| Rate limit overrides | `GMAIL_MCP_RATE_LIMIT_<bucket>=D/day,M/month` | see below | Override the per-bucket daily/monthly caps. Buckets: `send` (100/2000), `delete` (1000/10000), `modify` (5000/50000), `drafts` (300/3000), `labels` (50/500), `filters` (20/200), `pairing` (50/500). `delete` and `modify` are counted in messages for the batch tools: 5 000 modifications a day cover five full 1 000-message batches (a large inbox clean-up) and still stop a runaway loop; permanent deletion stays at 1 000 a day. Every outbound tool (`send_email`, `reply_all`, `reply_to_email`, `forward_email`, `send_draft`) shares the `send` bucket. The `send` cap is sized at the upper end of a human professional workload (~40 emails/day with a 2.5× cushion); raise it via `GMAIL_MCP_RATE_LIMIT_send=400/day,6000/month` if you need the pre-v0.30.2 default. The bucket name is lowercase and matches the tool family. |
 | Rate limit disable | `GMAIL_MCP_RATE_LIMIT_DISABLE=true` | unset (limiter active) | Kill-switch for the entire limiter. Use only for test suites or controlled batch operations. |
+| Recipient pairing | `GMAIL_MCP_RECIPIENT_PAIRING=true` | unset (no allowlist) | Sends only to paired addresses (`GMAIL_MCP_PAIRED_PATH`, default `~/.gmail-mcp/paired.json`). Pair from a terminal with `npx @klodr/gmail-mcp pair add <address>`, or through `pair_recipient`, which asks you to confirm. |
+| Quarantine of downloads | `GMAIL_MCP_QUARANTINE=false` | on | macOS `com.apple.quarantine` / Windows Mark of the Web on every downloaded file; nothing on Linux. Never blocks a download. |
+| Remote images in exported HTML | `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true` | blocked | Default for `download_email` in `html` format; a per-call `allowRemoteImages` wins. |
 | Audit log | `GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl` | unset (no audit trail) | Opt-in append-only JSONL log of every tool call (name, redacted args, outcome). File mode `0o600`. Must be an absolute path; relative paths are rejected at startup. Redaction keeps structural keys and drops values under an allowlist. |
 | Dry-run | `GMAIL_MCP_DRY_RUN=true` | unset (real calls) | When `"true"` (strict match), every write tool (`send_email`, `reply_all`, `reply_to_email`, `forward_email`, `draft_email`, `update_draft`, `delete_draft`, `send_draft`, `delete_email`, `modify_email`, `batch_modify_emails`, `move_to_spam`, `move_to_spam_batch`, `batch_delete_emails`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`, `create_filter`, `delete_filter`, `create_filter_from_template`, `modify_thread`, `pair_recipient`) short-circuits before reaching Gmail and returns the redacted payload it would have sent. This is exactly the set of rate-limited tools. `pair_recipient` is short-circuited for every action, `list` included. Useful for CI smoke tests, agent debugging, and human-in-the-loop approval flows. Read tools and the local-only `download_*` tools ignore the flag (nothing to preview in the mailbox). Matches `MERCURY_MCP_DRY_RUN` / `FAXDROP_MCP_DRY_RUN` on the sibling servers. |
 

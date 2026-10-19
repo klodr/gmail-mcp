@@ -19,7 +19,7 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 - ✅ **Complete code audit** — the M01-M04 medium-severity security findings shipped in v0.10.0 / v0.20.0; the v0.30.0 migration extracted every tool case into its own testable module, removed the duplicated helpers, and consolidated header parsing in `src/gmail-headers.ts`. The remaining quality findings from the four AI-agent audits are absorbed into the per-domain registrar files.
 - ✅ **Test coverage on `src/index.ts`** — `src/index.ts` is now a 370-LOC entry point with no tool dispatch; the per-tool handlers live in `src/tools/*.ts` with direct E2E coverage via `Client` + `InMemoryTransport`. Global statement coverage went from ~39 % to ~81 %, well above the 70 % v1.0.0 floor.
 - ✅ **Re-tighten Codecov thresholds** — `project.target: auto` + `patch.target: 95%` restored (was relaxed to 35 % / 75 % during the bridge). Shipped well before the 2026-05-15 hard deadline.
-- ✅ **Recipient pairing gate** — `pair_recipient` tool + `~/.gmail-mcp/paired.json` allowlist + `requirePairedRecipients` gate on `send_email` / `reply_all` / `draft_email` / `create_filter.action.forward`. (Item shipped in v0.20.0; consolidated under the v0.30.0 registrar in `src/tools/messaging.ts`.)
+- ✅ **Recipient pairing gate** — `pair_recipient` tool + `~/.gmail-mcp/paired.json` allowlist + `requirePairedRecipients` gate on `send_email` / `reply_all` / `draft_email` / `send_draft`; the model cannot pair an address on its own (MCP elicitation or `npx @klodr/gmail-mcp pair add`). Forwarding filters are now refused outright. (Item shipped in v0.20.0; consolidated under the v0.30.0 registrar in `src/tools/messaging.ts`.)
 
 ## v0.10.0 — Parity release (shipped 2026-04-23)
 
@@ -57,11 +57,11 @@ The MCP currently covers ~25 tools across messages, threads, labels, and filters
 
 - **Send-as aliases** — `settings.sendAs.*` (create / update / delete / verify) for managing Gmail aliases programmatically.
 - **Vacation responder** — `settings.vacation` get/update for enabling/disabling the auto-responder.
-- **Forwarding addresses** — `settings.forwardingAddresses.*`.
 - **POP / IMAP settings** — `settings.pop`, `settings.imap`.
 - **Delegates** — `settings.delegates.*` (list, add, remove, verify) for shared-mailbox delegation.
 - **S/MIME configuration** — `settings.sendAs.smimeInfo.*` for agents that need to sign or encrypt outbound email.
 - **Language preference** — `settings.language` get/update.
+- **Not planned: forwarding** — `settings.forwardingAddresses.*`, `settings.autoForwarding` and forwarding filters stay out of this server: a forwarding rule is a permanent, silent exfiltration channel. Manage them in the Gmail web interface.
 - **Push notifications** — `users.watch` + `users.stop` + `users.history.list` for near-real-time inbox event streaming via Cloud Pub/Sub, so an agent can react to new mail without polling.
 
 ## Ergonomic tool wrappers

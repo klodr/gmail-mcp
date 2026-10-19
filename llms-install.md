@@ -93,3 +93,9 @@ works.
   access.
 - Never paste tokens, codes, or credential file contents back into the
   chat (they end up in conversation transcripts).
+- With `GMAIL_MCP_RECIPIENT_PAIRING=true`, never try to approve a new
+  recipient on your own: `pair_recipient add` asks the user to confirm;
+  when the client cannot, ask the user to run
+  `npx @klodr/gmail-mcp pair add <address>` in a terminal.
+- Never try to set up a filter that forwards mail — the server refuses
+  it on purpose; the user creates such rules in the Gmail web interface.

@@ -97,7 +97,7 @@ Sorted by stars, snapshot `2026-04-27`.
 
 All of these end up tracked in [ROADMAP.md](./ROADMAP.md) with attribution to their source.
 
-- **Gmail Settings API completeness** — vacation responder, forwarding, IMAP/POP settings, delegates, S/MIME, language. Inspired by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp).
+- **Gmail Settings API completeness** — vacation responder, IMAP/POP settings, delegates, S/MIME, language. Inspired by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp). Forwarding (forwarding addresses, auto-forwarding, forwarding filters) is deliberately left out: it is a permanent exfiltration channel a prompt-injected agent must not be able to open.
 - **`users.watch` / `users.stop` push notifications** — lets an agent wait on Gmail Pub/Sub events instead of polling. Inspired by [shinzo-labs/gmail-mcp](https://github.com/shinzo-labs/gmail-mcp).
 - **First-class `reply_to_email` / `forward_email` tools** — rather than asking the agent to reconstruct `In-Reply-To` and `References` headers via `send_email`. Inspired by [ustikya/mcp-gmail](https://github.com/ustikya/mcp-gmail) and [fernandezdiegoh/gmail-mcp](https://github.com/fernandezdiegoh/gmail-mcp).
 
@@ -108,7 +108,7 @@ Not value judgments — scope decisions.
 - **"Gateway + Skills" tool collapse** ([oO/Gmail-MCP-Server](https://github.com/oO/Gmail-MCP-Server)). Smaller `ListTools` payload, but it violates MCP's self-describing tools principle: the LLM loses semantic autocomplete on sub-actions and has to be told which `action: ...` strings exist via external documentation. Modern LLMs handle 25–30 tools without degradation, so the catalog size isn't our bottleneck.
 - **Multi-account keystore with per-request selection** ([Quantum-369/Gmail-mcp-server](https://github.com/Quantum-369/Gmail-mcp-server), [fernandezdiegoh/gmail-mcp](https://github.com/fernandezdiegoh/gmail-mcp)). A single-tenant OAuth store keeps the blast radius of a prompt injection narrow. Users who need several accounts can run the server twice with different config paths.
 - **Server-side digest tools** (`summarize_inbox`, `daily_summary`, `category_summary` — [murphy360/mcp_gmail](https://github.com/murphy360/mcp_gmail), [dhagash2310/gmail-mcp](https://github.com/dhagash2310/gmail-mcp)). LLMs already summarize raw headers well. An opinionated server-side digest couples us to a specific use-case and shifts logic away from the place it's easiest to iterate on.
-- **Filter enforcement via `filters.yaml`** ([meyannis/mcpgmail](https://github.com/meyannis/mcpgmail)). Overlaps with our OAuth-scope filter (the tool list is already filtered at startup based on granted scopes) and our recipient pairing gate (planned in ROADMAP). Revisit if a concrete policy use-case emerges that neither of those addresses.
+- **Filter enforcement via `filters.yaml`** ([meyannis/mcpgmail](https://github.com/meyannis/mcpgmail)). Overlaps with our OAuth-scope filter (the tool list is already filtered at startup based on granted scopes) and our recipient pairing gate (shipped). Revisit if a concrete policy use-case emerges that neither of those addresses.
 - **HTTP / SSE transport alongside stdio** ([dhagash2310/gmail-mcp](https://github.com/dhagash2310/gmail-mcp)). The MCP spec is converging on streamable-HTTP; we'll revisit when the SDK makes it idiomatic.
 - **Inbox analytics tools** (`inbox_stats`, top-senders distribution — [muammar-yacoob/GMail-Manager-MCP](https://github.com/muammar-yacoob/GMail-Manager-MCP)). Same reasoning as digest tools: the LLM composes this from `search_emails` when it actually needs it.
 - **Dedicated batch-label wrappers** (`batch_apply_labels`, `batch_remove_labels` — [muammar-yacoob/GMail-Manager-MCP](https://github.com/muammar-yacoob/GMail-Manager-MCP)). Covered by the generic `batch_modify_emails`. Syntactic sugar with no semantic gain.
@@ -121,10 +121,13 @@ Not value judgments — scope decisions.
   - CodeQL Advanced + Socket Security + OpenSSF Scorecard + Snyk on every PR
   - Sigstore keyless signing + SLSA in-toto attestations + SPDX/CycloneDX SBOMs on every release
   - npm provenance statements
-  - 631 vitest tests + fast-check property-based fuzz suite + hardening-specific test file
+  - 939 vitest tests + fast-check property-based fuzz suite + hardening-specific test file
   - Path-jail defenses (`GMAIL_MCP_ATTACHMENT_DIR`, `GMAIL_MCP_DOWNLOAD_DIR` with `O_NOFOLLOW` + post-`mkdir` realpath re-verification)
   - OAuth scope filtering at startup — tool list is filtered before the LLM ever sees it
   - Cryptographic MIME boundaries, CRLF sanitization on both email-assembly paths
+  - Outbound guard rails: an optional recipient allowlist the model cannot extend on its own (human confirmation by MCP elicitation, or a CLI command), forwarding filters refused, write caps that count every message of a batch
+  - Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web); exported HTML with scripts and remote images blocked
+  - OAuth loopback flow with `state` and PKCE
   - `.coderabbit.yaml` assertive-profile gate that every PR must pass
 
 The bet: agent-platform operators care more about what an MCP can't be coerced into doing than about how many Gmail endpoints it wraps. Coverage gaps close in a release cycle; a hardening backbone takes longer to build.
