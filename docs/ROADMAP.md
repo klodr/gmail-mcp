@@ -9,7 +9,7 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 
 ## Runtime support
 
-- ✅ **Node.js ≥ 24.18.1, tested on Node 24 and 26** (v2.0.0, 2026-10-19) — the floor the official MCP reference servers declare; Node 22 is no longer supported.
+- ✅ **Node.js ≥ 24.18.1, tested on Node 24 and 26** (v2.0.0, 2026-10-19) — the official MCP reference servers also require Node 24 (`engines.node: >=24`); Node 22 is no longer supported.
 - **Next floor: Node 26** once Node 24 reaches end of life (2028-04-30), or earlier if a dependency requires it.
 
 ## Shipped (post-v0.30.0, 2026-04-26)
