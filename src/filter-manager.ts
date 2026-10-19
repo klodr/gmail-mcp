@@ -44,13 +44,15 @@ export interface GmailFilter {
  * included — to another address, silently and permanently: exactly the
  * change a prompt-injected agent must not be able to make. Gmail only
  * forwards to a verified forwarding address, and registering one needs
- * the `gmail.settings.sharing` scope, which this server never requests.
+ * the `gmail.settings.sharing` scope, which is not in the default scopes
+ * and which no gmail-mcp tool uses. The refusal holds whatever scopes
+ * were granted (`--scopes` can add that one).
  */
 export const FORWARDING_FILTER_REFUSAL =
   "Filters that forward mail are not supported by gmail-mcp. A forwarding filter redirects every matching message, " +
   "future ones included, to another address — a change a prompt-injected assistant must never be able to make. " +
   "Gmail only forwards to a verified forwarding address, and registering one needs the gmail.settings.sharing scope, " +
-  "which this server deliberately never requests. " +
+  "which gmail-mcp does not request by default and no gmail-mcp tool uses; this refusal holds whatever scopes were granted. " +
   "Create forwarding filters in the Gmail web interface (Settings → Filters and Blocked Addresses).";
 
 export async function createFilter(

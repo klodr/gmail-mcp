@@ -32,7 +32,7 @@ A Model Context Protocol (MCP) server that lets AI assistants (Claude Desktop, C
 >
 > - **Secure** — input sanitization, recipient pairing, rate limiting, sender resolution, and audit logging are enforced *in the server* (not in the operator's attention). The Gmail surface is mediated, not exposed raw.
 > - **Autonomous** — designed to stay safe when no human is watching every action. Different threat model from upstream's "I use it daily in my own workflow"; the in-process middleware is what bridges that gap.
-> - **Tested** — 940 vitest cases across 43 files, **99.37%** statement coverage (91% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
+> - **Tested** — 945 vitest cases across 43 files, **99.37%** statement coverage (91% branch), plus a fast-check property-based fuzz suite and a dedicated hardening test file.
 > - **Resilient under acceleration** — 17 CI/CD workflows (CodeQL, OSV, Gitleaks, leak-detect, Scorecard, Socket, SLSA, lockfile lint, signed releases…) track the security ecosystem at the pace it actually changes — days, sometimes hours. Recent concrete instance: **qs CVE-2026-8723**, surfaced and shipped within hours of the public advisory across the klodr/* MCP family.
 >
 > Full rationale and the per-tool design trade-offs live in [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md).
@@ -76,7 +76,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Write caps per tool family over 24 h and 30 days; batch tools count every message, not every call | ❌ | ❌ | ✅ |
 | Filters that forward mail are refused (a forwarding rule silently redirects all future matching mail) | ❌ `create_filter` accepts `action.forward` | ❌ `create_filter` accepts `action.forward` | ✅ refused, with the reason |
 | Downloaded files marked as coming from the internet (macOS quarantine, Windows Mark of the Web), as Mail and Outlook do | ❌ | ❌ | ✅ |
-| Exported HTML: scripts, frames and forms blocked; remote images, stylesheets and fonts (tracking pixels) blocked unless asked for | — (no HTML export) | ❌ no CSP | ✅ |
+| Exported HTML: scripts, frames and forms blocked; remote images, stylesheets, fonts and media (tracking pixels) blocked unless asked for | — (no HTML export) | ❌ no CSP | ✅ |
 | **MCP protocol & tool surface** | | | |
 | MCP SDK version | v0.4.x | v1.27.x | v1.32.x |
 | Tool annotations (`readOnlyHint` / `destructiveHint` / `idempotentHint`) | ❌ | ✅ | ✅ |
@@ -93,7 +93,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Release: signed builds (Sigstore + SLSA in-toto attestation + npm provenance) | ❌ | ❌ | ✅ |
 | Release: single-file ESM bundle | ❌ | ❌ | ✅ |
 | **Testing** | | | |
-| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**940 tests**, 43 files) |
+| Unit/property tests | ❌ (0 tests) | ⚠️ (97 tests) | ✅ (**945 tests**, 43 files) |
 | Statement coverage across `src/**` | 0% | 16.14% | **99.37%** (91% branch) |
 | Fast-check property-based fuzz suite | ❌ | ❌ | ✅ |
 | Hardening-specific test file (jails, CRLF, O_EXCL) | ❌ | ❌ | ✅ |
@@ -207,8 +207,8 @@ The runtime constraints that an autonomous LLM client cannot violate are enforce
 - **`sender-resolver.ts`** — resolves the `from` parameter against the account's authorized send-as aliases only. Spoofing the sender field is rejected before the Gmail API send call.
 - **`rate-limit.ts`** — bounds write volume per tool family (`send`, `delete`, `modify`, `drafts`, `labels`, `filters`, `pairing`) over rolling daily/monthly windows. The batch tools (`batch_modify_emails`, `batch_delete_emails`, `move_to_spam_batch`) count each message they touch, so one call on 1 000 messages uses 1 000 units, not 1. The state is persisted to disk so it survives restarts. Disable with `GMAIL_MCP_RATE_LIMIT_DISABLE=true` for test runs only.
 - **`quarantine.ts`** — marks every file written by `download_attachment`, `download_all_attachments` and `download_email` as downloaded from the internet, as Mail and Outlook do: the `com.apple.quarantine` attribute on macOS (Gatekeeper checks an executable or script when it is opened), the Mark of the Web on Windows; nothing on Linux. Never blocking: if the mark cannot be set, the file is still saved. Off with `GMAIL_MCP_QUARANTINE=false`.
-- **Forwarding filters refused** (`filter-manager.ts`) — `create_filter` and the filter templates never install a rule that forwards mail: such a rule silently redirects every future matching message, and Gmail forwards only to a verified forwarding address, whose registration needs the `gmail.settings.sharing` scope this server never requests. Create those in the Gmail web interface.
-- **Exported HTML** (`email-export.ts`) — the file `download_email` writes in `html` format carries a Content-Security-Policy blocking scripts, plugins, frames, `<base>` rewrites and form submissions, and remote images, stylesheets and fonts by default, so a tracking pixel or stylesheet cannot report when and where the copy is opened (inline styles and images still render). Allow remote images per call with `allowRemoteImages: true` or globally with `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`.
+- **Forwarding filters refused** (`filter-manager.ts`) — `create_filter` and the filter templates never install a rule that forwards mail: such a rule silently redirects every future matching message, and Gmail forwards only to a verified forwarding address, whose registration needs the `gmail.settings.sharing` scope — not in the default scopes and used by no tool here; the refusal holds even if `--scopes` grants it. Create those in the Gmail web interface.
+- **Exported HTML** (`email-export.ts`) — the file `download_email` writes in `html` format carries a Content-Security-Policy blocking scripts, plugins, frames, `<base>` rewrites and form submissions, and by default every remote fetch — images, stylesheets, fonts, media and the rest (`default-src 'none'`) — so a tracking pixel or stylesheet cannot report when and where the copy is opened (inline styles and images still render); a sender's `<meta http-equiv="refresh">` is neutralized. Allow remote content per call with `allowRemoteImages: true` or globally with `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`.
 - **`send_draft` recipient check** — the staged draft is read before sending, and a To / Cc / Bcc header that does not parse as a list of addresses is refused, so a draft's destination is always known.
 - **`gmail-errors.ts`** — normalizes Gmail API failure modes into typed errors so retries and surfacing to the LLM are deterministic.
 - **`middleware.ts`** — composes the always-on chain and binds it to every tool entry point. New tools inherit the pipeline by construction.
@@ -231,7 +231,7 @@ Configure each module via the env vars below:
 | Rate limit disable | `GMAIL_MCP_RATE_LIMIT_DISABLE=true` | unset (limiter active) | Kill-switch for the entire limiter. Use only for test suites or controlled batch operations. |
 | Recipient pairing | `GMAIL_MCP_RECIPIENT_PAIRING=true` | unset (no allowlist) | Sends only to paired addresses (`GMAIL_MCP_PAIRED_PATH`, default `~/.gmail-mcp/paired.json`). Pair from a terminal with `npx @klodr/gmail-mcp pair add <address>`, or through `pair_recipient`, which asks you to confirm. |
 | Quarantine of downloads | `GMAIL_MCP_QUARANTINE=false` | on | macOS `com.apple.quarantine` / Windows Mark of the Web on every downloaded file; nothing on Linux. Never blocks a download. |
-| Remote images in exported HTML | `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true` | blocked | Default for `download_email` in `html` format; a per-call `allowRemoteImages` wins. |
+| Remote content (images, stylesheets, fonts, media) in exported HTML | `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true` | blocked | Default for `download_email` in `html` format; a per-call `allowRemoteImages` wins. |
 | Audit log | `GMAIL_MCP_AUDIT_LOG=/abs/path/audit.jsonl` | unset (no audit trail) | Opt-in append-only JSONL log of every tool call (name, redacted args, outcome). File mode `0o600`. Must be an absolute path; relative paths are rejected at startup. Redaction keeps structural keys and drops values under an allowlist. |
 | Dry-run | `GMAIL_MCP_DRY_RUN=true` | unset (real calls) | When `"true"` (strict match), every write tool (`send_email`, `reply_all`, `reply_to_email`, `forward_email`, `draft_email`, `update_draft`, `delete_draft`, `send_draft`, `delete_email`, `modify_email`, `batch_modify_emails`, `move_to_spam`, `move_to_spam_batch`, `batch_delete_emails`, `create_label`, `update_label`, `delete_label`, `get_or_create_label`, `create_filter`, `delete_filter`, `create_filter_from_template`, `modify_thread`, `pair_recipient`) short-circuits before reaching Gmail and returns the redacted payload it would have sent. This is exactly the set of rate-limited tools. `pair_recipient` is short-circuited for every action, `list` included. Useful for CI smoke tests, agent debugging, and human-in-the-loop approval flows. Read tools and the local-only `download_*` tools ignore the flag (nothing to preview in the mailbox). Matches `MERCURY_MCP_DRY_RUN` / `FAXDROP_MCP_DRY_RUN` on the sibling servers. |
 

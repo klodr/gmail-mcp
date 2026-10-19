@@ -233,6 +233,33 @@ describe("download_email formats", () => {
       // Inline styles keep the rendering; remote stylesheets / fonts do not load.
       expect(BLOCK_REMOTE_CONTENT_CSP).toContain("style-src 'unsafe-inline' data:");
       expect(BLOCK_REMOTE_CONTENT_CSP).toContain("font-src data:");
+      expect(BLOCK_REMOTE_CONTENT_CSP).toContain("media-src data:");
+    });
+
+    it("blocks fetches without a directive of their own (manifest, prefetch) through default-src", () => {
+      const html =
+        '<link rel="manifest" href="https://tracker.example.invalid/m.json">' +
+        '<link rel="prefetch" href="https://tracker.example.invalid/p">';
+      const out = emailToHtml({ text: "", html });
+      expect(BLOCK_REMOTE_CONTENT_CSP).toContain("default-src 'none'");
+      expect(out.indexOf("default-src 'none'")).toBeLessThan(out.indexOf('rel="manifest"'));
+      // Opting in to remote content lifts the fallback too.
+      expect(emailToHtml({ text: "", html }, true)).not.toContain("default-src");
+    });
+
+    it.each([
+      '<meta http-equiv="refresh" content="0;url=https://phish.example.invalid/">',
+      "<META HTTP-EQUIV=Refresh CONTENT=0;URL=https://phish.example.invalid/>",
+      "<meta/http-equiv='refresh' content='0;url=https://phish.example.invalid/'>",
+      '<meta content="0;url=https://phish.example.invalid/?a>b" http-equiv="refresh">',
+    ])("neutralizes a sender's meta refresh, remote content blocked or not: %s", (tag) => {
+      for (const allow of [false, true]) {
+        const out = emailToHtml({ text: "", html: `<p>x</p>${tag}` }, allow);
+        // Only the exporter's own CSP <meta> keeps an http-equiv attribute.
+        expect(out.match(/(?<![\w-])http-equiv/gi)).toHaveLength(1);
+        expect(out).toContain("data-removed-http-equiv");
+        expect(out).toContain("<p>x</p>");
+      }
     });
   });
 });
