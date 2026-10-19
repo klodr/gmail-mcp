@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1](https://github.com/klodr/gmail-mcp/compare/v2.0.0...v2.0.1) (2026-10-19)
+
+
+### Changed
+
+* **deps-dev:** bump the dev-dependencies group across 1 directory with 3 updates ([#333](https://github.com/klodr/gmail-mcp/issues/333)) ([2374f42](https://github.com/klodr/gmail-mcp/commit/2374f429cfbacc076898f4bbffb72b9dc4f415cc))
+* **deps:** bump zod from 4.6.5 to 4.6.6 in the production-dependencies group across 1 directory ([#329](https://github.com/klodr/gmail-mcp/issues/329)) ([c0ec61d](https://github.com/klodr/gmail-mcp/commit/c0ec61d96ac96517b9e0983d8a33f360fcf3edc4))
+
 ## [2.0.0](https://github.com/klodr/gmail-mcp/compare/v1.5.0...v2.0.0) (2026-10-19)
 
 
