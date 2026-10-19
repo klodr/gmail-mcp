@@ -83,15 +83,17 @@ is faster than failing in CI.
 - `no-console: warn` — only `console.error` / `console.warn` allowed.
 - `import-x/no-unresolved: off` — TS / vitest already validate imports;
   the rule cannot follow `./*` exports maps from the MCP SDK.
-- Tests are excluded from lint (`src/**/*.test.ts` in the ignore
-  list). Lint and tests are independent gates.
+- Tests are excluded from lint (`test/` in the ignore list of
+  `eslint.config.js`). Lint and tests are independent gates.
 
 ## Tests
 
 - Framework: **vitest** with the default reporter.
-- Test files co-located in `src/` next to the unit they cover
-  (e.g. `src/threads-handlers.test.ts` next to logic split into
-  `src/tools/threads.ts` + helpers). Pattern: `**/*.test.ts`.
+- Test files live in `test/`, one file per unit they cover
+  (e.g. `test/threads-handlers.test.ts` for the logic in
+  `src/tools/threads.ts` + helpers). Vitest only collects
+  `test/**/*.test.ts` and `scripts/**/*.test.mjs`; nothing under `src/`
+  is picked up.
 - Coverage provider: `v8`. Reporters: `text`, `lcov`, `json`. The
   JSON report carries per-branch hit counts so Codecov can compute
   accurate indirect-changes — do not remove it.
@@ -104,8 +106,8 @@ is faster than failing in CI.
   is covered there. `scripts/prod-readonly-test.mjs` is also
   excluded (real-token smoke test, not a unit test).
 - Use `InMemoryTransport` from `@modelcontextprotocol/sdk` for
-  end-to-end handler tests. Existing tests under `src/` are the
-  reference pattern.
+  end-to-end handler tests. The `test/*-handlers.test.ts` files are
+  the reference pattern.
 
 ## Commits
 

@@ -21,7 +21,7 @@
     "prepare": "husky",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-version.mjs && git add server.json src/server.ts",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#dist\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#CHANGELOG.md\" \"#node_modules\" \"#coverage\" \"#dist\"",
     "lint:spell": "cspell --no-progress --dot --gitignore --config cspell.config.yaml \"**/*.md\""
   },
   "files": [
