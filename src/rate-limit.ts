@@ -15,10 +15,17 @@
  * limiter is to cap irreversible, destructive, or spam-shaped actions
  * that a prompt-injected agent could fire in a loop.
  *
+ * Batch tools (`batch_modify_emails`, `batch_delete_emails`,
+ * `move_to_spam_batch`) are weighted by the number of message IDs they
+ * carry: a call touching 1 000 messages consumes 1 000 units of the
+ * bucket, not 1. Without the weight a single call could act on the
+ * whole cap's worth of messages a thousand times over.
+ *
  * Persistence: `<stateDir>/ratelimit.json`, mode 0o600, atomic rename.
  * `stateDir` defaults to `~/.gmail-mcp/` (override with
- * `GMAIL_MCP_STATE_DIR`). State is keyed by bucket; entries are arrays
- * of Unix-ms timestamps pruned to the monthly window on every access.
+ * `GMAIL_MCP_STATE_DIR`). State is keyed by bucket; each entry is a
+ * Unix-ms timestamp (weight 1) or a `[timestamp, weight]` pair, pruned
+ * to the monthly window on every access.
  *
  * Env overrides:
  *   GMAIL_MCP_RATE_LIMIT_<BUCKET>=D/day,M/month   # e.g. "50/day,500/month"
@@ -104,6 +111,30 @@ export const WRITE_TOOLS: ReadonlySet<string> = new Set(Object.keys(TOOL_BUCKET)
  * deliberately neither rate-limited nor dry-run'd: there is no Gmail
  * write to preview or to cap, and the jail owns their hardening.
  */
+/**
+ * Tools whose rate-limit weight is the number of message IDs they act
+ * on (see `callWeight`). Every other tool weighs 1 per call.
+ */
+const PER_MESSAGE_TOOLS: ReadonlySet<string> = new Set([
+  "batch_modify_emails",
+  "batch_delete_emails",
+  "move_to_spam_batch",
+]);
+
+/**
+ * Rate-limit weight of one call: the length of `messageIds` for the
+ * batch tools, 1 for everything else (and never less than 1, so an
+ * empty or malformed batch still counts as one call).
+ */
+export function callWeight(toolName: string, args: unknown): number {
+  if (!PER_MESSAGE_TOOLS.has(toolName)) return 1;
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    const ids = (args as Record<string, unknown>)["messageIds"];
+    if (Array.isArray(ids) && ids.length > 0) return ids.length;
+  }
+  return 1;
+}
+
 export const LOCAL_WRITE_TOOLS: ReadonlySet<string> = new Set([
   "download_attachment",
   "download_all_attachments",
@@ -135,12 +166,18 @@ interface BucketLimit {
  * personal-assistant workload — heavy users override via
  * `GMAIL_MCP_RATE_LIMIT_send=400/day,6000/month` to opt back in.
  *
+ * `modify` and `delete` count MESSAGES for the batch tools (see
+ * `callWeight`), so their caps are sized in messages: 5 000 label /
+ * read-state / archive changes a day covers five full 1 000-message
+ * batches — a large inbox clean-up — and still stops a runaway loop.
+ * Permanent deletion stays an order of magnitude lower (1 000 a day).
+ *
  * Override any bucket with `GMAIL_MCP_RATE_LIMIT_<BUCKET>=D/day,M/month`.
  */
 const DEFAULT_BUCKET_LIMITS: Record<string, BucketLimit> = {
   send: { daily: 100, monthly: 2000 },
-  delete: { daily: 200, monthly: 2000 },
-  modify: { daily: 500, monthly: 5000 },
+  delete: { daily: 1000, monthly: 10_000 },
+  modify: { daily: 5000, monthly: 50_000 },
   drafts: { daily: 300, monthly: 3000 },
   labels: { daily: 50, monthly: 500 },
   filters: { daily: 20, monthly: 200 },
@@ -173,7 +210,59 @@ function getBucketLimit(bucket: string): BucketLimit | null {
   return DEFAULT_BUCKET_LIMITS[bucket] ?? null;
 }
 
-const callHistory = new Map<string, number[]>();
+/** A recorded call: a timestamp (weight 1) or `[timestamp, weight]`. */
+type CallEntry = number | [number, number];
+
+function entryTime(entry: CallEntry): number {
+  return typeof entry === "number" ? entry : entry[0];
+}
+
+function entryWeight(entry: CallEntry): number {
+  return typeof entry === "number" ? 1 : entry[1];
+}
+
+function isCallEntry(value: unknown): value is CallEntry {
+  if (typeof value === "number") return true;
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === "number" &&
+    typeof value[1] === "number" &&
+    Number.isInteger(value[1]) &&
+    value[1] >= 1
+  );
+}
+
+function totalWeight(entries: readonly CallEntry[]): number {
+  let total = 0;
+  for (const entry of entries) total += entryWeight(entry);
+  return total;
+}
+
+/**
+ * Milliseconds until `needed` units fit under `limit` in a window of
+ * `windowMs`: walk the entries oldest first and find the one whose
+ * expiry frees enough room. `entries` must all be inside the window.
+ */
+function retryAfter(
+  entries: readonly CallEntry[],
+  limit: number,
+  needed: number,
+  windowMs: number,
+  now: number,
+): number {
+  const sorted = entries.toSorted((a, b) => entryTime(a) - entryTime(b));
+  let remaining = totalWeight(sorted);
+  for (const entry of sorted) {
+    remaining -= entryWeight(entry);
+    if (remaining + needed <= limit) return windowMs - (now - entryTime(entry));
+  }
+  /* v8 ignore next -- unreachable: callers only ask when needed <= limit,
+     and an empty window always has room for it. */
+  return windowMs;
+}
+
+const callHistory = new Map<string, CallEntry[]>();
 // `readOk` is set once the state file has been successfully read (or the
 // file is confirmed absent). It gates `persistCallHistory`: if a prior
 // read failed with a hard error (EACCES, EIO…) we must NOT clobber the
@@ -224,7 +313,7 @@ function loadCallHistory(): void {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (Array.isArray(v) && v.every((n) => typeof n === "number")) {
+        if (Array.isArray(v) && v.every((entry) => isCallEntry(entry))) {
           callHistory.set(k, v);
         }
       }
@@ -248,7 +337,7 @@ function persistCallHistory(): void {
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    const obj: Record<string, number[]> = {};
+    const obj: Record<string, CallEntry[]> = {};
     for (const [k, v] of callHistory) obj[k] = v;
     writeFileSync(tmp, JSON.stringify(obj), { mode: 0o600 });
     renameSync(tmp, path);
@@ -272,13 +361,17 @@ export class RateLimitError extends Error {
     public limitType: LimitType,
     public limit: number,
     public retryAfterMs: number,
+    public requested = 1,
   ) {
-    const retryMinutes = Math.ceil(retryAfterMs / 60_000);
     const windowLabel = limitType === "daily" ? "24h" : "30-day rolling";
     const title = limitType === "daily" ? "Daily Limit Exceeded" : "Monthly Limit Exceeded";
+    const timing =
+      requested > limit
+        ? `This call alone needs ${requested} units — more than the whole cap; split the batch. `
+        : `Retry in ~${Math.ceil(retryAfterMs / 60_000)} min. `;
     super(
       `${title}: ${toolName} (bucket: ${bucket}) capped at ${limit} per ${windowLabel}. ` +
-        `Retry in ~${retryMinutes} min. ` +
+        timing +
         `Override with GMAIL_MCP_RATE_LIMIT_${bucket}=D/day,M/month if this is a legitimate batch.`,
     );
     this.name = "RateLimitError";
@@ -289,12 +382,14 @@ export class RateLimitError extends Error {
  * Enforce both rate-limit windows for a tool call.
  *
  * - No-op for read tools and tools absent from TOOL_BUCKET
+ * - `weight` is the number of units the call consumes (see
+ *   `callWeight`): 1 for a normal call, the message count for a batch
  * - Prunes records older than the monthly window before counting
  * - Daily window checked first
- * - On allow: appends a timestamp and persists state
+ * - On allow: records the call with its weight and persists state
  * - On deny: throws RateLimitError with the limit type that failed
  */
-export function enforceRateLimit(toolName: string): void {
+export function enforceRateLimit(toolName: string, weight = 1): void {
   if (process.env.GMAIL_MCP_RATE_LIMIT_DISABLE === "true") return;
 
   const bucket = TOOL_BUCKET[toolName];
@@ -303,31 +398,33 @@ export function enforceRateLimit(toolName: string): void {
   const limits = getBucketLimit(bucket);
   if (!limits) return;
 
+  const units = Math.max(1, Math.floor(weight));
+
   loadCallHistory();
 
   const now = Date.now();
-  const records = (callHistory.get(bucket) ?? []).filter((ts) => now - ts < MONTH_MS);
+  const records = (callHistory.get(bucket) ?? []).filter(
+    (entry) => now - entryTime(entry) < MONTH_MS,
+  );
 
-  // retryAfterMs must be computed from the *oldest* timestamp still in the
-  // window. Append order is normally chronological, but a concurrent
-  // second process, a manually edited state file, or a clock skew could
-  // leave entries out of order — relying on `records[0]` would then
-  // advertise a wrong retry delay. Math.min is O(n) on a window that's
-  // already filtered to ≤ `limits.monthly` entries (≤ 6000 worst case).
-  const dailyRecords = records.filter((ts) => now - ts < DAY_MS);
-  if (dailyRecords.length >= limits.daily) {
-    const oldestDaily = Math.min(...dailyRecords);
-    const retryAfterMs = DAY_MS - (now - oldestDaily);
-    throw new RateLimitError(toolName, bucket, "daily", limits.daily, retryAfterMs);
+  // The retry delay is derived from the entries that must expire before
+  // `units` fit again, walked oldest first by timestamp — append order
+  // is normally chronological, but a second process, a hand-edited
+  // state file or clock skew can leave entries out of order.
+  const dailyRecords = records.filter((entry) => now - entryTime(entry) < DAY_MS);
+  if (totalWeight(dailyRecords) + units > limits.daily) {
+    const retryAfterMs =
+      units > limits.daily ? 0 : retryAfter(dailyRecords, limits.daily, units, DAY_MS, now);
+    throw new RateLimitError(toolName, bucket, "daily", limits.daily, retryAfterMs, units);
   }
 
-  if (records.length >= limits.monthly) {
-    const oldestMonthly = Math.min(...records);
-    const retryAfterMs = MONTH_MS - (now - oldestMonthly);
-    throw new RateLimitError(toolName, bucket, "monthly", limits.monthly, retryAfterMs);
+  if (totalWeight(records) + units > limits.monthly) {
+    const retryAfterMs =
+      units > limits.monthly ? 0 : retryAfter(records, limits.monthly, units, MONTH_MS, now);
+    throw new RateLimitError(toolName, bucket, "monthly", limits.monthly, retryAfterMs, units);
   }
 
-  records.push(now);
+  records.push(units === 1 ? now : [now, units]);
   callHistory.set(bucket, records);
   persistCallHistory();
 }
@@ -347,7 +444,7 @@ export function formatRateLimitError(err: RateLimitError): string {
           ? "mcp_rate_limit_daily_exceeded"
           : "mcp_rate_limit_monthly_exceeded",
       message: err.message,
-      hint: `Bucket "${err.bucket}" is at ${err.limit} calls per ${err.limitType === "daily" ? "24h" : "30 days"}. Override with GMAIL_MCP_RATE_LIMIT_${err.bucket}=D/day,M/month if this is a legitimate batch.`,
+      hint: `Bucket "${err.bucket}" is at ${err.limit} units per ${err.limitType === "daily" ? "24h" : "30 days"} (one unit per call, one per message for batch tools). Override with GMAIL_MCP_RATE_LIMIT_${err.bucket}=D/day,M/month if this is a legitimate batch.`,
       retry_after: retryAt,
     },
     null,

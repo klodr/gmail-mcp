@@ -25,6 +25,7 @@ import { buildEncodedRawMessage, type EmailSendArgs } from "../email-send.js";
 import { isPairingEnabled, requirePairedRecipients } from "../recipient-pairing.js";
 import { resolveDefaultSender } from "../sender-resolver.js";
 import { asGmailApiError } from "../gmail-errors.js";
+import emailAddresses from "email-addresses";
 import { parseEmailAddresses } from "../reply-all-helpers.js";
 
 /**
@@ -294,46 +295,63 @@ export function registerDraftTools(
         // server-resident draft that may have been addressed
         // off-allowlist via the Gmail UI or a separate session).
         //
-        // CR follow-up (PR #100): the gate ONLY runs when
-        // `GMAIL_MCP_RECIPIENT_PAIRING=true`. Skipping the
-        // pre-flight `drafts.get` when pairing is disabled saves
-        // an unconditional API round-trip per send_draft call —
-        // the dominant cost on every send for the 99 % of
-        // operators who don't enable the gate.
+        // Pre-flight read of the staged draft, on EVERY send (this used
+        // to run only with pairing on — PR #100 — to save the round
+        // trip). Two checks need the server-resident headers:
         //
-        // CR security follow-up (PR #100): use `format: "full"`
-        // rather than `metadata`. Gmail's `metadata` projection
-        // can omit the `Bcc` header — that field is normally
-        // stripped from sent messages (it's the whole point of
-        // Bcc), and the Gmail API documentation does not
-        // guarantee its presence on a draft's metadata response
-        // either. Without `Bcc`, an attacker who stages a draft
-        // with an unpaired `Bcc` recipient (via the Gmail UI, a
-        // different agent session, or a prior `update_draft`
-        // call) would slip through this gate and reach the actual
-        // `drafts.send`. `format: "full"` includes the entire
-        // payload tree, so all original headers — including the
-        // load-bearing `Bcc` — round-trip to the client. The
-        // extra body bytes are negligible vs the safety floor.
+        // 1. Unreadable recipients, regardless of pairing. A To / Cc /
+        //    Bcc header that does not parse as an address list (e.g.
+        //    a trailing `;`, two addresses separated only by a space, or
+        //    a valid address next to junk) means nobody can tell where the message will go.
+        //    The lenient `parseEmailAddresses` would silently keep the
+        //    readable part, so the strict `parseAddressList` decides:
+        //    refuse and let the user fix the draft.
+        //
+        // 2. The pairing gate (only when GMAIL_MCP_RECIPIENT_PAIRING is
+        //    on), against every address of every header.
+        //
+        // `format: "full"` rather than `metadata`: the metadata
+        // projection can omit `Bcc`, which is exactly the header an
+        // attacker would stage an unpaired recipient in (CR security
+        // follow-up, PR #100).
+        const draftResponse = await gmail.users.drafts.get({
+          userId: "me",
+          id: args.id,
+          format: "full",
+        });
+        const headers = draftResponse.data.message?.payload?.headers ?? [];
+        // RFC 5322 allows repeated `To` / `Cc` / `Bcc` headers and Gmail
+        // merges them when sending. `headers.find` would only see the
+        // first instance, letting an attacker stage `To: alice@allowed`
+        // + `To: mallory@evil` and slip past the allowlist on `mallory`.
+        // Collect every matching header and concat into the parser.
+        const headerValue = (name: string): string =>
+          headers
+            .filter((h) => h.name?.toLowerCase() === name.toLowerCase())
+            .map((h) => h.value ?? "")
+            .filter((v) => v.trim() !== "")
+            .join(", ");
+        const recipientHeaders = ["To", "Cc", "Bcc"] as const;
+        const unreadable = recipientHeaders.filter((name) => {
+          const value = headerValue(name);
+          return value !== "" && emailAddresses.parseAddressList(value) === null;
+        });
+        if (unreadable.length > 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  `Draft ${args.id} was not sent: its ${unreadable.join(" / ")} header does not parse as a list of email addresses, so its recipients cannot be verified. ` +
+                  "Fix the recipients in the draft (one address per entry, separated by commas) and retry.",
+              },
+            ],
+            isError: true,
+          };
+        }
         if (isPairingEnabled()) {
-          const draftResponse = await gmail.users.drafts.get({
-            userId: "me",
-            id: args.id,
-            format: "full",
-          });
-          const headers = draftResponse.data.message?.payload?.headers ?? [];
-          // RFC 5322 allows repeated `To` / `Cc` / `Bcc` headers and Gmail
-          // merges them when sending. `headers.find` would only see the
-          // first instance, letting an attacker stage `To: alice@allowed`
-          // + `To: mallory@evil` and slip past the allowlist on `mallory`.
-          // Collect every matching header and concat into the parser.
-          const headerValues = (name: string): string[] =>
-            headers
-              .filter((h) => h.name?.toLowerCase() === name.toLowerCase())
-              .map((h) => h.value ?? "")
-              .filter((v) => v !== "");
-          const recipients = ["to", "cc", "bcc"].flatMap((name) =>
-            parseEmailAddresses(headerValues(name).join(", ")),
+          const recipients = recipientHeaders.flatMap((name) =>
+            parseEmailAddresses(headerValue(name)),
           );
           requirePairedRecipients(recipients);
         }

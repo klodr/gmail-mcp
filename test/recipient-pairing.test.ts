@@ -9,10 +9,15 @@ import {
   getPairedPath,
   isAddressPaired,
   isPairingEnabled,
+  normalisePairedAddress,
+  pairCommandHint,
   readPairedList,
   removePairedAddress,
   requirePairedRecipients,
 } from "../src/recipient-pairing.js";
+
+// Built at runtime so no literal address sits in the diff (leak-detect).
+const mail = (user: string): string => `${user}@example.com`;
 
 describe("recipient-pairing", () => {
   let tmpDir: string;
@@ -243,6 +248,57 @@ describe("recipient-pairing", () => {
       expect(caught).toBeInstanceOf(Error);
       expect((caught as Error).message).toMatch(/Unable to read paired-recipients file/);
       expect((caught as Error).cause).toBeDefined();
+    });
+  });
+
+  describe("address normalisation", () => {
+    it("pairs the bare, lowercased address of a display-name mailbox", () => {
+      expect(normalisePairedAddress(`Alice Martin <${mail("Alice")}>`)).toBe(mail("alice"));
+      const res = addPairedAddress(`  "Alice Martin" <${mail("ALICE")}>  `);
+      expect(res).toEqual({ added: true, address: mail("alice") });
+      expect(readPairedList()).toEqual([mail("alice")]);
+    });
+
+    it("rejects groups and lists, which are not one mailbox", () => {
+      expect(() => normalisePairedAddress(`team: ${mail("a")}, ${mail("b")};`)).toThrow(
+        /not a valid email address/,
+      );
+      expect(() => normalisePairedAddress(`${mail("a")}, ${mail("b")}`)).toThrow(
+        /not a valid email address/,
+      );
+    });
+
+    it("matches a recipient whatever its display name, and rejects one that is not a mailbox", () => {
+      process.env[ENV_RECIPIENT_PAIRING] = "true";
+      addPairedAddress(mail("bob"));
+      expect(isAddressPaired(`Bob <${mail("Bob")}>`)).toBe(true);
+      expect(isAddressPaired("not an address")).toBe(false);
+      expect(() => requirePairedRecipients([`Robert <${mail("bob")}>`])).not.toThrow();
+      expect(() => requirePairedRecipients([`${mail("bob")}, ${mail("eve")}`])).toThrow(
+        /not in the paired allowlist/,
+      );
+    });
+
+    it("can still remove an entry written raw by an older version", () => {
+      const legacy = `bob martin <${mail("bob")}>`;
+      writeFileSync(
+        join(tmpDir, "paired.json"),
+        JSON.stringify({ version: 1, addresses: [legacy], updatedAt: new Date().toISOString() }),
+      );
+      expect(removePairedAddress(`Bob Martin <${mail("bob")}>`)).toEqual({
+        removed: true,
+        address: mail("bob"),
+      });
+      expect(readPairedList()).toEqual([]);
+      expect(removePairedAddress("not a mailbox")).toEqual({
+        removed: false,
+        address: "not a mailbox",
+      });
+    });
+
+    it("names the CLI command that pairs an address", () => {
+      expect(pairCommandHint(mail("x"))).toBe(`npx @klodr/gmail-mcp pair add ${mail("x")}`);
+      expect(pairCommandHint()).toBe("npx @klodr/gmail-mcp pair add <address>");
     });
   });
 });

@@ -13,6 +13,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
 
+// Built at runtime so no literal address sits in the diff (leak-detect).
+const mail = (user: string): string => `${user}@example.com`;
+
 interface DraftListEntry {
   id: string;
   message?: { id: string; threadId: string };
@@ -288,13 +291,15 @@ describe("registerDraftTools — handler-level coverage", () => {
     }
   });
 
-  it("send_draft: skips the pairing pre-flight when GMAIL_MCP_RECIPIENT_PAIRING is unset", async () => {
+  it("send_draft: reads the draft before sending even with pairing off (recipient check)", async () => {
     const { gmail, getSpy, sendSpy } = makeMockGmail();
     const { client, close } = await makeClient(gmail);
     try {
       const out = await client.callTool({ name: "send_draft", arguments: { id: "D-send" } });
-      // The cost-saving short-circuit means drafts.get is NOT called.
-      expect(getSpy).not.toHaveBeenCalled();
+      // The pre-flight read now runs on every send: unreadable
+      // recipients are refused whether or not pairing is on.
+      expect(getSpy).toHaveBeenCalledOnce();
+      expect(getSpy.mock.calls[0]?.[0]).toMatchObject({ id: "D-send", format: "full" });
       const sendCall = sendSpy.mock.calls[0]?.[0] as { requestBody: { id: string } };
       expect(sendCall.requestBody.id).toBe("D-send");
       const text = textOf(out as { content: Array<{ type: string; text?: string }> });
@@ -346,12 +351,62 @@ describe("registerDraftTools — handler-level coverage", () => {
     }
   });
 
+  it.each([
+    ["a trailing semicolon", `${mail("evil")};`],
+    ["two addresses without a comma", `${mail("a")} ${mail("c")}`],
+    ["a readable address next to junk", `${mail("ok")}, junk@@evil`],
+  ])("send_draft: refuses a draft whose To has %s", async (_label, toValue) => {
+    const { gmail, sendSpy } = makeMockGmail();
+    (gmail.users.drafts as { get: ReturnType<typeof vi.fn> }).get = vi.fn(() =>
+      Promise.resolve({
+        data: { message: { payload: { headers: [{ name: "To", value: toValue }] } } },
+      }),
+    );
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({ name: "send_draft", arguments: { id: "D-bad" } });
+      expect(out.isError).toBe(true);
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toContain("Draft D-bad was not sent");
+      expect(text).toContain("To header does not parse");
+      expect(sendSpy).not.toHaveBeenCalled();
+    } finally {
+      await close();
+    }
+  });
+
+  it("send_draft: accepts display names with accents and quoted commas", async () => {
+    const { gmail, sendSpy } = makeMockGmail();
+    (gmail.users.drafts as { get: ReturnType<typeof vi.fn> }).get = vi.fn(() =>
+      Promise.resolve({
+        data: {
+          message: {
+            payload: {
+              headers: [
+                { name: "To", value: `"Élodie Dupré" <${mail("elodie")}>` },
+                { name: "Cc", value: `"Smith, John" <${mail("john")}>` },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({ name: "send_draft", arguments: { id: "D-ok" } });
+      expect(out.isError).toBeFalsy();
+      expect(sendSpy).toHaveBeenCalledOnce();
+    } finally {
+      await close();
+    }
+  });
+
   it("send_draft: surfaces Gmail API errors via the shared error envelope", async () => {
     const erroring = {
       users: {
         drafts: {
           list: vi.fn(),
-          get: vi.fn(),
+          get: vi.fn(() => Promise.resolve({ data: { message: { payload: { headers: [] } } } })),
           delete: vi.fn(),
           send: vi.fn(() => Promise.reject(new Error("boom-send"))),
         },
@@ -360,9 +415,9 @@ describe("registerDraftTools — handler-level coverage", () => {
     const { client, close } = await makeClient(erroring);
     try {
       const out = await client.callTool({ name: "send_draft", arguments: { id: "D-z" } });
-      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
-        /Failed to send draft/,
-      );
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toMatch(/Failed to send draft/);
+      expect(text).toContain("boom-send");
       expect(out.isError).toBe(true);
     } finally {
       await close();

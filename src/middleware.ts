@@ -18,6 +18,7 @@
  */
 import { type AuditResult, logAudit, redactSensitive } from "./audit-log.js";
 import {
+  callWeight,
   enforceRateLimit,
   formatRateLimitError,
   RateLimitError,
@@ -239,7 +240,7 @@ export async function wrapToolHandler(
   }
 
   try {
-    enforceRateLimit(name);
+    enforceRateLimit(name, callWeight(name, args));
   } catch (error) {
     if (error instanceof RateLimitError) {
       safeLogAudit(name, args, "rate_limited");

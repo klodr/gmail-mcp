@@ -38,11 +38,31 @@ export interface GmailFilter {
  * @param action - Actions to perform on matching messages
  * @returns The newly created filter
  */
+/**
+ * Why `action.forward` is refused (shown to the model and the user).
+ * A forwarding filter redirects every matching message — future ones
+ * included — to another address, silently and permanently: exactly the
+ * change a prompt-injected agent must not be able to make. Google also
+ * gates it behind the `gmail.settings.sharing` scope, which this server
+ * never requests, and accepts only a verified forwarding address.
+ */
+export const FORWARDING_FILTER_REFUSAL =
+  "Filters that forward mail are not supported by gmail-mcp. A forwarding filter redirects every matching message, " +
+  "future ones included, to another address — a change a prompt-injected assistant must never be able to make — and " +
+  "Google only allows it with the gmail.settings.sharing scope, which this server deliberately never requests. " +
+  "Create forwarding filters in the Gmail web interface (Settings → Filters and Blocked Addresses), " +
+  "where Gmail also requires the destination to be a verified forwarding address.";
+
 export async function createFilter(
   gmail: gmail_v1.Gmail,
   criteria: GmailFilterCriteria,
   action: GmailFilterAction,
 ) {
+  // Refused before any API call, for every caller (create_filter and
+  // the templates alike).
+  if (action.forward !== undefined && action.forward.trim() !== "") {
+    throw new Error(FORWARDING_FILTER_REFUSAL);
+  }
   try {
     const filterBody: GmailFilter = {
       criteria,

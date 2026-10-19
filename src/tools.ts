@@ -312,7 +312,12 @@ export const CreateFilterSchema = z
         removeLabelIds: coerceArray(GmailIdSchema)
           .optional()
           .describe("Label IDs to remove from matching emails"),
-        forward: z.string().optional().describe("Email address to forward matching emails to"),
+        forward: z
+          .string()
+          .optional()
+          .describe(
+            "Not supported: filters that forward mail are always refused (see the tool description). Create them in the Gmail web interface.",
+          ),
       })
       .describe("Actions to perform on matching emails"),
   })
@@ -424,6 +429,12 @@ export const DownloadEmailSchema = z.object({
     .default("json")
     .describe(
       "Output format: json (structured data), eml (raw RFC822), txt (plain text), html (formatted HTML)",
+    ),
+  allowRemoteImages: z
+    .boolean()
+    .optional()
+    .describe(
+      "html format only: let the saved file load remote images when opened. Default false — remote images (and tracking pixels) are blocked, as Outlook does; GMAIL_MCP_EXPORT_REMOTE_IMAGES=true changes the default.",
     ),
 });
 
@@ -713,6 +724,8 @@ export const toolDefinitions: ToolDefinition[] = [
       "USE WHEN: persisting an attachment locally for archival, OCR, or downstream processing. The filename is sanitized server-side (path-traversal blocked, control chars stripped).",
       "",
       "DO NOT USE: to inspect an attachment's metadata only — use `read_email` (returns attachment list with size + MIME type). The destination path must be writable by the MCP host process.",
+      "",
+      "SIDE EFFECTS: writes one file inside the download jail. Saved files are marked as downloaded from the internet (macOS quarantine, Windows Mark of the Web), as Mail and Outlook do, so the OS checks them on opening; `GMAIL_MCP_QUARANTINE=false` turns this off.",
     ].join("\n"),
     schema: DownloadAttachmentSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
@@ -731,6 +744,8 @@ export const toolDefinitions: ToolDefinition[] = [
       "USE WHEN: saving all the attachments of a message at once (archival, handing a document set over, batch OCR). Inline images the HTML body displays through `cid:` (signature logos, embedded pictures) are skipped unless `includeInline: true`. Filenames are sanitized server-side (path traversal blocked, control chars stripped); duplicate names get a ` (2)`, ` (3)` … suffix.",
       "",
       "DO NOT USE: for a single attachment (use `download_attachment`), or to inspect attachment metadata only (use `read_email`). Every file and the ZIP are written inside the download jail (`GMAIL_MCP_DOWNLOAD_DIR`, default `~/GmailDownloads`); nothing is loaded into the LLM context.",
+      "",
+      "SIDE EFFECTS: writes the files (or the ZIP) inside the download jail. Saved files are marked as downloaded from the internet (macOS quarantine, Windows Mark of the Web), as Mail and Outlook do, so the OS checks them on opening; `GMAIL_MCP_QUARANTINE=false` turns this off.",
     ].join("\n"),
     schema: DownloadAllAttachmentsSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
@@ -805,11 +820,13 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "download_email",
     description: [
-      "Save one Gmail message to a file (json, eml, txt, or html). The html file gets a Content-Security-Policy that blocks scripts, plugins and form submission when it is opened later; use eml for a byte-faithful copy.",
+      "Save one Gmail message to a file (json, eml, txt, or html). The html file gets a Content-Security-Policy that blocks scripts, plugins, frames and form submission when it is opened later, and remote images too (tracking pixels) unless `allowRemoteImages: true`; use eml for a byte-faithful copy.",
       "",
       "USE WHEN: persisting a message to disk for archival, evidence, or downstream processing. Returns metadata + the path written — bodies are NOT loaded into the LLM context, so this is the right choice for large messages.",
       "",
       "DO NOT USE: to read content into the LLM (use `read_email` or `get_thread`). The destination path must be writable by the MCP host process; filename traversal is blocked.",
+      "",
+      "SIDE EFFECTS: writes one file inside the download jail. Saved files are marked as downloaded from the internet (macOS quarantine, Windows Mark of the Web), as Mail and Outlook do, so the OS checks them on opening; `GMAIL_MCP_QUARANTINE=false` turns this off.",
     ].join("\n"),
     schema: DownloadEmailSchema,
     scopes: ["gmail.readonly", "gmail.modify"],
@@ -840,11 +857,11 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "pair_recipient",
     description: [
-      "Manage the paired-recipient allowlist (`~/.gmail-mcp/paired.json`). Actions: `add`, `remove`, `list`. Only effective when `GMAIL_MCP_RECIPIENT_PAIRING` is enabled.",
+      "Manage the paired-recipient allowlist (`~/.gmail-mcp/paired.json`). Actions: `add`, `remove`, `list`. Only effective when `GMAIL_MCP_RECIPIENT_PAIRING` is enabled. Addresses are stored bare and lowercased (`Name <address>` pairs `address`).",
       "",
       "USE WHEN: pre-approving a To/Cc/Bcc address so future `send_email` / `reply_all` / `draft_email` calls go through without per-call confirmation. Designed to cap the blast radius of a prompt-injected send.",
       "",
-      "DO NOT USE: with the gate disabled — pairing has no effect there. ALWAYS confirm with the user before adding an address: paired addresses can be emailed without further approval.",
+      "DO NOT USE: with the gate disabled — pairing has no effect there. With the gate ENABLED, `add` never succeeds on your request alone: the MCP client asks the human to confirm (elicitation), and a client without elicitation gets an error naming the terminal command (`npx @klodr/gmail-mcp pair add <address>`) the human must run. `list` and `remove` need no confirmation.",
       "",
       "SIDE EFFECTS: writes to `~/.gmail-mcp/paired.json` on the MCP host. Persistent across runs. Idempotent on `add` (re-adding the same address is a no-op).",
     ].join("\n"),
@@ -1201,7 +1218,7 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "DO NOT USE: for common patterns (newsletter routing, vendor invoices, etc.) — `create_filter_from_template` covers those with safer defaults. Filters are not idempotent — calling twice creates two filters firing duplicate actions.",
       "",
-      "SIDE EFFECTS: writes a new filter rule on Gmail's side. Persistent. Affects every future incoming message that matches the criteria. The optional `action.forward` field installs a persistent forwarding rule and is therefore gated by the same recipient-pairing allowlist as `send_email` / `reply_all` / `draft_email` when `GMAIL_MCP_RECIPIENT_PAIRING=true` — pair the address via `pair_recipient` first. Requires `gmail.settings.basic` scope.",
+      "SIDE EFFECTS: writes a new filter rule on Gmail's side. Persistent. Affects every future incoming message that matches the criteria. Filters that FORWARD mail (`action.forward`) are always refused: a forwarding rule silently redirects every matching message, future ones included, and Google allows it only with the `gmail.settings.sharing` scope, which this server never requests — create those in the Gmail web interface. Requires `gmail.settings.basic` scope.",
     ].join("\n"),
     schema: CreateFilterSchema,
     scopes: ["gmail.settings.basic"],

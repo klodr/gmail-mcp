@@ -25,6 +25,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
 import { resetRateLimitHistory } from "../src/rate-limit.js";
 import { resetJailDirectoryCache } from "../src/utl.js";
+import { addPairedAddress } from "../src/recipient-pairing.js";
+
+// Built at runtime so no literal address sits in the diff (leak-detect).
+const mail = (user: string): string => `${user}@example.com`;
 
 // Per-test rate-limit isolation: each test gets its own GMAIL_MCP_STATE_DIR
 // so the persistent rate-limit ledger does not leak across tests (without
@@ -1100,29 +1104,32 @@ describe("PR #4 registrars — filter management", () => {
     }
   });
 
-  it("create_filter rejects an action.forward target that is not in the paired allowlist", async () => {
-    // Pin the recipient-pairing gate at `src/tools/filters.ts:79-81`
-    // — installing a server-side forwarding rule must require the
-    // destination to be paired (mirrors send_email / reply_all /
-    // draft_email). Without this branch tested, a regression that
-    // drops the `requirePairedRecipients` call silently re-opens
-    // the prompt-injection-driven exfiltration channel on the
-    // create_filter surface.
-    process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
+  it.each([
+    ["with pairing off", undefined],
+    ["with pairing on and the target paired", "true"],
+  ])("create_filter refuses an action.forward rule %s", async (_label, pairing) => {
+    // A forwarding filter is a permanent, silent redirect of matching
+    // mail — never installed by this server, paired destination or
+    // not (`FORWARDING_FILTER_REFUSAL` in src/filter-manager.ts). The
+    // refusal must explain the scope Google requires, why the server
+    // will not do it, and where to do it instead.
+    if (pairing) process.env.GMAIL_MCP_RECIPIENT_PAIRING = pairing;
     try {
       await withFix(["gmail.settings.basic"], async (fix) => {
+        if (pairing) addPairedAddress(mail("partner"));
         const result = (await fix.client.callTool({
           name: "create_filter",
           arguments: {
             criteria: { from: "noreply@vendor.com" },
-            action: { forward: "exfil@evil.example" },
+            action: { forward: mail("partner") },
           },
         })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
         expect(result.isError).toBe(true);
-        // Pairing-violation messages mention the unpaired address.
-        expect(result.content[0]?.text).toContain("exfil@evil.example");
-        // No filterCreate call was issued — the throw fires before
-        // the API call.
+        const text = result.content[0]?.text ?? "";
+        expect(text).toContain("Filters that forward mail are not supported");
+        expect(text).toContain("gmail.settings.sharing");
+        expect(text).toContain("Gmail web interface");
+        // Refused before any API call.
         expect(fix.calls.filterCreate).toHaveLength(0);
       });
     } finally {
@@ -2993,18 +3000,17 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
     });
   });
 
-  it("send_draft routes drafts.send with the id when pairing is disabled (no pre-flight fetch)", async () => {
-    // CR follow-up on PR #100: when GMAIL_MCP_RECIPIENT_PAIRING is
-    // off (the default), send_draft must NOT pay the cost of an
-    // unconditional drafts.get round-trip just to gate recipients.
-    // Pin: drafts.send fires, drafts.get does NOT.
+  it("send_draft routes drafts.send with the id when pairing is disabled (recipients read first)", async () => {
+    // With pairing off (the default) send_draft still reads the
+    // staged draft once, to refuse unreadable To / Cc / Bcc headers,
+    // then sends it.
     await withFix(["gmail.modify"], async (fix) => {
       const result = (await fix.client.callTool({
         name: "send_draft",
         arguments: { id: "d_outgoing" },
       })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
       expect(result.isError).toBeFalsy();
-      expect(fix.calls.draftGet).toHaveLength(0);
+      expect(fix.calls.draftGet).toHaveLength(1);
       expect(fix.calls.draftSend).toHaveLength(1);
       expect(fix.calls.draftSend[0]).toMatchObject({
         userId: "me",
@@ -3022,16 +3028,12 @@ describe("Drafts CRUD registrars — list_drafts / get_draft / update_draft / de
     process.env.GMAIL_MCP_RECIPIENT_PAIRING = "true";
     try {
       await withFix(["gmail.modify"], async (fix) => {
-        // Pre-pair the recipient that the mock's drafts.get
-        // returns (alice/bob @example.com per the mock fixture).
-        await fix.client.callTool({
-          name: "pair_recipient",
-          arguments: { action: "add", email: "alice@example.com" },
-        });
-        await fix.client.callTool({
-          name: "pair_recipient",
-          arguments: { action: "add", email: "bob@example.com" },
-        });
+        // Pre-pair the recipients that the mock's drafts.get returns
+        // (alice/bob @example.com per the mock fixture) the way a
+        // person does — the model cannot pair on its own while the
+        // gate is on, and this client has no elicitation support.
+        addPairedAddress(mail("alice"));
+        addPairedAddress(mail("bob"));
         const result = (await fix.client.callTool({
           name: "send_draft",
           arguments: { id: "d_paired" },

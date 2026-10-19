@@ -25,7 +25,6 @@ import {
   getFilter,
   filterTemplates,
 } from "../filter-manager.js";
-import { requirePairedRecipients } from "../recipient-pairing.js";
 
 // Format a record as `key: value, key2: value2` — used for both the
 // criteria block and the action block in the create/list/get filter
@@ -71,14 +70,10 @@ export function registerFilterTools(
     createFilterDefinition.description,
     CreateFilterSchema.shape,
     async (args) => {
-      // Forward action gate: when GMAIL_MCP_RECIPIENT_PAIRING=true,
-      // installing a server-side forwarding rule requires the
-      // destination to be paired (mirrors send_email / reply_all /
-      // draft_email). Closes the prompt-injection-driven exfil
-      // channel on the create_filter surface.
-      if (args.action.forward) {
-        requirePairedRecipients([args.action.forward]);
-      }
+      // `action.forward` is refused inside `createFilter` (see
+      // FORWARDING_FILTER_REFUSAL): a server-side forwarding rule is a
+      // permanent exfiltration channel, so this server never installs
+      // one, paired destination or not.
       const result = await createFilter(gmail, args.criteria, args.action);
       const criteriaText = formatRecord(args.criteria);
       const actionText = formatRecord(args.action);

@@ -26,6 +26,14 @@ import { DEFAULT_SCOPES, parseScopes, validateScopes, getAvailableScopeNames } f
 import { buildInvalidGrantPayload, isInvalidGrantError } from "./gmail-errors.js";
 import { createServer } from "./server.js";
 import { loadCredentials, authenticate } from "./oauth-flow.js";
+import {
+  addPairedAddress,
+  ENV_RECIPIENT_PAIRING,
+  getPairedPath,
+  isPairingEnabled,
+  readPairedList,
+  removePairedAddress,
+} from "./recipient-pairing.js";
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -53,6 +61,51 @@ export interface RunServerOpts {
    * killing the test runner.
    */
   exit?: (code: number) => never;
+}
+
+/**
+ * `pair add <address> | pair remove <address> | pair list` — the
+ * human-side door to the paired-recipient allowlist. When
+ * `GMAIL_MCP_RECIPIENT_PAIRING=true`, the model cannot pair an address
+ * on its own (see `pair_recipient`), so this command is how a person
+ * at a terminal approves one when the MCP client cannot ask them to
+ * confirm. Needs no OAuth keys: it only touches `paired.json`.
+ */
+export function runPairCommand(
+  args: readonly string[],
+  log: (msg: string, ...rest: unknown[]) => void,
+  exit: (code: number) => void,
+): void {
+  const [action, address] = args;
+  try {
+    if (action === "list") {
+      const addresses = readPairedList();
+      log(`Paired recipients (${addresses.length}) in ${getPairedPath()}:`);
+      for (const a of addresses) log(`  - ${a}`);
+      if (!isPairingEnabled()) {
+        log(`Note: ${ENV_RECIPIENT_PAIRING} is not "true", so the allowlist is not enforced.`);
+      }
+      exit(0);
+      return;
+    }
+    if (action === "add" && address) {
+      const res = addPairedAddress(address);
+      log(res.added ? `Paired "${res.address}".` : `"${res.address}" was already paired.`);
+      exit(0);
+      return;
+    }
+    if (action === "remove" && address) {
+      const res = removePairedAddress(address);
+      log(res.removed ? `Unpaired "${res.address}".` : `"${res.address}" was not paired.`);
+      exit(0);
+      return;
+    }
+    log("Usage: gmail-mcp pair add <address> | pair remove <address> | pair list");
+    exit(1);
+  } catch (error: unknown) {
+    log(`pair ${action ?? ""}: ${error instanceof Error ? error.message : String(error)}`);
+    exit(1);
+  }
 }
 
 /**
@@ -158,6 +211,11 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
     });
   /* v8 ignore stop */
 
+  if (opts.argv[2] === "pair") {
+    runPairCommand(opts.argv.slice(3), log, exit);
+    return;
+  }
+
   const CONFIG_DIR = path.join(os.homedir(), ".gmail-mcp");
   /* v8 ignore start -- env-var-vs-default fallback branches for the
      two OAuth file paths. Tests always inject `env` with explicit
@@ -179,6 +237,9 @@ export async function runServer(opts: RunServerOpts): Promise<void> {
     skipConfigDirCreate:
       Boolean(opts.env.GMAIL_OAUTH_PATH) || Boolean(opts.env.GMAIL_CREDENTIALS_PATH),
     callbackArg,
+    // The cwd `gcp-oauth.keys.json` is imported only by `auth` (the
+    // setup step the README documents), never on a normal start.
+    importLocalKeys: opts.argv[2] === "auth",
     log,
     // Thread the runServer-injected exit handler through to
     // loadCredentials. Without this, a malformed `gcp-oauth.keys.json`

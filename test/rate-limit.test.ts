@@ -13,11 +13,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   RateLimitError,
+  callWeight,
   enforceRateLimit,
   formatRateLimitError,
   resetRateLimitHistory,
+  _DEFAULT_BUCKET_LIMITS,
   _TOOL_BUCKET,
 } from "../src/rate-limit.js";
+import { readFileSync } from "node:fs";
 
 describe("rate-limit", () => {
   let stateDir: string;
@@ -244,5 +247,134 @@ describe("rate-limit", () => {
       chmodSync(roDir, 0o700);
       errSpy.mockRestore();
     }
+  });
+});
+
+describe("rate-limit — per-message weight for batch tools", () => {
+  let stateDir: string;
+  const originalEnv = { ...process.env };
+  const DAY = 86_400_000;
+  const T0 = Date.UTC(2026, 9, 19, 8, 0, 0);
+
+  beforeEach(() => {
+    stateDir = mkdtempSync(join(tmpdir(), "gmail-mcp-ratelimit-weight-"));
+    process.env.GMAIL_MCP_STATE_DIR = stateDir;
+    delete process.env.GMAIL_MCP_RATE_LIMIT_DISABLE;
+    process.env.GMAIL_MCP_RATE_LIMIT_modify = "10/day,100/month";
+    resetRateLimitHistory();
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(stateDir, { recursive: true, force: true });
+    process.env = { ...originalEnv };
+    resetRateLimitHistory();
+  });
+
+  const ids = (n: number): { messageIds: string[] } => ({
+    messageIds: Array.from({ length: n }, (_, i) => `m${i}`),
+  });
+
+  it("weighs the batch tools by message count and everything else by 1", () => {
+    expect(callWeight("batch_modify_emails", ids(250))).toBe(250);
+    expect(callWeight("batch_delete_emails", ids(3))).toBe(3);
+    expect(callWeight("move_to_spam_batch", ids(7))).toBe(7);
+    expect(callWeight("modify_email", ids(7))).toBe(1);
+    expect(callWeight("send_email", { to: ["x"] })).toBe(1);
+    // Empty or malformed batches still count as one call.
+    expect(callWeight("batch_modify_emails", { messageIds: [] })).toBe(1);
+    expect(callWeight("batch_modify_emails", null)).toBe(1);
+    expect(callWeight("batch_modify_emails", { messageIds: "m1,m2" })).toBe(1);
+  });
+
+  it("sizes the modify and delete defaults in messages", () => {
+    expect(_DEFAULT_BUCKET_LIMITS.modify).toEqual({ daily: 5000, monthly: 50_000 });
+    expect(_DEFAULT_BUCKET_LIMITS.delete).toEqual({ daily: 1000, monthly: 10_000 });
+  });
+
+  it("counts a batch's messages against the cap", () => {
+    enforceRateLimit("batch_modify_emails", 6);
+    expect(() => enforceRateLimit("batch_modify_emails", 5)).toThrow(RateLimitError);
+    // 6 + 4 = 10 still fits; then the bucket is full, even for one call.
+    enforceRateLimit("batch_modify_emails", 4);
+    expect(() => enforceRateLimit("modify_email")).toThrow(/Daily Limit Exceeded/);
+  });
+
+  it("refuses a single batch bigger than the whole cap and says to split it", () => {
+    let caught: unknown;
+    try {
+      enforceRateLimit("batch_modify_emails", 11);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(RateLimitError);
+    const err = caught as RateLimitError;
+    expect(err.requested).toBe(11);
+    expect(err.retryAfterMs).toBe(0);
+    expect(err.message).toContain("This call alone needs 11 units");
+    expect(err.message).toContain("split the batch");
+    expect(formatRateLimitError(err)).toContain("one per message for batch tools");
+  });
+
+  it("derives the retry delay from the entries that must expire first", () => {
+    enforceRateLimit("batch_modify_emails", 3); // at T0
+    vi.setSystemTime(T0 + 3_600_000);
+    enforceRateLimit("batch_modify_emails", 7); // at T0 + 1 h, bucket full
+    vi.setSystemTime(T0 + 2 * 3_600_000);
+    let caught: RateLimitError | undefined;
+    try {
+      enforceRateLimit("batch_modify_emails", 3);
+    } catch (error) {
+      caught = error as RateLimitError;
+    }
+    // Freeing the T0 entry (3 units) is enough: retry when it leaves the 24 h window.
+    expect(caught?.retryAfterMs).toBe(DAY - 2 * 3_600_000);
+    expect(caught?.message).toContain("Retry in ~");
+  });
+
+  it("persists a weighted call as [timestamp, weight] and reloads it", () => {
+    enforceRateLimit("batch_modify_emails", 6);
+    enforceRateLimit("modify_email");
+    const state = JSON.parse(readFileSync(join(stateDir, "ratelimit.json"), "utf8")) as Record<
+      string,
+      unknown[]
+    >;
+    expect(state.modify).toEqual([[T0, 6], T0]);
+    resetRateLimitHistory();
+    // 6 + 1 recorded, 4 more would make 11 > 10.
+    expect(() => enforceRateLimit("batch_modify_emails", 4)).toThrow(RateLimitError);
+  });
+
+  it("still reads a state file written in the old timestamps-only format", () => {
+    writeFileSync(
+      join(stateDir, "ratelimit.json"),
+      JSON.stringify({ modify: Array.from({ length: 9 }, (_, i) => T0 - i * 1000) }),
+    );
+    resetRateLimitHistory();
+    enforceRateLimit("modify_email");
+    expect(() => enforceRateLimit("modify_email")).toThrow(RateLimitError);
+  });
+
+  it("drops a bucket whose entries are malformed", () => {
+    writeFileSync(
+      join(stateDir, "ratelimit.json"),
+      JSON.stringify({ modify: [[T0, 0]], send: [[T0, 1.5]], labels: [[T0]] }),
+    );
+    resetRateLimitHistory();
+    // The malformed modify history is ignored, so a full batch fits.
+    expect(() => enforceRateLimit("batch_modify_emails", 10)).not.toThrow();
+  });
+
+  it("applies the weight to the monthly window as well", () => {
+    process.env.GMAIL_MCP_RATE_LIMIT_modify = "1000/day,8/month";
+    enforceRateLimit("batch_modify_emails", 5);
+    vi.setSystemTime(T0 + 2 * DAY);
+    expect(() => enforceRateLimit("batch_modify_emails", 4)).toThrow(/Monthly Limit Exceeded/);
+    expect(() => enforceRateLimit("batch_modify_emails", 9)).toThrow(
+      /This call alone needs 9 units/,
+    );
+    enforceRateLimit("batch_modify_emails", 3);
   });
 });

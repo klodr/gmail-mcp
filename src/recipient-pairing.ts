@@ -21,16 +21,27 @@
  *   if it does not already exist.
  * - The feature is OFF by default — legacy users are not broken by
  *   the install. Turning it on requires one explicit env flag plus
- *   at least one `pair_recipient` call to avoid a "fresh install
- *   refuses every send" lockout.
+ *   at least one paired address to avoid a "fresh install refuses
+ *   every send" lockout.
+ * - With the gate ON, the model cannot pair an address on its own:
+ *   `pair_recipient add` asks the human to confirm through MCP
+ *   elicitation, or refuses and points to the CLI
+ *   (`npx @klodr/gmail-mcp pair add <address>`). Otherwise a hostile
+ *   email could tell the agent to pair, then mail, its own address.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
+import emailAddresses from "email-addresses";
 
 export const ENV_RECIPIENT_PAIRING = "GMAIL_MCP_RECIPIENT_PAIRING";
 export const ENV_PAIRED_PATH = "GMAIL_MCP_PAIRED_PATH";
+
+/** The terminal command a human runs to pair an address (shown in errors). */
+export function pairCommandHint(address = "<address>"): string {
+  return `npx @klodr/gmail-mcp pair add ${address}`;
+}
 
 export function isPairingEnabled(): boolean {
   return process.env[ENV_RECIPIENT_PAIRING] === "true";
@@ -109,17 +120,38 @@ function writePairedList(addresses: string[]): void {
   fs.chmodSync(file, 0o600);
 }
 
+/** Bare lowercased address of `email`, or null when it is not one mailbox. */
+function tryNormalise(email: string): string | null {
+  try {
+    return normalisePairedAddress(email);
+  } catch {
+    return null;
+  }
+}
+
 export function isAddressPaired(email: string): boolean {
-  const needle = email.trim().toLowerCase();
+  const needle = tryNormalise(email);
   if (!needle) return false;
   return readPairedList().includes(needle);
 }
 
-export function addPairedAddress(email: string): { added: boolean; address: string } {
-  const normalised = email.trim().toLowerCase();
-  if (!normalised || !normalised.includes("@")) {
+/**
+ * Normalise `email` to the bare, lowercased mailbox it must be paired
+ * as. Accepts exactly one RFC 5322 mailbox (a bare address or
+ * `Name <address>`); rejects groups, lists and anything unparseable —
+ * the CLI path does not go through the tool's Zod schema, so the check
+ * lives here too.
+ */
+export function normalisePairedAddress(email: string): string {
+  const parsed = emailAddresses.parseOneAddress(email.trim());
+  if (parsed?.type !== "mailbox") {
     throw new Error(`"${email}" is not a valid email address.`);
   }
+  return parsed.address.toLowerCase();
+}
+
+export function addPairedAddress(email: string): { added: boolean; address: string } {
+  const normalised = normalisePairedAddress(email);
   const current = readPairedList();
   if (current.includes(normalised)) {
     return { added: false, address: normalised };
@@ -129,9 +161,13 @@ export function addPairedAddress(email: string): { added: boolean; address: stri
 }
 
 export function removePairedAddress(email: string): { removed: boolean; address: string } {
-  const normalised = email.trim().toLowerCase();
+  // Match the bare address AND the raw lowercased string, so an entry
+  // written by an older version (stored verbatim, display name
+  // included) can still be removed by passing it as it was stored.
+  const raw = email.trim().toLowerCase();
+  const normalised = tryNormalise(email) ?? raw;
   const current = readPairedList();
-  const next = current.filter((a) => a !== normalised);
+  const next = current.filter((a) => a !== normalised && a !== raw);
   if (next.length === current.length) {
     return { removed: false, address: normalised };
   }
@@ -153,14 +189,17 @@ export function requirePairedRecipients(recipients: readonly string[]): void {
   const paired = new Set(readPairedList());
   const rejected: string[] = [];
   for (const r of recipients) {
-    const normalised = r.trim().toLowerCase();
-    if (!normalised) continue;
-    if (!paired.has(normalised)) rejected.push(r.trim());
+    if (!r.trim()) continue;
+    // Compare the bare address: `Alice <address>` is the paired
+    // `address` (the display name never changes where mail goes). An
+    // entry that is not exactly one mailbox can't be checked → rejected.
+    const normalised = tryNormalise(r);
+    if (!normalised || !paired.has(normalised)) rejected.push(r.trim());
   }
   if (rejected.length === 0) return;
   const plural = rejected.length === 1 ? "address is" : "addresses are";
   throw new Error(
     `Recipient pairing gate: ${rejected.length} ${plural} not in the paired allowlist at ${getPairedPath()} — ${rejected.join(", ")}. ` +
-      `Pair each address via the \`pair_recipient\` tool, or unset ${ENV_RECIPIENT_PAIRING} to disable the gate.`,
+      `Pair each address with \`${pairCommandHint()}\` (or through \`pair_recipient\`, which asks you to confirm), or unset ${ENV_RECIPIENT_PAIRING} to disable the gate.`,
   );
 }
