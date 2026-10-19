@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0](https://github.com/klodr/gmail-mcp/compare/v1.4.5...v1.5.0) (2026-10-19)
+
+
+### Added
+
+* harden recipient pairing, downloads and oauth ([#328](https://github.com/klodr/gmail-mcp/issues/328)) ([cc5fe63](https://github.com/klodr/gmail-mcp/commit/cc5fe6306168a905e7a0ab32bf3b410a3e408603))
+
 ## [1.4.5](https://github.com/klodr/gmail-mcp/compare/v1.4.4...v1.4.5) (2026-10-19)
 
 
