@@ -156,14 +156,35 @@ export function emailToTxt(
  * is the sender's, and the saved file is opened later in a browser from
  * `file://`: scripts, plugins, frames (a framed page runs its own
  * scripts), `<base>` rewrites and form submissions are blocked, none of
- * which Gmail renders either. Styles and images are left
- * alone so the copy still renders like the original (blocking remote
- * images would also stop tracking pixels, but changes the rendering).
+ * which Gmail renders either. Styles are left alone so the copy still
+ * renders like the original.
  */
 export const EXPORTED_HTML_CSP =
   "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
 
-const CSP_META = `<meta http-equiv="Content-Security-Policy" content="${EXPORTED_HTML_CSP}">`;
+/**
+ * Added by default: remote images (`<img src="https://…">`, CSS
+ * backgrounds) are not fetched when the saved file is opened, so a
+ * tracking pixel cannot report when and from where the copy was read —
+ * what Outlook does by default. Inline (`data:`) images still render.
+ * Opt out per call (`allowRemoteImages: true`) or globally with
+ * `GMAIL_MCP_EXPORT_REMOTE_IMAGES=true`.
+ */
+export const BLOCK_REMOTE_IMAGES_CSP = "img-src data: cid:";
+
+export const ENV_EXPORT_REMOTE_IMAGES = "GMAIL_MCP_EXPORT_REMOTE_IMAGES";
+
+/** Whether exported HTML may load remote images (default: no). */
+export function remoteImagesAllowed(override?: boolean): boolean {
+  return override ?? process.env[ENV_EXPORT_REMOTE_IMAGES] === "true";
+}
+
+function cspMeta(allowRemoteImages: boolean): string {
+  const policy = allowRemoteImages
+    ? EXPORTED_HTML_CSP
+    : `${EXPORTED_HTML_CSP}; ${BLOCK_REMOTE_IMAGES_CSP}`;
+  return `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
+}
 // Anchored at the very start (`^\s*`, `[^>]*`): linear, and it cannot be
 // fooled by a doctype-looking string inside a comment further down.
 const LEADING_DOCTYPE_RE = /^\s*(<!doctype[^>]*>)/i;
@@ -179,20 +200,24 @@ const LEADING_DOCTYPE_RE = /^\s*(<!doctype[^>]*>)/i;
  * mode (standards or quirks) does not change; the UTF-8 charset matches the
  * encoding the file is written in.
  */
-function withExportCsp(html: string): string {
+function withExportCsp(html: string, allowRemoteImages: boolean): string {
   const doctype = LEADING_DOCTYPE_RE.exec(html);
   const rest = doctype ? html.slice(doctype[0].length) : html;
-  return `${doctype?.[1] ?? ""}<html><head><meta charset="utf-8">${CSP_META}</head><body>${rest}</body></html>`;
+  return `${doctype?.[1] ?? ""}<html><head><meta charset="utf-8">${cspMeta(allowRemoteImages)}</head><body>${rest}</body></html>`;
 }
 
 /**
  * Extract HTML content from email, or throw if none exists. The result
- * carries a restrictive CSP (see `EXPORTED_HTML_CSP`); use the `eml`
- * format for a byte-faithful copy.
+ * carries a restrictive CSP (see `EXPORTED_HTML_CSP`), which also blocks
+ * remote images unless `allowRemoteImages` is true; use the `eml` format
+ * for a byte-faithful copy.
  */
-export function emailToHtml(emailContent: { text: string; html: string }): string {
+export function emailToHtml(
+  emailContent: { text: string; html: string },
+  allowRemoteImages = false,
+): string {
   if (!emailContent.html) {
     throw new Error("This email has no HTML content");
   }
-  return withExportCsp(emailContent.html);
+  return withExportCsp(emailContent.html, allowRemoteImages);
 }

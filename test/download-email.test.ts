@@ -16,6 +16,9 @@ import {
   emailToTxt,
   emailToHtml,
   EXPORTED_HTML_CSP,
+  BLOCK_REMOTE_IMAGES_CSP,
+  ENV_EXPORT_REMOTE_IMAGES,
+  remoteImagesAllowed,
   parseEmailAddress,
   parseEmailAddresses,
 } from "../src/email-export.js";
@@ -134,10 +137,36 @@ describe("download_email formats", () => {
   });
 
   describe("HTML format", () => {
+    // Default policy: the base CSP plus the remote-image block.
+    const DEFAULT_POLICY = `${EXPORTED_HTML_CSP}; ${BLOCK_REMOTE_IMAGES_CSP}`;
+
     it("returns raw HTML content", () => {
       const html = emailToHtml(mockContent);
       expect(html).toContain("<b>HTML</b>");
-      expect(html).toContain(`content="${EXPORTED_HTML_CSP}"`);
+      expect(html).toContain(`content="${DEFAULT_POLICY}"`);
+    });
+
+    it("blocks remote images by default and lets them through on request", () => {
+      const html = '<p>x</p><img src="https://tracker.example.invalid/p.gif">';
+      expect(emailToHtml({ text: "", html })).toContain("img-src data: cid:");
+      const allowed = emailToHtml({ text: "", html }, true);
+      expect(allowed).toContain(`content="${EXPORTED_HTML_CSP}"`);
+      expect(allowed).not.toContain("img-src");
+    });
+
+    it("reads the remote-image default from GMAIL_MCP_EXPORT_REMOTE_IMAGES", () => {
+      const saved = process.env[ENV_EXPORT_REMOTE_IMAGES];
+      try {
+        delete process.env[ENV_EXPORT_REMOTE_IMAGES];
+        expect(remoteImagesAllowed()).toBe(false);
+        process.env[ENV_EXPORT_REMOTE_IMAGES] = "true";
+        expect(remoteImagesAllowed()).toBe(true);
+        // An explicit per-call value wins over the environment.
+        expect(remoteImagesAllowed(false)).toBe(false);
+      } finally {
+        if (saved === undefined) delete process.env[ENV_EXPORT_REMOTE_IMAGES];
+        else process.env[ENV_EXPORT_REMOTE_IMAGES] = saved;
+      }
     });
 
     it("throws when no HTML content available", () => {
@@ -177,7 +206,7 @@ describe("download_email formats", () => {
     it("wraps a bare fragment without adding a doctype (quirks mode kept)", () => {
       const out = emailToHtml({ text: "", html: "<p>Bonjour</p>" });
       expect(out.startsWith("<html><head>")).toBe(true);
-      expect(out).toContain(`content="${EXPORTED_HTML_CSP}"`);
+      expect(out).toContain(`content="${DEFAULT_POLICY}"`);
       expect(out).toContain("<body><p>Bonjour</p></body>");
     });
 
@@ -187,12 +216,13 @@ describe("download_email formats", () => {
         text: "",
         html: '<p>x</p><iframe src="frame.html"></iframe>',
       });
-      expect(out.indexOf(`content="${EXPORTED_HTML_CSP}"`)).toBeLessThan(out.indexOf("<iframe"));
+      expect(out.indexOf(`content="${DEFAULT_POLICY}"`)).toBeLessThan(out.indexOf("<iframe"));
     });
 
-    it("keeps styles and images allowed so the copy renders like the original", () => {
+    it("keeps styles allowed and leaves images to the separate remote-image switch", () => {
       expect(EXPORTED_HTML_CSP).not.toMatch(/default-src|img-src|style-src/);
       expect(EXPORTED_HTML_CSP).toContain("script-src 'none'");
+      expect(BLOCK_REMOTE_IMAGES_CSP).toBe("img-src data: cid:");
     });
   });
 });
@@ -308,7 +338,7 @@ describe("extractHeaders refactor - source verification", () => {
 
   it("read_email uses extractHeaders (not inline header extraction)", () => {
     expect(messagesSource).toContain(
-      "const { subject, from, to, date, rfcMessageId } = extractHeaders(",
+      "const { subject, from, to, cc, bcc, date, rfcMessageId } = extractHeaders(",
     );
   });
 

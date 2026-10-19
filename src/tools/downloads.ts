@@ -34,7 +34,13 @@ import {
   isInlinePart,
   type AttachmentPart,
 } from "../mime-walkers.js";
-import { gmailMessageToJson, emailToTxt, emailToHtml } from "../email-export.js";
+import {
+  gmailMessageToJson,
+  emailToTxt,
+  emailToHtml,
+  remoteImagesAllowed,
+} from "../email-export.js";
+import { markAsDownloaded } from "../quarantine.js";
 import { asGmailApiError } from "../gmail-errors.js";
 import { downloadEmailOutputSchema, downloadAllAttachmentsOutputSchema } from "./output-schemas.js";
 
@@ -260,13 +266,14 @@ export function registerDownloadTools(
           } else if (format === "txt") {
             content = emailToTxt(fullResponse.data, emailContent, attachments);
           } else {
-            content = emailToHtml(emailContent);
+            content = emailToHtml(emailContent, remoteImagesAllowed(args.allowRemoteImages));
           }
         }
 
         const filename = `${messageId}.${format}`;
         const requestedPath = path.join(savePath, filename);
         const writtenPath = safeWriteFile(requestedPath, content, { onCollision: "suffix" });
+        markAsDownloaded(writtenPath);
         const stats = fs.statSync(writtenPath);
 
         const result = {
@@ -334,6 +341,7 @@ export function registerDownloadTools(
         const filename = toSafeAttachmentFilename(requestedName, fallbackName);
         const fullPath = jailedFilePath(savePath, filename);
         const writtenPath = safeWriteFile(fullPath, buffer, { onCollision: "suffix" });
+        markAsDownloaded(writtenPath);
 
         return {
           content: [
@@ -464,6 +472,8 @@ export function registerDownloadTools(
           const zipPath = safeWriteFile(jailedFilePath(savePath, zipName), archive, {
             onCollision: "suffix",
           });
+          // Archive Utility propagates the quarantine to what it extracts.
+          markAsDownloaded(zipPath);
           result = {
             status: "saved",
             messageId: args.messageId,
@@ -483,6 +493,7 @@ export function registerDownloadTools(
             const writtenPath = safeWriteFile(jailedFilePath(savePath, entry.name), entry.data, {
               onCollision: "suffix",
             });
+            markAsDownloaded(writtenPath);
             return {
               filename: path.basename(writtenPath),
               path: writtenPath,

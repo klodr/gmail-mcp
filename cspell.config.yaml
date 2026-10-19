@@ -325,6 +325,7 @@ words:
   - yacoob
 
   # Tech jargon / acronyms
+  - xattr
   - cablate
   - CSPRNG
   - exfiltrates
