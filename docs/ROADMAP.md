@@ -7,6 +7,11 @@ Loose planning horizon of ~12 months, ordered by intent (not a commitment).
 - **MCP `outputSchema` per tool — rollout for the remaining 25 tools** — the `defineTool()` infrastructure shipped in v0.30.0 (optional `outputSchema?: ZodRawShape` parameter, threaded through to the SDK's `registerTool` config). `download_email` is the first wave (1 of 26 tools wired). The remaining 25 each need their actual emit shape pinned + a Zod schema co-designed with the handler return type — multi-PR rollout, one tool family per PR.
 - **v1.0.0 on npm** — cut once the ergonomic wrappers (`reply_to_email`, `forward_email`) and Drafts CRUD land, so the `1.0.0` surface signal matches the actual surface. Every release is already signed with Sigstore (keyless GitHub OIDC), ships an SLSA in-toto attestation, and carries npm provenance — the `0.x` line on npm has the same supply-chain posture; the `1.0.0` cut is purely a maturity / API-stability signal.
 
+## Runtime support
+
+- ✅ **Node.js ≥ 24.18.1, tested on Node 24 and 26** (v2.0.0, 2026-10-19) — the official MCP reference servers also require Node 24 (`engines.node: >=24`); Node 22 is no longer supported.
+- **Next floor: Node 26** once Node 24 reaches end of life (2028-04-30), or earlier if a dependency requires it.
+
 ## Shipped (post-v0.30.0, 2026-04-26)
 
 - ✅ **Test coverage backfill (#91)** — 18 new tests across `src/tools/messaging.ts`, `src/tools/filters.ts`, `src/tools/downloads.ts`, and the prompts surface. Brought the global statement coverage from ~81% (v0.30.0 cut) to **>93%** with 560 tests total. Branch coverage on the four registrar files went up substantially (filters.ts 67% → 81%, messages.ts 64% → 67%). Mock helpers gained `messageGetHttpError` / `attachmentGetHttpError` / `failOnIds` options to make HTTP-error and per-item-batch-failure branches reachable from tests.
