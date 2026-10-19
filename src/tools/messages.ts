@@ -63,9 +63,15 @@ export function registerMessageTools(
         id: args.messageId,
         format: "full",
       });
-      const { subject, from, to, date, rfcMessageId } = extractHeaders(response.data.payload);
+      const { subject, from, to, cc, bcc, date, rfcMessageId } = extractHeaders(
+        response.data.payload,
+      );
       const threadId = response.data.threadId || "";
-      const headerBlock = `Thread ID: ${threadId}\nMessage-ID: ${rfcMessageId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}`;
+      // Cc / Bcc lines only when the header exists (Bcc is only ever
+      // present on messages you sent), so "reply to all" can be decided
+      // from read_email alone.
+      const copyLines = `${cc ? `\nCc: ${cc}` : ""}${bcc ? `\nBcc: ${bcc}` : ""}`;
+      const headerBlock = `Thread ID: ${threadId}\nMessage-ID: ${rfcMessageId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}${copyLines}\nDate: ${date}`;
 
       if (args.format === "headers_only") {
         return { content: [{ type: "text", text: headerBlock }] };

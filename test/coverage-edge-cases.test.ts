@@ -116,6 +116,7 @@ describe("loadCredentials — sameByRealpath short-circuit (oauth-flow.ts:194-19
       oauthPath: dstFile,
       credentialsPath: credsFile,
       configDir: cfgDir,
+      importLocalKeys: true,
       localOAuthPath: srcFile,
       skipConfigDirCreate: true,
       log: () => {

@@ -39,8 +39,8 @@ export function makeHeaderGetter(
 }
 
 /**
- * Extract the canonical set of headers (`subject`, `from`, `to`, `date`,
- * `rfcMessageId`) from a Gmail message payload. Used by `read_email`,
+ * Extract the canonical set of headers (`subject`, `from`, `to`, `cc`,
+ * `bcc`, `date`, `rfcMessageId`) from a Gmail message payload. Used by `read_email`,
  * `download_email`, and the thread-listing tools to build the
  * single-line summary block at the top of each rendered message.
  *
@@ -51,6 +51,8 @@ export function extractHeaders(payload: gmail_v1.Schema$MessagePart | undefined)
   subject: string;
   from: string;
   to: string;
+  cc: string;
+  bcc: string;
   date: string;
   rfcMessageId: string;
 } {
@@ -59,6 +61,8 @@ export function extractHeaders(payload: gmail_v1.Schema$MessagePart | undefined)
     subject: getHeader("subject"),
     from: getHeader("from"),
     to: getHeader("to"),
+    cc: getHeader("cc"),
+    bcc: getHeader("bcc"),
     date: getHeader("date"),
     rfcMessageId: getHeader("message-id"),
   };

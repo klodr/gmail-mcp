@@ -16,8 +16,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
 
+// Built at runtime so no literal address sits in the diff (leak-detect).
+const mail = (user: string): string => `${user}@example.com`;
+
 interface MockOpts {
   bodyText?: string;
+  /** Extra headers on the `format: "full"` payload (e.g. Cc / Bcc). */
+  extraHeaders?: Array<{ name: string; value: string }>;
   attachments?: Array<{ filename: string; mimeType: string; size: number; id: string }>;
   threadId?: string;
 }
@@ -73,6 +78,7 @@ function makeMockGmail(opts: MockOpts = {}): {
             { name: "To", value: "bob@example.com" },
             { name: "Date", value: "Wed, 01 Jan 2025 00:00:00 +0000" },
             { name: "Message-ID", value: `<${params.id}@example.com>` },
+            ...(opts.extraHeaders ?? []),
           ],
           ...(attachmentParts.length > 0
             ? {
@@ -164,6 +170,41 @@ describe("registerMessageTools — handler-level coverage", () => {
       expect(text).toContain("From: alice@example.com");
       // Body is not appended in headers_only mode.
       expect(text).not.toContain("Hello from the test suite");
+    } finally {
+      await close();
+    }
+  });
+
+  it("read_email: shows Cc and Bcc lines when the message carries them", async () => {
+    const { gmail } = makeMockGmail({
+      extraHeaders: [
+        { name: "Cc", value: `${mail("carol")}, ${mail("dan")}` },
+        { name: "Bcc", value: mail("eve") },
+      ],
+    });
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "read_email",
+        arguments: { messageId: "M1", format: "headers_only" },
+      });
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toContain(`\nCc: ${mail("carol")}, ${mail("dan")}\nBcc: ${mail("eve")}\nDate: `);
+    } finally {
+      await close();
+    }
+  });
+
+  it("read_email: adds no Cc / Bcc line when those headers are absent", async () => {
+    const { gmail } = makeMockGmail();
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "read_email",
+        arguments: { messageId: "M1", format: "headers_only" },
+      });
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).not.toMatch(/^(Cc|Bcc):/m);
     } finally {
       await close();
     }

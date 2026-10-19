@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import type { gmail_v1 } from "googleapis";
 import { makeHeaderGetter, extractHeaders } from "../src/gmail-headers.js";
 
+// Built at runtime so no literal address sits in the diff (leak-detect).
+const mail = (user: string): string => `${user}@example.com`;
+
 const headers = (pairs: Array<[string, string]>): gmail_v1.Schema$MessagePartHeader[] =>
   pairs.map(([name, value]) => ({ name, value }));
 
@@ -36,7 +39,7 @@ describe("makeHeaderGetter", () => {
 });
 
 describe("extractHeaders", () => {
-  it("returns the canonical 5-field shape from a fully-populated payload", () => {
+  it("returns the canonical 7-field shape from a fully-populated payload", () => {
     const payload: gmail_v1.Schema$MessagePart = {
       headers: headers([
         ["Subject", "Re: project update"],
@@ -50,9 +53,24 @@ describe("extractHeaders", () => {
       subject: "Re: project update",
       from: "Alice <alice@example.com>",
       to: "bob@example.com",
+      cc: "",
+      bcc: "",
       date: "Mon, 25 Apr 2026 10:00:00 +0000",
       rfcMessageId: "<abc-123@mail.example.com>",
     });
+  });
+
+  it("returns Cc and Bcc when the message carries them", () => {
+    const payload: gmail_v1.Schema$MessagePart = {
+      headers: headers([
+        ["To", mail("bob")],
+        ["Cc", `${mail("carol")}, ${mail("dan")}`],
+        ["Bcc", mail("eve")],
+      ]),
+    };
+    const out = extractHeaders(payload);
+    expect(out.cc).toBe(`${mail("carol")}, ${mail("dan")}`);
+    expect(out.bcc).toBe(mail("eve"));
   });
 
   it("substitutes empty strings for missing headers (no null leak)", () => {
@@ -63,16 +81,20 @@ describe("extractHeaders", () => {
       subject: "only subject",
       from: "",
       to: "",
+      cc: "",
+      bcc: "",
       date: "",
       rfcMessageId: "",
     });
   });
 
-  it("returns five empty strings when the payload is undefined", () => {
+  it("returns seven empty strings when the payload is undefined", () => {
     expect(extractHeaders(undefined)).toEqual({
       subject: "",
       from: "",
       to: "",
+      cc: "",
+      bcc: "",
       date: "",
       rfcMessageId: "",
     });

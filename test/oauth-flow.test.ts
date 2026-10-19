@@ -8,6 +8,7 @@
  * `console.error`, and `open` are never touched.
  */
 
+import { createHash } from "node:crypto";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import http from "node:http";
 import {
@@ -280,6 +281,7 @@ describe("loadCredentials", () => {
       // `mkdirSync(path.dirname(oauthPath))` should still fire so the
       // copy target exists.
       skipConfigDirCreate: true,
+      importLocalKeys: true,
       localOAuthPath,
       log,
     });
@@ -289,6 +291,32 @@ describe("loadCredentials", () => {
     // explicit chmodSync is what brings it down to 0o600. Pin it.
     expect(stats.mode & 0o777).toBe(0o600);
     expect(logCapture.join("\n")).toContain("OAuth keys found in current directory");
+  });
+
+  it("leaves the configured keys alone on a normal start, even with a keys file in cwd", () => {
+    // Only `auth` imports a cwd `gcp-oauth.keys.json` (importLocalKeys).
+    // A keys file sitting in whatever project the MCP client has open
+    // must not replace the user's OAuth client on a normal start.
+    const localOAuthPath = join(scratch, "gcp-oauth.keys.json");
+    writeFileSync(
+      localOAuthPath,
+      JSON.stringify({ installed: { client_id: "id-project", client_secret: "secret-project" } }),
+    );
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
+    const configured = JSON.stringify({
+      installed: { client_id: "id-user", client_secret: "secret-user" },
+    });
+    writeFileSync(oauthPath, configured, { mode: 0o600 });
+    loadCredentials({
+      oauthPath,
+      credentialsPath,
+      configDir,
+      skipConfigDirCreate: true,
+      localOAuthPath,
+      log,
+    });
+    expect(readFileSync(oauthPath, "utf-8")).toBe(configured);
+    expect(logCapture.join("\n")).not.toContain("OAuth keys found in current directory");
   });
 
   it("does not truncate the keys file when localOAuthPath equals oauthPath (data-loss defence)", () => {
@@ -310,6 +338,7 @@ describe("loadCredentials", () => {
       credentialsPath,
       configDir,
       skipConfigDirCreate: true,
+      importLocalKeys: true,
       localOAuthPath: samePath,
       log,
     });
@@ -593,29 +622,38 @@ describe("authenticate", () => {
     // Stub the token exchange so we don't hit Google. Because
     // OAuth2Client.getToken is what `authenticate` calls in the
     // happy path, replacing it lets us simulate a successful grant.
+    // PKCE: the code is redeemed with the verifier, never the bare code.
+    const verifier = "test-code-verifier-0123456789abcdefghijklmnopqrstuv";
     (
       client as unknown as {
-        getToken: (code: string) => Promise<{ tokens: Record<string, unknown> }>;
+        getToken: (opts: {
+          code: string;
+          codeVerifier?: string;
+        }) => Promise<{ tokens: Record<string, unknown> }>;
       }
-    ).getToken = async (code: string) => {
-      expect(code).toBe("auth-code-xyz");
+    ).getToken = async (opts) => {
+      expect(opts).toEqual({ code: "auth-code-xyz", codeVerifier: verifier });
       return Promise.resolve({
         tokens: { access_token: "at", refresh_token: "rt" },
       });
     };
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
 
+    let authUrl = "";
     const flow = authenticate({
       oauth2Client: client,
       oauthCallbackUrl: cb,
       scopes: ["gmail.readonly"],
       credentialsPath,
-      openBrowser: () => undefined,
+      openBrowser: (url) => {
+        authUrl = url;
+      },
       log,
       // Pin a deterministic state so the success-fetch can supply
       // the matching `?state=…`. Production uses
       // `crypto.randomBytes(32).toString("base64url")`.
       generateState: () => "test-state-deterministic",
+      generateCodeVerifier: () => verifier,
     });
     // Trigger the success branch — must include the matching state.
     const res = await fetch(`${cb}?code=auth-code-xyz&state=test-state-deterministic`);
@@ -623,6 +661,13 @@ describe("authenticate", () => {
     const body = await res.text();
     expect(body).toContain("Authentication successful");
     await flow;
+
+    // The auth URL carried the S256 challenge of that verifier.
+    const sent = new URL(authUrl).searchParams;
+    expect(sent.get("code_challenge_method")).toBe("S256");
+    expect(sent.get("code_challenge")).toBe(
+      createHash("sha256").update(verifier).digest("base64url"),
+    );
 
     // Open + fstat to pin both the mode AND the bytes against the
     // SAME open file descriptor. The naive `statSync` then

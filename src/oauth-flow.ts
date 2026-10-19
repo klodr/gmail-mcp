@@ -28,7 +28,7 @@ import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
 import open from "open";
-import { OAuth2Client } from "google-auth-library";
+import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
 import { DEFAULT_SCOPES, scopeNamesToUrls } from "./scopes.js";
 
 // Defensive size cap on the OAuth keys + credentials files before
@@ -106,10 +106,18 @@ export interface LoadCredentialsOpts {
    */
   callbackArg?: string;
   /**
-   * Optional path to a `gcp-oauth.keys.json` in the current working
-   * directory. When present, it is copied to `oauthPath` at `0o600`
-   * before the lookup. Defaults to `path.join(process.cwd(),
-   * "gcp-oauth.keys.json")`.
+   * Import a `gcp-oauth.keys.json` found in the current working
+   * directory into `oauthPath` (copied at `0o600`). Only the `auth`
+   * subcommand sets this: on a normal start the server is launched
+   * from whatever project the MCP client has open, and a keys file
+   * that happens to sit there must not silently replace the user's
+   * OAuth client (the next refresh would fail with `invalid_client`).
+   * Defaults to `false`.
+   */
+  importLocalKeys?: boolean;
+  /**
+   * Path of the keys file to import when `importLocalKeys` is set.
+   * Defaults to `path.join(process.cwd(), "gcp-oauth.keys.json")`.
    */
   localOAuthPath?: string;
   /**
@@ -176,7 +184,7 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
 
     const localOAuthPath = opts.localOAuthPath ?? path.join(process.cwd(), "gcp-oauth.keys.json");
 
-    if (fs.existsSync(localOAuthPath)) {
+    if (opts.importLocalKeys === true && fs.existsSync(localOAuthPath)) {
       // Skip the copy when source and destination are the same
       // file — e.g. `GMAIL_OAUTH_PATH=$(pwd)/gcp-oauth.keys.json`
       // (the cwd file IS the configured path), or the default
@@ -339,6 +347,12 @@ export interface AuthenticateOpts {
    * the URL the server printed to stderr.
    */
   generateState?: () => string;
+  /**
+   * PKCE `code_verifier` generator (defaults to 32 random bytes,
+   * base64url — 43 characters, inside RFC 7636's 43..128 range). Lets
+   * tests pin the value and check the challenge and the token request.
+   */
+  generateCodeVerifier?: () => string;
 }
 
 /**
@@ -432,6 +446,15 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
   // callback fetch can supply the matching `?state=…`.
   const expectedState = opts.generateState?.() ?? crypto.randomBytes(32).toString("base64url");
 
+  // PKCE (RFC 7636), which Google recommends for installed apps: the
+  // auth URL carries only the SHA-256 of a per-flow secret, and the
+  // code is redeemed with the secret itself. A process that grabs the
+  // authorization code from the loopback redirect cannot redeem it
+  // without the verifier, which never leaves this process.
+  const codeVerifier =
+    opts.generateCodeVerifier?.() ?? crypto.randomBytes(32).toString("base64url");
+  const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
+
   return new Promise<void>((resolve, reject) => {
     httpServer.on("error", (err: NodeJS.ErrnoException) => {
       const hint =
@@ -464,6 +487,8 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         prompt: "consent",
         scope: scopeUrls,
         state: expectedState,
+        code_challenge_method: CodeChallengeMethod.S256,
+        code_challenge: codeChallenge,
       });
 
       log("Requesting scopes:", opts.scopes.join(", "));
@@ -561,7 +586,10 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
         }
 
         try {
-          const { tokens: grantedTokens } = await opts.oauth2Client.getToken(code);
+          const { tokens: grantedTokens } = await opts.oauth2Client.getToken({
+            code,
+            codeVerifier,
+          });
           const tokens = withPreviousRefreshToken(grantedTokens, opts.credentialsPath);
           opts.oauth2Client.setCredentials(tokens);
 
