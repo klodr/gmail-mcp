@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.5](https://github.com/klodr/gmail-mcp/compare/v1.4.4...v1.4.5) (2026-10-19)
+
+
+### Documentation
+
+* fix AGENTS.md test paths and the local lint:md globs ([#326](https://github.com/klodr/gmail-mcp/issues/326)) ([2159bef](https://github.com/klodr/gmail-mcp/commit/2159bef136706e71230d0cc6cce37be901979f47))
+
 ## [1.4.4](https://github.com/klodr/gmail-mcp/compare/v1.4.3...v1.4.4) (2026-10-18)
 
 
