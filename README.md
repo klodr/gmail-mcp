@@ -51,6 +51,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | Reply threading (`In-Reply-To` / `References`) | ❌ orphaned replies | ✅ | ✅ |
 | Reply-all tool | ❌ | ✅ | ✅ |
 | Send-as alias (`from` parameter) | ❌ | ✅ | ✅ |
+| Replies and forwards leave from the alias the conversation uses, like the Gmail web UI; `reply_all` never copies your own aliases | ❌ | ❌ | ✅ |
 | Thread-level tools (`get_thread`, `list_inbox_threads`, `get_inbox_with_threads`) | ❌ | ✅ | ✅ |
 | Download email to disk (`json`/`eml`/`txt`/`html`) | ❌ | ✅ | ✅ |
 | Download attachment | ✅ | ✅ | ✅ |
@@ -72,6 +73,7 @@ Comparison of the three maintained forks of the original Gmail MCP server, focus
 | **Security — outbound mail and prompt injection** | | | |
 | Optional recipient allowlist (`GMAIL_MCP_RECIPIENT_PAIRING`): sends, replies, forwards and drafts go only to paired addresses | ❌ | ❌ | ✅ |
 | With the allowlist on, the model cannot extend it through gmail-mcp: the human confirms in the MCP client, or runs `npx @klodr/gmail-mcp pair add` | ❌ | ❌ | ✅ |
+| A `from` that is not one of the account's send-as aliases is refused, instead of Gmail silently sending from the default address | ❌ | ❌ | ✅ |
 | `send_draft` refuses a draft whose To / Cc / Bcc does not parse as addresses | — (no `send_draft`) | ❌ | ✅ |
 | Write caps per tool family over 24 h and 30 days; batch tools count every message, not every call | ❌ | ❌ | ✅ |
 | Filters that forward mail are refused (a forwarding rule silently redirects all future matching mail) | ❌ `create_filter` accepts `action.forward` | ❌ `create_filter` accepts `action.forward` | ✅ refused, with the reason |
