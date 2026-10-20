@@ -317,6 +317,21 @@ describe("resolveSender — reply from the alias the conversation uses", () => {
     expect(counts.thread).toBe(1);
   });
 
+  it("prefers the alias used in the thread over a default Delivered-To", async () => {
+    const { gmail, counts } = conversationGmail({
+      thread: [{ from: mail("perso"), to: mail("bank") }],
+    });
+    const source = headers({ from: mail("bank"), to: mail("list"), deliveredTo: mail("company") });
+    expect(await resolveSender(gmail, { source, threadId: "T1" })).toBe(`Perso <${mail("perso")}>`);
+    expect(counts.thread).toBe(1);
+  });
+
+  it("uses Delivered-To when the thread names no alias", async () => {
+    const { gmail } = conversationGmail({ thread: [{ from: mail("bank"), to: mail("list") }] });
+    const source = headers({ from: mail("bank"), to: mail("list"), deliveredTo: mail("perso") });
+    expect(await resolveSender(gmail, { source, threadId: "T1" })).toBe(`Perso <${mail("perso")}>`);
+  });
+
   it("reads the newest thread message when only a threadId is known", async () => {
     const { gmail } = conversationGmail({ thread: [{ from: mail("bank"), to: mail("perso") }] });
     expect(await resolveSender(gmail, { threadId: "T1" })).toBe(`Perso <${mail("perso")}>`);
@@ -370,7 +385,7 @@ describe("resolveSender — reply from the alias the conversation uses", () => {
     expect(counts.sendAs).toBe(1);
   });
 
-  it("pickConversationAlias checks From, then To, Cc and Delivered-To in that order", () => {
+  it("pickConversationAlias checks From, To, Cc, the thread, then Delivered-To", () => {
     const aliases = [
       { email: mail("a"), displayName: "" },
       { email: mail("b"), displayName: "" },
@@ -382,5 +397,9 @@ describe("resolveSender — reply from the alias the conversation uses", () => {
     expect(pick({ cc: mail("a"), deliveredTo: mail("b") })).toBe(mail("a"));
     expect(pick({ deliveredTo: mail("B").toUpperCase() })).toBe(mail("b"));
     expect(pick({ to: mail("x") })).toBeUndefined();
+    const thread = [headers({ from: mail("x") }), headers({ from: mail("a") })];
+    expect(pickConversationAlias(aliases, headers({ deliveredTo: mail("b") }), thread)?.email).toBe(
+      mail("a"),
+    );
   });
 });

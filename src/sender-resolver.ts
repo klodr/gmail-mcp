@@ -230,10 +230,12 @@ function formatAlias(alias: SendAsAlias): string {
  * header names one. Order:
  *   1. the source message was sent by one of our aliases (a reply to
  *      our own message) → that alias;
- *   2. an alias the source was addressed to, in `To:`, then `Cc:`, then
- *      `Delivered-To:` order;
+ *   2. an alias the source was addressed to, in `To:`, then `Cc:` order;
  *   3. the most recent earlier message we sent in the thread → its
- *      alias (`history` is newest first).
+ *      alias (`history` is newest first);
+ *   4. an alias in the source's `Delivered-To:` — the weakest signal, as
+ *      it can name the default address of a thread run from another
+ *      alias.
  */
 export function pickConversationAlias(
   aliases: readonly SendAsAlias[],
@@ -249,18 +251,14 @@ export function pickConversationAlias(
     return undefined;
   };
   if (source) {
-    const picked =
-      firstAlias(source.from) ??
-      firstAlias(source.to) ??
-      firstAlias(source.cc) ??
-      firstAlias(source.deliveredTo);
+    const picked = firstAlias(source.from) ?? firstAlias(source.to) ?? firstAlias(source.cc);
     if (picked) return picked;
   }
   for (const message of history) {
     const picked = firstAlias(message.from);
     if (picked) return picked;
   }
-  return undefined;
+  return source ? firstAlias(source.deliveredTo) : undefined;
 }
 
 /** Read the four sender-relevant headers off a Gmail header list. */
@@ -301,7 +299,7 @@ async function threadHistory(
  * - Otherwise, inside a conversation (`source` message and/or
  *   `threadId`), the alias the conversation already uses
  *   (`pickConversationAlias`); the thread is only fetched when the
- *   source message names no alias.
+ *   source message's `From:`, `To:` and `Cc:` name no alias.
  * - Otherwise the account default (`resolveDefaultSender`).
  *
  * `aliases` lets a caller that already listed them skip a second
@@ -336,13 +334,14 @@ export async function resolveSender(
   // With a single alias there is nothing to choose, and the thread is
   // not worth a round-trip.
   if (known.length > 1 && (options.source || options.threadId)) {
-    let picked = pickConversationAlias(known, options.source);
-    if (!picked && options.threadId) {
-      const history = await threadHistory(gmail, options.threadId);
-      picked = options.source
-        ? pickConversationAlias(known, undefined, history)
-        : pickConversationAlias(known, history[0], history);
-    }
+    // `Delivered-To:` is left out of this first pass: it must not win
+    // over an alias the thread already used.
+    const addressed = options.source
+      ? pickConversationAlias(known, { ...options.source, deliveredTo: "" })
+      : undefined;
+    const history =
+      !addressed && options.threadId ? await threadHistory(gmail, options.threadId) : [];
+    const picked = addressed ?? pickConversationAlias(known, options.source ?? history[0], history);
     if (picked) return formatAlias(picked);
   }
 
