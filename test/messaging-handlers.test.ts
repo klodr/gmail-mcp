@@ -457,7 +457,7 @@ describe("registerMessagingTools — reply sender follows the conversation alias
     { name: "To", value: mail("perso") },
     { name: "Cc", value: mail("banker") },
     { name: "Subject", value: "Documents" },
-    { name: "Message-ID", value: "<docs@example.com>" },
+    { name: "Message-ID", value: `<${mail("docs")}>` },
   ];
 
   it("reply_all leaves from the alias the message was sent to and does not copy it", async () => {
