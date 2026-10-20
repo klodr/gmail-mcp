@@ -27,6 +27,8 @@
  * send without a restart.
  */
 
+import { parseEmailAddresses } from "./reply-all-helpers.js";
+
 // Minimal subset of the gmail_v1 client surface we actually touch —
 // keeps this module mockable in tests without pulling in the full
 // googleapis type tree.
@@ -122,4 +124,229 @@ export async function resolveDefaultSender(gmail: SenderResolverGmailClient): Pr
 export function _resetDefaultSenderCache(): void {
   cache = new WeakMap();
   inFlight = new WeakMap();
+  aliasCache = new WeakMap();
+}
+
+// ---------------------------------------------------------------------
+// Conversation-aware sender
+//
+// A reply has to leave from the address the conversation already uses,
+// not from the account's default send-as address: a mailbox that holds
+// several aliases (a personal one and a company one, say) otherwise
+// answers a personal thread from the company address, and the
+// correspondent sees a stranger reply. This mirrors what the Gmail web
+// UI does. The same resolver checks an explicit `from` against the
+// configured aliases, because Gmail silently rewrites an unknown
+// `From:` to the default address instead of rejecting the send.
+// ---------------------------------------------------------------------
+
+/** One configured send-as address of the account. */
+export interface SendAsAlias {
+  email: string;
+  displayName: string;
+  /** Gmail's default send-as address (`isDefault`, else `isPrimary`). */
+  isDefault?: boolean;
+}
+
+/** The headers of one message that tell which alias it involved. */
+export interface ConversationHeaders {
+  from: string;
+  to: string;
+  cc: string;
+  deliveredTo: string;
+}
+
+interface ThreadMessageMetadata {
+  labelIds?: string[] | null;
+  payload?: {
+    headers?: { name?: string | null; value?: string | null }[] | null;
+  } | null;
+}
+
+export interface ConversationSenderGmailClient {
+  users: SenderResolverGmailClient["users"] & {
+    threads: {
+      get: (params: {
+        userId: string;
+        id: string;
+        format: string;
+        metadataHeaders: string[];
+      }) => Promise<{ data: { messages?: ThreadMessageMetadata[] | null } }>;
+    };
+  };
+}
+
+/**
+ * List the account's usable send-as addresses, best-effort: an empty
+ * list when the token lacks a settings-capable scope, in which case the
+ * callers keep the pre-existing behaviour (default sender, `from`
+ * passed through unchecked). Aliases still awaiting verification are
+ * left out, Gmail refuses to send from them.
+ */
+export async function listSendAsAliases(gmail: SenderResolverGmailClient): Promise<SendAsAlias[]> {
+  const hit = aliasCache.get(gmail);
+  if (hit !== undefined) return hit;
+  try {
+    const response = await gmail.users.settings.sendAs.list({ userId: "me" });
+    const entries = (response.data.sendAs ?? []) as {
+      sendAsEmail?: string | null;
+      displayName?: string | null;
+      isDefault?: boolean | null;
+      isPrimary?: boolean | null;
+      verificationStatus?: string | null;
+    }[];
+    const usable = entries.filter(
+      (entry) => Boolean(entry.sendAsEmail) && entry.verificationStatus !== "pending",
+    );
+    const defaultEntry =
+      usable.find((entry) => entry.isDefault === true) ??
+      usable.find((entry) => entry.isPrimary === true) ??
+      usable[0];
+    const aliases = usable.map((entry) => ({
+      email: entry.sendAsEmail ?? "",
+      displayName: entry.displayName?.trim() ?? "",
+      isDefault: entry === defaultEntry,
+    }));
+    // Same policy as the default-sender cache: keep a real answer for
+    // the client's lifetime, never an empty one, so a re-auth to a
+    // broader scope is picked up without a restart.
+    if (aliases.length > 0) aliasCache.set(gmail, aliases);
+    return aliases;
+  } catch {
+    return [];
+  }
+}
+
+// Per-client cache of the send-as list, reset with the default-sender
+// cache by `_resetDefaultSenderCache`.
+let aliasCache = new WeakMap<SenderResolverGmailClient, SendAsAlias[]>();
+
+function formatAlias(alias: SendAsAlias): string {
+  return alias.displayName ? `${alias.displayName} <${alias.email}>` : alias.email;
+}
+
+/**
+ * Pick the alias a conversation already uses, or `undefined` when no
+ * header names one. Order:
+ *   1. the source message was sent by one of our aliases (a reply to
+ *      our own message) → that alias;
+ *   2. an alias the source was addressed to, in `To:`, then `Cc:`, then
+ *      `Delivered-To:` order;
+ *   3. the most recent earlier message we sent in the thread → its
+ *      alias (`history` is newest first).
+ */
+export function pickConversationAlias(
+  aliases: readonly SendAsAlias[],
+  source: ConversationHeaders | undefined,
+  history: readonly ConversationHeaders[] = [],
+): SendAsAlias | undefined {
+  const byEmail = new Map(aliases.map((alias) => [alias.email.toLowerCase(), alias]));
+  const firstAlias = (header: string): SendAsAlias | undefined => {
+    for (const address of parseEmailAddresses(header)) {
+      const alias = byEmail.get(address.toLowerCase());
+      if (alias) return alias;
+    }
+    return undefined;
+  };
+  if (source) {
+    const picked =
+      firstAlias(source.from) ??
+      firstAlias(source.to) ??
+      firstAlias(source.cc) ??
+      firstAlias(source.deliveredTo);
+    if (picked) return picked;
+  }
+  for (const message of history) {
+    const picked = firstAlias(message.from);
+    if (picked) return picked;
+  }
+  return undefined;
+}
+
+/** Read the four sender-relevant headers off a Gmail header list. */
+export function conversationHeadersOf(
+  headers: readonly { name?: string | null; value?: string | null }[],
+): ConversationHeaders {
+  const get = (name: string): string =>
+    headers.find((header) => header.name?.toLowerCase() === name)?.value ?? "";
+  return { from: get("from"), to: get("to"), cc: get("cc"), deliveredTo: get("delivered-to") };
+}
+
+async function threadHistory(
+  gmail: ConversationSenderGmailClient,
+  threadId: string,
+): Promise<ConversationHeaders[]> {
+  try {
+    const response = await gmail.users.threads.get({
+      userId: "me",
+      id: threadId,
+      format: "metadata",
+      metadataHeaders: ["From", "To", "Cc", "Delivered-To"],
+    });
+    return (response.data.messages ?? [])
+      .filter((message) => !(message.labelIds ?? []).includes("DRAFT"))
+      .map((message) => conversationHeadersOf(message.payload?.headers ?? []))
+      .toReversed();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve the `From:` of an outgoing message.
+ *
+ * - An explicit `from` must name one of the account's send-as aliases
+ *   (checked when the alias list is readable); a bare address gains the
+ *   alias display name.
+ * - Otherwise, inside a conversation (`source` message and/or
+ *   `threadId`), the alias the conversation already uses
+ *   (`pickConversationAlias`); the thread is only fetched when the
+ *   source message names no alias.
+ * - Otherwise the account default (`resolveDefaultSender`).
+ *
+ * `aliases` lets a caller that already listed them skip a second
+ * `sendAs.list` round-trip.
+ */
+export async function resolveSender(
+  gmail: ConversationSenderGmailClient,
+  options: { from?: string; source?: ConversationHeaders; threadId?: string },
+  aliases?: readonly SendAsAlias[],
+): Promise<string> {
+  const known = aliases ?? (await listSendAsAliases(gmail));
+  const explicit = options.from?.trim() ?? "";
+
+  if (explicit !== "") {
+    if (known.length === 0) return explicit;
+    const addresses = parseEmailAddresses(explicit);
+    if (addresses.length !== 1) {
+      throw new Error(`"from" must name exactly one address, got "${explicit}"`);
+    }
+    const wanted = (addresses[0] ?? "").toLowerCase();
+    const alias = known.find((entry) => entry.email.toLowerCase() === wanted);
+    if (!alias) {
+      throw new Error(
+        `"${addresses[0] ?? explicit}" is not a send-as address of this Gmail account (configured: ${known
+          .map((entry) => entry.email)
+          .join(", ")})`,
+      );
+    }
+    return explicit.includes("<") ? explicit : formatAlias(alias);
+  }
+
+  // With a single alias there is nothing to choose, and the thread is
+  // not worth a round-trip.
+  if (known.length > 1 && (options.source || options.threadId)) {
+    let picked = pickConversationAlias(known, options.source);
+    if (!picked && options.threadId) {
+      const history = await threadHistory(gmail, options.threadId);
+      picked = options.source
+        ? pickConversationAlias(known, undefined, history)
+        : pickConversationAlias(known, history[0], history);
+    }
+    if (picked) return formatAlias(picked);
+  }
+
+  const fallback = known.find((alias) => alias.isDefault === true) ?? known[0];
+  if (fallback) return formatAlias(fallback);
+  return resolveDefaultSender(gmail);
 }

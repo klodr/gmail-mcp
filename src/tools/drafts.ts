@@ -23,7 +23,7 @@ import {
 } from "../tools.js";
 import { buildEncodedRawMessage, type EmailSendArgs } from "../email-send.js";
 import { isPairingEnabled, requirePairedRecipients } from "../recipient-pairing.js";
-import { resolveDefaultSender } from "../sender-resolver.js";
+import { resolveSender } from "../sender-resolver.js";
 import { asGmailApiError } from "../gmail-errors.js";
 import emailAddresses from "email-addresses";
 import { parseEmailAddresses } from "../reply-all-helpers.js";
@@ -157,11 +157,14 @@ export function registerDraftTools(
 
         // Mirror sendOrDraftEmail's `from` resolution path so an agent
         // that already calls draft_email without `from` keeps the
-        // exact same outbound display name when it later updates.
+        // exact same outbound sender when it later updates: an explicit
+        // `from` must be a send-as alias, a threaded draft reuses the
+        // thread's alias, anything else gets the default address.
         const validatedArgs: EmailSendArgs = { ...args };
-        if (!validatedArgs.from || validatedArgs.from.trim() === "") {
-          validatedArgs.from = await resolveDefaultSender(gmail);
-        }
+        validatedArgs.from = await resolveSender(gmail, {
+          from: validatedArgs.from,
+          threadId: validatedArgs.threadId,
+        });
 
         // CR finding (PR #100): if the caller supplies `threadId`
         // without explicit `inReplyTo` / `references`, mirror the

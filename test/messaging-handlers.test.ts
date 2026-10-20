@@ -411,3 +411,104 @@ describe("registerMessagingTools — forward_email", () => {
     }
   });
 });
+
+// Regression for a reply that left from the account's default address
+// although the correspondent had written to another alias of the same
+// mailbox, with that alias copied on the reply.
+describe("registerMessagingTools — reply sender follows the conversation alias", () => {
+  function aliasedGmail(headers: Header[]): {
+    gmail: gmail_v1.Gmail;
+    sendSpy: ReturnType<typeof vi.fn>;
+  } {
+    const { gmail, sendSpy } = makeMockGmail(headers);
+    const users = (gmail as unknown as { users: Record<string, unknown> }).users;
+    users.settings = {
+      sendAs: {
+        list: vi.fn(() =>
+          Promise.resolve({
+            data: {
+              sendAs: [
+                { sendAsEmail: mail("company"), displayName: "Company", isDefault: true },
+                { sendAsEmail: mail("perso"), displayName: "Perso" },
+              ],
+            },
+          }),
+        ),
+      },
+    };
+    users.threads = { get: vi.fn(() => Promise.resolve({ data: { messages: [] } })) };
+    return { gmail, sendSpy };
+  }
+
+  function sentHeaders(sendSpy: ReturnType<typeof vi.fn>): {
+    from: string;
+    to: string;
+    cc: string;
+  } {
+    const call = sendSpy.mock.calls[0] as unknown as [{ requestBody: { raw: string } }];
+    const raw = Buffer.from(call[0].requestBody.raw, "base64url").toString("utf-8");
+    const line = (name: string): string =>
+      new RegExp(`^${name}:\\s*(.+)$`, "m").exec(raw)?.[1] ?? "";
+    return { from: line("From"), to: line("To"), cc: line("Cc") };
+  }
+
+  const bankMessage: Header[] = [
+    { name: "From", value: `Bank <${mail("bank")}>` },
+    { name: "To", value: mail("perso") },
+    { name: "Cc", value: mail("banker") },
+    { name: "Subject", value: "Documents" },
+    { name: "Message-ID", value: "<docs@example.com>" },
+  ];
+
+  it("reply_all leaves from the alias the message was sent to and does not copy it", async () => {
+    const { gmail, sendSpy } = aliasedGmail(bankMessage);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_all",
+        arguments: { messageId: "M-bank", body: "signed documents attached" },
+      });
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toContain(`From: Perso <${mail("perso")}>`);
+      const sent = sentHeaders(sendSpy);
+      expect(sent.from).toContain(mail("perso"));
+      expect(sent.to).toContain(mail("bank"));
+      expect(sent.cc).toContain(mail("banker"));
+      expect(sent.cc).not.toContain(mail("perso"));
+    } finally {
+      await close();
+    }
+  });
+
+  it("reply_to_email follows the same alias", async () => {
+    const { gmail, sendSpy } = aliasedGmail(bankMessage);
+    const { client, close } = await makeClient(gmail);
+    try {
+      await client.callTool({
+        name: "reply_to_email",
+        arguments: { messageId: "M-bank", body: "thanks" },
+      });
+      expect(sentHeaders(sendSpy).from).toContain(mail("perso"));
+    } finally {
+      await close();
+    }
+  });
+
+  it("reply_all refuses an explicit from that is not a send-as alias, sending nothing", async () => {
+    const { gmail, sendSpy } = aliasedGmail(bankMessage);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "reply_all",
+        arguments: { messageId: "M-bank", body: "x", from: mail("stranger") },
+      });
+      expect(out.isError).toBe(true);
+      expect(textOf(out as { content: Array<{ type: string; text?: string }> })).toMatch(
+        /not a send-as address/,
+      );
+      expect(sendSpy).not.toHaveBeenCalled();
+    } finally {
+      await close();
+    }
+  });
+});

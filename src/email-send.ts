@@ -19,7 +19,7 @@
 
 import type { gmail_v1 } from "googleapis";
 import { ValidatedEmailArgs, createEmailMessage, createEmailWithNodemailer } from "./utl.js";
-import { resolveDefaultSender } from "./sender-resolver.js";
+import { resolveSender, type ConversationHeaders } from "./sender-resolver.js";
 import { requirePairedRecipients } from "./recipient-pairing.js";
 import { asGmailApiError } from "./gmail-errors.js";
 
@@ -28,6 +28,12 @@ export type EmailAction = "send" | "draft";
 export interface EmailSendArgs extends ValidatedEmailArgs {
   threadId?: string;
   inReplyTo?: string;
+  /**
+   * Internal, never part of a tool schema: the headers of the message a
+   * reply or forward answers, so the sender resolver can reuse the
+   * alias that message was addressed to.
+   */
+  senderSource?: ConversationHeaders;
 }
 
 export interface EmailSendResult {
@@ -87,7 +93,11 @@ export function threadMessagesForReply(
  * Send a Gmail message or save it as a draft.
  *
  * Mutates `validatedArgs` in place when:
- *   - `from` is empty/missing → resolved via `resolveDefaultSender(gmail)`
+ *   - `from` is empty/missing → resolved via `resolveSender(gmail, …)`:
+ *     the alias the conversation already uses (`senderSource`, then the
+ *     thread), else the account's default send-as address
+ *   - `from` is set → checked against the account's send-as aliases
+ *     (throws on an address that is not one of them)
  *   - `threadId` is set but `inReplyTo` is not → both `inReplyTo` and
  *     `references` are populated from the thread's existing messages
  *
@@ -120,16 +130,21 @@ export async function sendOrDraftEmail(
       ...(validatedArgs.bcc ?? []),
     ]);
 
-    // Resolve `from` from the user's default send-as alias (with
-    // displayName) when the caller didn't specify one. Using the
-    // literal "me" works for the envelope but renders a bare
-    // email address in the recipient's `From:` header — see
-    // GongRzhe/Gmail-MCP-Server#77. Scope-degraded: on
-    // `gmail.send`-only tokens the sendAs/getProfile calls fail
-    // and we fall back to "me" (original behaviour).
-    if (!validatedArgs.from || validatedArgs.from.trim() === "") {
-      validatedArgs.from = await resolveDefaultSender(gmail);
-    }
+    // Resolve `from` (with displayName): an explicit value must be one
+    // of the account's send-as aliases, Gmail would otherwise rewrite
+    // it to the default address without a word; without one, a reply
+    // reuses the alias its conversation already uses, and a fresh
+    // message gets the default send-as address. Using the literal
+    // "me" works for the envelope but renders a bare email address in
+    // the recipient's `From:` header — see GongRzhe/Gmail-MCP-Server#77.
+    // Scope-degraded: on `gmail.send`-only tokens the sendAs/getProfile
+    // calls fail, an explicit `from` passes through unchecked and the
+    // default falls back to "me" (original behaviour).
+    validatedArgs.from = await resolveSender(gmail, {
+      from: validatedArgs.from,
+      source: validatedArgs.senderSource,
+      threadId: validatedArgs.threadId,
+    });
 
     // Auto-resolve threading headers when threadId is provided but inReplyTo is missing
     if (validatedArgs.threadId && !validatedArgs.inReplyTo) {

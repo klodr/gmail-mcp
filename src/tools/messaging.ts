@@ -26,6 +26,7 @@ import {
 } from "../tools.js";
 import { sendOrDraftEmail, type EmailSendArgs } from "../email-send.js";
 import { makeHeaderGetter } from "../gmail-headers.js";
+import { conversationHeadersOf, listSendAsAliases } from "../sender-resolver.js";
 import {
   addPairedAddress,
   isPairingEnabled,
@@ -255,12 +256,16 @@ export function registerMessagingTools(
 
       const profile = await gmail.users.getProfile({ userId: "me" });
       const myEmail = profile.data.emailAddress?.toLowerCase() || "";
+      // Every send-as alias is "me": a mailbox reached through an alias
+      // must not copy itself on its own reply.
+      const aliases = await listSendAsAliases(gmail);
+      const myEmails = [myEmail, ...aliases.map((alias) => alias.email)].filter(Boolean);
 
       const { to: replyTo, cc: replyCc } = buildReplyAllRecipients(
         originalFrom,
         originalTo,
         originalCc,
-        myEmail,
+        myEmails,
       );
 
       if (replyTo.length === 0) {
@@ -281,6 +286,8 @@ export function registerMessagingTools(
         inReplyTo: originalMessageId,
         references,
         attachments: args.attachments,
+        from: args.from,
+        senderSource: conversationHeadersOf(headers),
       };
 
       await sendOrDraftEmail(gmail, "send", emailArgs);
@@ -289,7 +296,7 @@ export function registerMessagingTools(
         content: [
           {
             type: "text",
-            text: `Reply-all sent successfully!\nTo: ${replyTo.join(", ")}${
+            text: `Reply-all sent successfully!\nFrom: ${emailArgs.from ?? ""}\nTo: ${replyTo.join(", ")}${
               replyCc.length > 0 ? `\nCC: ${replyCc.join(", ")}` : ""
             }\nSubject: ${replySubject}\nThread ID: ${threadId}`,
           },
@@ -372,6 +379,8 @@ export function registerMessagingTools(
         inReplyTo: originalMessageId,
         references,
         attachments: args.attachments,
+        from: args.from,
+        senderSource: conversationHeadersOf(headers),
       };
 
       await sendOrDraftEmail(gmail, "send", emailArgs);
@@ -380,7 +389,7 @@ export function registerMessagingTools(
         content: [
           {
             type: "text",
-            text: `Reply sent successfully!\nTo: ${replyTo.join(", ")}\nSubject: ${replySubject}\nThread ID: ${threadId}`,
+            text: `Reply sent successfully!\nFrom: ${emailArgs.from ?? ""}\nTo: ${replyTo.join(", ")}\nSubject: ${replySubject}\nThread ID: ${threadId}`,
           },
         ],
       };
@@ -438,6 +447,8 @@ export function registerMessagingTools(
         subject: forwardSubject,
         body: forwardBody,
         attachments: args.attachments,
+        from: args.from,
+        senderSource: conversationHeadersOf(headers),
       };
 
       await sendOrDraftEmail(gmail, "send", emailArgs);
@@ -446,7 +457,7 @@ export function registerMessagingTools(
         content: [
           {
             type: "text",
-            text: `Forward sent successfully!\nTo: ${args.to.join(", ")}${
+            text: `Forward sent successfully!\nFrom: ${emailArgs.from ?? ""}\nTo: ${args.to.join(", ")}${
               args.cc && args.cc.length > 0 ? `\nCC: ${args.cc.join(", ")}` : ""
             }${
               args.bcc && args.bcc.length > 0 ? `\nBCC: ${args.bcc.join(", ")}` : ""

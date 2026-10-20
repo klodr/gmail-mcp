@@ -114,7 +114,7 @@ export const SendEmailSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Sender email address (must be a configured send-as alias in Gmail settings). Defaults to account's default send-as address if not specified.",
+      "Sender email address (must be a configured send-as alias in Gmail settings; any other address is rejected). Defaults, when `threadId` is set, to the alias the thread already uses, otherwise to the account's default send-as address.",
     ),
   htmlBody: z.string().optional().describe("HTML version of the email body"),
   mimeType: z
@@ -602,6 +602,15 @@ export const SendDraftSchema = z.object({
 });
 
 // Reply All schema - fetches original email and builds recipient list automatically
+// Sender of a reply or forward. Shared by reply_all, reply_to_email and
+// forward_email so the three describe the same default.
+const ReplySenderSchema = z
+  .string()
+  .optional()
+  .describe(
+    "Sender address (must be a configured send-as alias; any other address is rejected). Defaults to the alias the conversation already uses: the address of yours the source message came from or was sent to, else the one you last wrote from in the thread, else the account's default send-as address.",
+  );
+
 export const ReplyAllSchema = z.object({
   messageId: GmailIdSchema.describe("ID of the email message to reply to"),
   body: z
@@ -616,6 +625,7 @@ export const ReplyAllSchema = z.object({
   attachments: coerceArray(FilePathSchema)
     .optional()
     .describe("List of file paths to attach to the reply"),
+  from: ReplySenderSchema,
 });
 
 // Reply To Email schema — sender-only reply (no Cc broadcast). Same
@@ -638,6 +648,7 @@ export const ReplyToEmailSchema = z.object({
   attachments: coerceArray(FilePathSchema)
     .optional()
     .describe("List of file paths to attach to the reply"),
+  from: ReplySenderSchema,
 });
 
 // Forward Email schema — relay an existing message to a fresh recipient
@@ -665,6 +676,7 @@ export const ForwardEmailSchema = z.object({
     .describe(
       "Additional file paths to attach. Attachments from the source message are NOT re-attached automatically — chain `download_attachment` and pass the resulting paths here if carry-over is needed.",
     ),
+  from: ReplySenderSchema,
 });
 
 // Tool definition type
@@ -1269,6 +1281,8 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "DO NOT USE: when the user only wants to reply to the sender — use `reply_to_email` for sender-only replies. To stage a draft for review, use `draft_email`.",
       "",
+      "SENDER: leaves from the address the conversation already uses (the alias the source message came from or was sent to, else your last one in the thread), like the Gmail web UI; pass `from` to choose another send-as alias. The success text echoes the `From:` actually used.",
+      "",
       "SIDE EFFECTS: real email leaves the account, recorded in the `Sent` mailbox, billed against daily send quota. Subject to the same `GMAIL_MCP_RECIPIENT_PAIRING` gate as `send_email`.",
     ].join("\n"),
     schema: ReplyAllSchema,
@@ -1286,6 +1300,8 @@ export const toolDefinitions: ToolDefinition[] = [
       "",
       "DO NOT USE: when every original recipient should receive the response (use `reply_all`). To stage a draft for review instead of sending, use `draft_email`.",
       "",
+      "SENDER: leaves from the address the conversation already uses (the alias the source message came from or was sent to, else your last one in the thread), like the Gmail web UI; pass `from` to choose another send-as alias. The success text echoes the `From:` actually used.",
+      "",
       "SIDE EFFECTS: real email leaves the account, recorded in the `Sent` mailbox, billed against daily send quota. Subject to the same `GMAIL_MCP_RECIPIENT_PAIRING` gate as `send_email`.",
     ].join("\n"),
     schema: ReplyToEmailSchema,
@@ -1302,6 +1318,8 @@ export const toolDefinitions: ToolDefinition[] = [
       "USE WHEN: passing a message along to a recipient who was not on the original thread — the safe default for a relay handoff.",
       "",
       "DO NOT USE: to reply within the same thread (use `reply_to_email` or `reply_all`). To stage a draft for review, use `draft_email`. Attachments from the source message are NOT re-attached automatically — chain `download_attachment` then pass the resulting paths via `attachments` if you want them carried over.",
+      "",
+      "SENDER: leaves from the alias the forwarded message came from or was sent to, else the default send-as address, like the Gmail web UI; pass `from` to choose another send-as alias. The success text echoes the `From:` actually used.",
       "",
       "SIDE EFFECTS: real email leaves the account in a new thread, recorded in the `Sent` mailbox, billed against daily send quota. Subject to the same `GMAIL_MCP_RECIPIENT_PAIRING` gate as `send_email`.",
     ].join("\n"),

@@ -146,12 +146,15 @@ function pickCandidateAddress(token: string): string | null {
  * Case-insensitive comparison.
  *
  * @param emails - Array of email addresses to filter
- * @param myEmail - The authenticated user's email address
- * @returns Filtered array excluding the user's email
+ * @param myEmail - The authenticated user's address, or all of its
+ *   send-as aliases (a mailbox answers to each of them)
+ * @returns Filtered array excluding the user's addresses
  */
-export function filterOutEmail(emails: string[], myEmail: string): string[] {
-  const myEmailLower = myEmail.toLowerCase();
-  return emails.filter((email) => email.toLowerCase() !== myEmailLower);
+export function filterOutEmail(emails: string[], myEmail: string | readonly string[]): string[] {
+  const mine = new Set(
+    (typeof myEmail === "string" ? [myEmail] : myEmail).map((email) => email.toLowerCase()),
+  );
+  return emails.filter((email) => !mine.has(email.toLowerCase()));
 }
 
 /**
@@ -247,31 +250,39 @@ export function buildReferencesHeader(
  *
  * Rules:
  * - TO: original From (sender of the email)
- * - CC: original To + original CC (excluding the authenticated user)
+ * - CC: original To + original CC
+ * - Replying to our own message (original From is one of our
+ *   addresses): TO is the original To and CC the original CC, as in
+ *   the Gmail web UI — otherwise the reply would only go back to us.
+ * Our own addresses (every send-as alias) are dropped everywhere.
  *
  * @param originalFrom - From header value
  * @param originalTo - To header value
  * @param originalCc - CC header value
- * @param myEmail - The authenticated user's email address
+ * @param myEmail - The authenticated user's address, or all of its
+ *   send-as aliases
  * @returns Object with 'to' and 'cc' arrays
  */
 export function buildReplyAllRecipients(
   originalFrom: string,
   originalTo: string,
   originalCc: string,
-  myEmail: string,
+  myEmail: string | readonly string[],
 ): { to: string[]; cc: string[] } {
   const fromEmails = parseEmailAddresses(originalFrom);
   const toEmails = parseEmailAddresses(originalTo);
   const ccEmails = parseEmailAddresses(originalCc);
 
   // TO recipients: original From (the person who sent the email), excluding myself
-  const replyTo = dedupeAddresses(filterOutEmail(fromEmails, myEmail));
+  const fromOthers = dedupeAddresses(filterOutEmail(fromEmails, myEmail));
+  const ownMessage = fromEmails.length > 0 && fromOthers.length === 0;
+  const replyTo = ownMessage ? dedupeAddresses(filterOutEmail(toEmails, myEmail)) : fromOthers;
 
   // CC recipients: everyone else who was on To and CC, excluding myself
   // and excluding any address already landing in `To` (no To/CC overlap).
   const toSetLower = new Set(replyTo.map((address) => address.toLowerCase()));
-  const replyCc = dedupeAddresses(filterOutEmail([...toEmails, ...ccEmails], myEmail)).filter(
+  const ccPool = ownMessage ? ccEmails : [...toEmails, ...ccEmails];
+  const replyCc = dedupeAddresses(filterOutEmail(ccPool, myEmail)).filter(
     (email) => !toSetLower.has(email.toLowerCase()),
   );
 

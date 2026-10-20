@@ -320,20 +320,28 @@ describe("sendOrDraftEmail — from auto-resolution", () => {
     expect(calls.messageSend).toHaveLength(1);
   });
 
-  it("does NOT call resolveDefaultSender when the caller supplies `from`", async () => {
+  it("checks an explicit `from` against the send-as aliases, without the default-sender path", async () => {
+    const mail = (user: string): string => `${user}@example.com`;
     const { client, calls } = mockGmail({});
-    const args = baseArgs({ from: "explicit@example.com" });
+    const args = baseArgs({ from: mail("me") });
     await sendOrDraftEmail(client, "send", args);
-    expect(args.from).toBe("explicit@example.com");
+    expect(args.from).toBe(mail("me"));
     expect(calls.messageSend).toHaveLength(1);
-    // Pin the contract directly: if `from` is supplied, the resolver
-    // path is fully short-circuited — neither `sendAs.list` nor
-    // `getProfile` (the two API calls inside `resolveDefaultSender`)
-    // is invoked. Without this, the test would still pass even if the
-    // resolver fired and happened to produce the same value the
-    // caller had set, hiding a wasted round-trip on every send.
-    expect(calls.sendAsList).toHaveLength(0);
+    // One sendAs.list to validate the address; getProfile (the
+    // default-sender fallback) is never reached.
+    expect(calls.sendAsList).toHaveLength(1);
     expect(calls.getProfile).toHaveLength(0);
+  });
+
+  it("rejects an explicit `from` that is not a send-as alias, before sending", async () => {
+    // Gmail would silently rewrite an unknown From: to the default
+    // address; refusing is the only way the caller learns about it.
+    const mail = (user: string): string => `${user}@example.com`;
+    const { client, calls } = mockGmail({});
+    await expect(
+      sendOrDraftEmail(client, "send", baseArgs({ from: mail("stranger") })),
+    ).rejects.toThrow(/not a send-as address/);
+    expect(calls.messageSend).toHaveLength(0);
   });
 });
 

@@ -221,9 +221,23 @@ describe("buildReplyAllRecipients", () => {
     expect(result.cc).not.toContain("me@example.com");
   });
 
-  it("excludes authenticated user from To when sender is self", () => {
-    const result = buildReplyAllRecipients("me@example.com", "recipient@example.com", "", myEmail);
-    expect(result.to).toEqual([]);
+  it("replying to our own message addresses its original recipients, like Gmail", () => {
+    const mail = (user: string): string => `${user}@example.com`;
+    const result = buildReplyAllRecipients(mail("me"), mail("recipient"), mail("copied"), myEmail);
+    expect(result.to).toEqual([mail("recipient")]);
+    expect(result.cc).toEqual([mail("copied")]);
+  });
+
+  it("drops every send-as alias of the account, not only the primary address", () => {
+    // A mailbox reached through an alias must not copy that alias on
+    // its own reply.
+    const mail = (user: string): string => `${user}@example.com`;
+    const result = buildReplyAllRecipients(mail("bank"), mail("perso"), mail("banker"), [
+      mail("me"),
+      mail("perso"),
+    ]);
+    expect(result.to).toEqual([mail("bank")]);
+    expect(result.cc).toEqual([mail("banker")]);
   });
 
   it("handles Name <email> format in From", () => {
