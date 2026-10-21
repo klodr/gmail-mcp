@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.3](https://github.com/klodr/gmail-mcp/compare/v2.0.2...v2.0.3) (2026-10-21)
+
+
+### Fixed
+
+* **deps:** clear the hono, vite and markdown-it OSV findings ([#342](https://github.com/klodr/gmail-mcp/issues/342)) ([882c69e](https://github.com/klodr/gmail-mcp/commit/882c69eac9156ef6b0a0af2bbaf437fb74bbe47f))
+
 ## [2.0.2](https://github.com/klodr/gmail-mcp/compare/v2.0.1...v2.0.2) (2026-10-20)
 
 
