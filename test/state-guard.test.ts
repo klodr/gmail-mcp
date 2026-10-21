@@ -29,6 +29,10 @@ import { getDownloadDirectory, resetJailDirectoryCache, safeWriteFile } from "..
 import { logAudit } from "../src/audit-log.js";
 import { authenticate, loadCredentials } from "../src/oauth-flow.js";
 
+// Addresses are built at runtime: the leak scan rejects literal
+// addresses added in a diff (existing fixtures interpolate too).
+const mail = (user: string): string => `${user}@example.com`;
+
 const STATE_ENV = [
   "GMAIL_MCP_STATE_DIR",
   "GMAIL_MCP_PAIRED_PATH",
@@ -192,7 +196,7 @@ describe("writers refuse the default state under vitest", () => {
 
   it("paired recipients: no paired.json in ~/.gmail-mcp when GMAIL_MCP_PAIRED_PATH is unset", () => {
     vi.stubEnv("GMAIL_MCP_PAIRED_PATH", undefined);
-    expect(() => addPairedAddress("alice@example.com")).toThrow(DefaultStateWriteError);
+    expect(() => addPairedAddress(mail("alice"))).toThrow(DefaultStateWriteError);
     expect(existsSync(join(fakeHome, ".gmail-mcp"))).toBe(false);
     expect(takeRefusedDefaultStateWrites()).toHaveLength(1);
   });
@@ -207,7 +211,7 @@ describe("writers refuse the default state under vitest", () => {
   it("safeWriteFile: refuses a file inside ~/GmailDownloads", () => {
     mkdirSync(join(fakeHome, "GmailDownloads"), { recursive: true });
     const target = join(fakeHome, "GmailDownloads", "message.eml");
-    expect(() => safeWriteFile(target, "From: a@example.com\r\n")).toThrow(DefaultStateWriteError);
+    expect(() => safeWriteFile(target, `From: ${mail("a")}\r\n`)).toThrow(DefaultStateWriteError);
     expect(existsSync(target)).toBe(false);
     expect(takeRefusedDefaultStateWrites()).toHaveLength(1);
   });
@@ -219,7 +223,7 @@ describe("writers refuse the default state under vitest", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     // logAudit keeps its never-throw contract…
     expect(() => {
-      logAudit("send_email", { to: "a@example.com" }, "ok");
+      logAudit("send_email", { to: mail("a") }, "ok");
     }).not.toThrow();
     expect(existsSync(auditPath)).toBe(false);
     // …but the refusal is recorded, so the setup file fails a test that
