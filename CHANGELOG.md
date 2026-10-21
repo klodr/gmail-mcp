@@ -594,7 +594,7 @@ fixes that landed since `0.10.0`. No breaking change for legacy users
 
 ### Changed
 
-- **Node.js floor pinned to exact `>=22.22.2`** (was `>=22.22`, originally `>=22.11`). The previous `>=22.22` range accepted `22.22.0` and `22.22.1`, which predate the seven CVEs fixed in `22.22.2` (two high-severity: TLS/SNI callback handling and HTTP header validation; three medium, two low). Pinning to the exact patch closes the gap so a fresh `npm install` cannot land on a pre-CVE runtime. Aligned with `klodr/faxdrop-mcp` (shipped in PR #71), `klodr/mercury-invoicing-mcp`, and the private `klodr/relayfi-mcp`. Also updates `SECURITY.md` "Supported runtimes", `llms-install.md` prerequisite, and `.github/dependabot.yml` `@types/node` major-clamp comment.
+- **Node.js floor pinned to exact `>=22.22.2`** (was `>=22.22`, originally `>=22.11`). The previous `>=22.22` range accepted `22.22.0` and `22.22.1`, which predate the seven CVEs fixed in `22.22.2` (two high-severity: TLS/SNI callback handling and HTTP header validation; three medium, two low). Pinning to the exact patch closes the gap so a fresh `npm install` cannot land on a pre-CVE runtime. Aligned with `klodr/faxdrop-mcp` (shipped in PR #71), `klodr/mercury-invoicing-mcp`, and a private MCP server. Also updates `SECURITY.md` "Supported runtimes", `llms-install.md` prerequisite, and `.github/dependabot.yml` `@types/node` major-clamp comment.
 
 ### Fixed
 
