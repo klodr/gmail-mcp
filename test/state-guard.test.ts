@@ -42,8 +42,13 @@ const STATE_ENV = [
   "GMAIL_MCP_ATTACHMENT_DIR",
 ] as const;
 
-function realHome(): string {
-  return os.userInfo().homedir;
+/** The account's passwd home, or null when the uid has none (some containers). */
+function passwdHome(): string | null {
+  try {
+    return os.userInfo().homedir;
+  } catch {
+    return null;
+  }
 }
 
 function isInside(target: string, root: string): boolean {
@@ -78,13 +83,18 @@ afterEach(() => {
 });
 
 describe("test/isolate-state.setup.ts", () => {
-  it("points every state override at a temporary directory outside the home", () => {
+  it("points every state override at a temporary directory, away from the defaults", () => {
     for (const key of STATE_ENV) {
       const value = process.env[key];
       expect(value, key).toBeTruthy();
       expect(isInside(path.resolve(value ?? ""), path.resolve(tmpdir())), key).toBe(true);
-      expect(isInside(path.resolve(value ?? ""), realHome()), key).toBe(false);
+      // Not a default state location of the account (`tmpdir()` itself
+      // may sit under the home, e.g. `AppData\Local\Temp` on Windows).
+      expect(() => {
+        assertNotDefaultStateUnderTest(value ?? "", key);
+      }, key).not.toThrow();
     }
+    expect(takeRefusedDefaultStateWrites()).toEqual([]);
   });
 
   it("removes an inherited GMAIL_MCP_AUDIT_LOG", () => {
@@ -134,13 +144,16 @@ describe("assertNotDefaultStateUnderTest", () => {
     expect(takeRefusedDefaultStateWrites()).toEqual([]);
   });
 
-  it("refuses the account's real home even when HOME points elsewhere", () => {
-    const target = join(realHome(), ".gmail-mcp", "ratelimit.json");
-    expect(() => {
-      assertNotDefaultStateUnderTest(target, "GMAIL_MCP_STATE_DIR");
-    }).toThrow(DefaultStateWriteError);
-    expect(takeRefusedDefaultStateWrites()).toHaveLength(1);
-  });
+  it.skipIf(passwdHome() === null)(
+    "refuses the account's real home even when HOME points elsewhere",
+    () => {
+      const target = join(passwdHome() ?? "", ".gmail-mcp", "ratelimit.json");
+      expect(() => {
+        assertNotDefaultStateUnderTest(target, "GMAIL_MCP_STATE_DIR");
+      }).toThrow(DefaultStateWriteError);
+      expect(takeRefusedDefaultStateWrites()).toHaveLength(1);
+    },
+  );
 
   it("still guards $HOME when the account has no passwd entry", () => {
     vi.spyOn(os, "userInfo").mockImplementation(() => {
@@ -232,6 +245,9 @@ describe("writers refuse the default state under vitest", () => {
   });
 
   it("OAuth: loadCredentials does not create ~/.gmail-mcp", () => {
+    const exit = vi.fn((code: number): never => {
+      throw new Error(`exit ${String(code)}`);
+    });
     const configDir = join(fakeHome, ".gmail-mcp");
     expect(() =>
       loadCredentials({
@@ -240,16 +256,19 @@ describe("writers refuse the default state under vitest", () => {
         configDir,
         skipConfigDirCreate: false,
         log: () => undefined,
-        exitOnInvalidKeys: (code) => {
-          throw new Error(`exit ${String(code)}`);
-        },
+        exitOnInvalidKeys: exit,
       }),
-    ).toThrow("exit 1");
+    ).toThrow(DefaultStateWriteError);
+    // Surfaced to the test, not turned into an exit of the worker.
+    expect(exit).not.toHaveBeenCalled();
     expect(existsSync(configDir)).toBe(false);
     expect(takeRefusedDefaultStateWrites()).toHaveLength(1);
   });
 
   it("OAuth: the auth key import does not copy into ~/.gmail-mcp", () => {
+    const exit = vi.fn((code: number): never => {
+      throw new Error(`exit ${String(code)}`);
+    });
     const localKeys = join(scratch, "gcp-oauth.keys.json");
     writeFileSync(
       localKeys,
@@ -265,11 +284,11 @@ describe("writers refuse the default state under vitest", () => {
         importLocalKeys: true,
         localOAuthPath: localKeys,
         log: () => undefined,
-        exitOnInvalidKeys: (code) => {
-          throw new Error(`exit ${String(code)}`);
-        },
+        exitOnInvalidKeys: exit,
       }),
-    ).toThrow("exit 1");
+    ).toThrow(DefaultStateWriteError);
+    // Surfaced to the test, not turned into an exit of the worker.
+    expect(exit).not.toHaveBeenCalled();
     expect(existsSync(oauthPath)).toBe(false);
     expect(takeRefusedDefaultStateWrites()).toHaveLength(1);
   });

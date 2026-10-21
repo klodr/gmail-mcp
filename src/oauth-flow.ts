@@ -30,7 +30,7 @@ import crypto from "node:crypto";
 import open from "open";
 import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
 import { DEFAULT_SCOPES, scopeNamesToUrls } from "./scopes.js";
-import { assertNotDefaultStateUnderTest } from "./state-guard.js";
+import { assertNotDefaultStateUnderTest, DefaultStateWriteError } from "./state-guard.js";
 
 // Defensive size cap on the OAuth keys + credentials files before
 // reading them into memory + JSON.parse. Both files are normally
@@ -316,7 +316,9 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
 
     return { oauth2Client, oauthCallbackUrl, authorizedScopes };
   } catch (error) {
-    if (error instanceof InvalidOAuthKeysError) {
+    // `DefaultStateWriteError` only exists under vitest: surface it to
+    // the test instead of exiting the worker through `exit(1)`.
+    if (error instanceof InvalidOAuthKeysError || error instanceof DefaultStateWriteError) {
       throw error;
     }
     // Log only the error message, not the full Error object — a
