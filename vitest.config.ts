@@ -9,6 +9,12 @@ export default defineConfig({
     // `sync-version.mjs` and reports it as 0%.
     include: ["test/**/*.test.ts", "scripts/**/*.test.mjs"],
     exclude: ["dist/**", "node_modules/**"],
+    // Runs before every test file: points GMAIL_MCP_STATE_DIR and the
+    // other state overrides at a per-file temporary directory, so no
+    // test writes to the developer's real `~/.gmail-mcp/` (rate-limit
+    // counter, paired recipients, OAuth files) or download jail. It
+    // also fails any test whose write `src/state-guard.ts` refused.
+    setupFiles: ["test/isolate-state.setup.ts"],
     // `default` keeps vitest's standard human-readable console output;
     // `junit` emits a `test-results.junit.xml` that Codecov's Test
     // Analytics dashboard consumes (flaky-test detection, slowest-test

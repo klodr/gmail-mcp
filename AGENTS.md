@@ -108,6 +108,19 @@ is faster than failing in CI.
 - Use `InMemoryTransport` from `@modelcontextprotocol/sdk` for
   end-to-end handler tests. The `test/*-handlers.test.ts` files are
   the reference pattern.
+- Tests never touch the real local state of whoever runs them.
+  `vitest.config.ts` loads `test/isolate-state.setup.ts` before every
+  test file: it points `GMAIL_MCP_STATE_DIR`, `GMAIL_MCP_PAIRED_PATH`,
+  `GMAIL_OAUTH_PATH`, `GMAIL_CREDENTIALS_PATH`,
+  `GMAIL_MCP_DOWNLOAD_DIR` and `GMAIL_MCP_ATTACHMENT_DIR` at a
+  per-file temporary directory and drops an inherited
+  `GMAIL_MCP_AUDIT_LOG`. A test that needs its own directory sets the
+  variable in its own `beforeEach`, which runs after the setup's.
+- Under vitest, `src/state-guard.ts` refuses any write that still
+  resolves into `~/.gmail-mcp/`, `~/GmailDownloads/` or
+  `~/GmailAttachments/`, and the setup file fails the test, even when
+  the code path swallows the error. A new writer of local state calls
+  `assertNotDefaultStateUnderTest()` before touching the disk.
 
 ## Commits
 
@@ -178,6 +191,7 @@ src/
     index.ts            registrar entry point
   middleware.ts         audit log + dry-run
   rate-limit.ts         in-process token bucket
+  state-guard.ts        test-only guard: no write to ~/.gmail-mcp under vitest
   recipient-pairing.ts  thread participant resolver for reply-all
   reply-all-helpers.ts  pure helpers for reply-all addressing
   sender-resolver.ts    send-as alias resolution

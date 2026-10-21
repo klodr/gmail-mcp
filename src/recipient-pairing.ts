@@ -36,6 +36,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import emailAddresses from "email-addresses";
+import { assertNotDefaultStateUnderTest } from "./state-guard.js";
 
 export const ENV_RECIPIENT_PAIRING = "GMAIL_MCP_RECIPIENT_PAIRING";
 export const ENV_PAIRED_PATH = "GMAIL_MCP_PAIRED_PATH";
@@ -110,6 +111,7 @@ export function readPairedList(): string[] {
 
 function writePairedList(addresses: string[]): void {
   const file = getPairedPath();
+  assertNotDefaultStateUnderTest(file, ENV_PAIRED_PATH);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const payload: PairedFile = {
     version: 1,

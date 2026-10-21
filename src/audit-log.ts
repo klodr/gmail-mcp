@@ -22,6 +22,7 @@
 
 import { appendFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { assertNotDefaultStateUnderTest } from "./state-guard.js";
 
 /**
  * Sensitive object keys to redact. Case-insensitive (the check
@@ -119,6 +120,11 @@ export function logAudit(toolName: string, args: unknown, result: AuditResult): 
     args: redactSensitive(args),
   });
   try {
+    // Under vitest, refuse an audit log inherited from the developer's
+    // shell that points into `~/.gmail-mcp/`. Inside the try so
+    // `logAudit` keeps its never-throw contract; the refusal is still
+    // recorded and fails the test. No-op in production.
+    assertNotDefaultStateUnderTest(path, "GMAIL_MCP_AUDIT_LOG");
     appendFileSync(path, entry + "\n", { mode: 0o600 });
   } catch (error) {
     console.error(`[audit] failed to write to ${path}:`, (error as Error).message);

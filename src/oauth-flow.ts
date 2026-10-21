@@ -30,6 +30,7 @@ import crypto from "node:crypto";
 import open from "open";
 import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
 import { DEFAULT_SCOPES, scopeNamesToUrls } from "./scopes.js";
+import { assertNotDefaultStateUnderTest } from "./state-guard.js";
 
 // Defensive size cap on the OAuth keys + credentials files before
 // reading them into memory + JSON.parse. Both files are normally
@@ -179,6 +180,7 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
 
   try {
     if (!opts.skipConfigDirCreate && !fs.existsSync(opts.configDir)) {
+      assertNotDefaultStateUnderTest(opts.configDir, "GMAIL_OAUTH_PATH / GMAIL_CREDENTIALS_PATH");
       fs.mkdirSync(opts.configDir, { recursive: true, mode: 0o700 });
     }
 
@@ -219,6 +221,7 @@ export function loadCredentials(opts: LoadCredentialsOpts): LoadCredentialsResul
         // would ENOENT without explicit mkdir. Also force `0o600`:
         // `copyFileSync` preserves the source mode, so a `0o644`
         // cwd file would keep that mode.
+        assertNotDefaultStateUnderTest(opts.oauthPath, "GMAIL_OAUTH_PATH");
         fs.mkdirSync(path.dirname(opts.oauthPath), { recursive: true, mode: 0o700 });
         fs.copyFileSync(localOAuthPath, opts.oauthPath);
         fs.chmodSync(opts.oauthPath, 0o600);
@@ -596,6 +599,7 @@ export async function authenticate(opts: AuthenticateOpts): Promise<void> {
           // writeFileSync's `mode` only applies on CREATE; force
           // `0o600` after to match `.github/SECURITY.md`.
           const credentials = { tokens, scopes: opts.scopes };
+          assertNotDefaultStateUnderTest(opts.credentialsPath, "GMAIL_CREDENTIALS_PATH");
           fs.mkdirSync(path.dirname(opts.credentialsPath), { recursive: true, mode: 0o700 });
           fs.writeFileSync(opts.credentialsPath, JSON.stringify(credentials, null, 2), {
             mode: 0o600,

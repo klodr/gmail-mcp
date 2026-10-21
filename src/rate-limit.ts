@@ -39,6 +39,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { assertNotDefaultStateUnderTest } from "./state-guard.js";
 
 const DAY_MS = 86_400_000;
 const MONTH_MS = 30 * DAY_MS; // 30-day rolling window
@@ -331,6 +332,10 @@ function loadCallHistory(): void {
 function persistCallHistory(): void {
   if (!readOk) return;
   const path = getStateFile();
+  // Outside the try on purpose: under vitest, a write to the real
+  // `~/.gmail-mcp/ratelimit.json` must fail the call, not be logged and
+  // swallowed like an ordinary I/O error. No-op in production.
+  assertNotDefaultStateUnderTest(path, "GMAIL_MCP_STATE_DIR");
   // Per-write unique tmp filename so two MCP processes that both call
   // persistCallHistory at the same instant cannot clobber each other's
   // tmp file before either rename completes. The rename itself is atomic.

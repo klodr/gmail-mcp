@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import emailAddresses from "email-addresses";
 import { createTransport } from "nodemailer";
+import { assertNotDefaultStateUnderTest } from "./state-guard.js";
 
 // Env-var names for the two jails. Hoisted to constants so a future
 // rename is a single-line change and the names cannot drift between
@@ -30,6 +31,9 @@ function resolveJailDirectory(envVariable: string, defaultName: string): string 
   const envPath = process.env[envVariable];
   const target =
     envPath && envPath.trim() !== "" ? path.resolve(envPath) : path.join(os.homedir(), defaultName);
+  // Under vitest, never materialise `~/GmailDownloads` / `~/GmailAttachments`
+  // in the developer's real home. No-op in production.
+  assertNotDefaultStateUnderTest(target, envVariable);
   // `recursive: true` is idempotent on an existing dir, so no existsSync
   // gate — one syscall instead of two, no TOCTOU between the stat and
   // the create.
@@ -103,6 +107,7 @@ export function safeWriteFile(
   content: string | Buffer,
   options: { onCollision?: "error" | "suffix" } = {},
 ): string {
+  assertNotDefaultStateUnderTest(fullPath, ENV_DOWNLOAD_DIR);
   const onCollision = options.onCollision ?? "error";
   const flags =
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW;
