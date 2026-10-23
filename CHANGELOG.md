@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0](https://github.com/klodr/gmail-mcp/compare/v2.0.3...v3.0.0) (2026-10-23)
+
+
+### Fixed
+
+* stop the test suite from writing to the real ~/.gmail-mcp ([#344](https://github.com/klodr/gmail-mcp/issues/344)) ([99fd893](https://github.com/klodr/gmail-mcp/commit/99fd8936a112c50c633979c85e248d70150ee099))
+
+
+### Changed
+
+* release 3.0.0 ([#347](https://github.com/klodr/gmail-mcp/issues/347)) ([98a8001](https://github.com/klodr/gmail-mcp/commit/98a8001c1ac3561ce535e332ed86fb320dc11eca))
+
 ## [2.0.3](https://github.com/klodr/gmail-mcp/compare/v2.0.2...v2.0.3) (2026-10-21)
 
 
