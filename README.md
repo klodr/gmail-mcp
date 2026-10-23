@@ -253,7 +253,7 @@ Every write tool is annotated with `destructiveHint` / `readOnlyHint` / `idempot
 
 ### 🔍 `search_emails` query syntax
 
-`search_emails` accepts Gmail's native search operators — `from:`, `to:`, `subject:`, `has:attachment`, `after:YYYY/MM/DD`, `before:YYYY/MM/DD`, `is:unread`, `label:<name>`, etc. They combine freely: `from:alice@example.com after:2026/01/01 has:attachment`. Full reference: [Google's Gmail search operators cheat sheet](https://support.google.com/mail/answer/7190).
+`search_emails` accepts Gmail's native search operators — `from:`, `to:`, `subject:`, `has:attachment`, `after:YYYY/MM/DD`, `before:YYYY/MM/DD`, `is:unread`, `label:<name>`, etc. They combine freely: `from:alice@example.com after:2026/01/01 has:attachment`. Full reference: [Google's Gmail search operators cheat sheet](https://support.google.com/mail/answer/7190). A query that matches nothing returns `No messages found for query: <query>` rather than an empty result.
 
 ## 🗺️ Roadmap
 
