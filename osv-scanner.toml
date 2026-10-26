@@ -14,3 +14,16 @@ markdownlint-cli2 and globby (yaml-lint) to expand the lint globs written in
 this repository's own scripts and config. Never shipped in the published
 package and never fed untrusted input.
 """
+
+[[IgnoredVulns]]
+id = "GHSA-mrhx-c7xc-m3w5"
+ignoreUntil = 2027-01-31T00:00:00Z
+reason = """
+zod < 4.6.6: memory exhaustion while validating oversized constrained
+collections. The runtime dependency is already zod 4.6.6. Dev-only copy:
+zod 3.25.76, nested under @codecov/bundler-plugin-core (via
+@codecov/bundle-analyzer), whose latest release (2.0.1) still requires
+zod ^3.22.4, and no fixed 3.x release exists. It only validates Codecov's
+own configuration during the CI bundle analysis: never shipped in the
+published package and never fed untrusted input.
+"""
