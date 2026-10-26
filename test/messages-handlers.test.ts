@@ -277,6 +277,25 @@ describe("registerMessageTools — handler-level coverage", () => {
     }
   });
 
+  it("search_emails: states zero matches explicitly instead of returning an empty text", async () => {
+    const { gmail, listSpy, getSpy } = makeMockGmail();
+    // Gmail omits `messages` entirely when nothing matches.
+    listSpy.mockResolvedValueOnce({ data: { resultSizeEstimate: 0 } } as never);
+    const { client, close } = await makeClient(gmail);
+    try {
+      const out = await client.callTool({
+        name: "search_emails",
+        arguments: { query: "is:unread" },
+      });
+      const text = textOf(out as { content: Array<{ type: string; text?: string }> });
+      expect(text).toContain("No messages found for query: is:unread");
+      expect(text).not.toContain("ID:");
+      expect(getSpy).not.toHaveBeenCalled();
+    } finally {
+      await close();
+    }
+  });
+
   it("modify_email: dedupes labelIds + addLabelIds into a single addLabelIds set", async () => {
     const { gmail, modifySpy } = makeMockGmail();
     const { client, close } = await makeClient(gmail);

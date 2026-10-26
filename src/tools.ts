@@ -720,7 +720,7 @@ export const toolDefinitions: ToolDefinition[] = [
     description: [
       "Search for messages using Gmail's native query syntax (e.g. `from:foo@bar.com after:2024/01/01 has:attachment`).",
       "",
-      "USE WHEN: locating messages by sender, date, subject, label, or any Gmail operator. Returns a flat list of matches across the whole mailbox (not thread-grouped).",
+      "USE WHEN: locating messages by sender, date, subject, label, or any Gmail operator. Returns a flat list of matches across the whole mailbox (not thread-grouped), or `No messages found for query: <query>` when nothing matches.",
       "",
       "DO NOT USE: to read one specific message whose ID is already known (use `read_email`). For thread-grouped browsing, use `list_inbox_threads`.",
     ].join("\n"),

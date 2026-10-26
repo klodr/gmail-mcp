@@ -174,13 +174,23 @@ export function registerMessageTools(
           };
         }),
       );
+      // An empty text is ambiguous to an agent ("no matches" or "output
+      // lost?"), so zero matches are stated explicitly, like the
+      // `resultCount: 0` of list_inbox_threads and the `Drafts (0):` of
+      // list_drafts.
       return {
         content: [
           {
             type: "text",
-            text: results
-              .map((r) => `ID: ${r.id}\nSubject: ${r.subject}\nFrom: ${r.from}\nDate: ${r.date}\n`)
-              .join("\n"),
+            text:
+              results.length === 0
+                ? `No messages found for query: ${args.query}`
+                : results
+                    .map(
+                      (r) =>
+                        `ID: ${r.id}\nSubject: ${r.subject}\nFrom: ${r.from}\nDate: ${r.date}\n`,
+                    )
+                    .join("\n"),
           },
         ],
       };
