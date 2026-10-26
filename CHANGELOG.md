@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1](https://github.com/klodr/gmail-mcp/compare/v3.0.0...v3.0.1) (2026-10-26)
+
+
+### Fixed
+
+* **deps:** clear the OSV findings published since 2026-10-23 ([#349](https://github.com/klodr/gmail-mcp/issues/349)) ([ee12b5f](https://github.com/klodr/gmail-mcp/commit/ee12b5fd2cff4449fa3f05c7b2842c38246f25dc))
+* **search:** state zero matches instead of returning an empty text ([#357](https://github.com/klodr/gmail-mcp/issues/357)) ([ed1e778](https://github.com/klodr/gmail-mcp/commit/ed1e7785c3cbc285e6b8904901e187b97d729da2)), closes [#345](https://github.com/klodr/gmail-mcp/issues/345)
+
+
+### Changed
+
+* **bundle:** skip the Codecov upload on PRs from forks ([#356](https://github.com/klodr/gmail-mcp/issues/356)) ([feb557d](https://github.com/klodr/gmail-mcp/commit/feb557dd9b1419b0c37cc0e17c60d61e9bc706f4))
+
 ## [3.0.0](https://github.com/klodr/gmail-mcp/compare/v2.0.3...v3.0.0) (2026-10-23)
 
 
