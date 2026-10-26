@@ -50,6 +50,12 @@ jobs:
         run: npm run build
 
       - name: Upload bundle stats to Codecov (OIDC, tokenless)
+        # Skip on PRs from forks: GitHub does not hand an OIDC token to
+        # `pull_request` runs whose head repo differs from the base, so the
+        # upload can only fail there and would block every outside
+        # contribution on this required check. The build above still runs
+        # for fork PRs; the bundle size is recorded once the PR is merged.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         # OIDC tokenless upload — the job claims `id-token: write` above,
         # codecov reads `codecov-bundle.json` to enable the GitHub Actions
         # OIDC exchange. Aligned with ci.yml's coverage upload pattern.
