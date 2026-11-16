@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1](https://github.com/klodr/gmail-mcp/compare/v3.0.0...v3.0.1) (2026-11-16)
+
+
+### Fixed
+
+* **deps:** clear the OSV findings published since 2026-10-23 ([#349](https://github.com/klodr/gmail-mcp/issues/349)) ([ee12b5f](https://github.com/klodr/gmail-mcp/commit/ee12b5fd2cff4449fa3f05c7b2842c38246f25dc))
+* **search:** state zero matches instead of returning an empty text ([#357](https://github.com/klodr/gmail-mcp/issues/357)) ([ed1e778](https://github.com/klodr/gmail-mcp/commit/ed1e7785c3cbc285e6b8904901e187b97d729da2)), closes [#345](https://github.com/klodr/gmail-mcp/issues/345)
+
+
+### Changed
+
+* bump the github-actions group across 1 directory with 5 updates ([#364](https://github.com/klodr/gmail-mcp/issues/364)) ([9e0b25e](https://github.com/klodr/gmail-mcp/commit/9e0b25e5174302dd4da4699925512119d4bd5ef4))
+* **bundle:** skip the Codecov upload on PRs from forks ([#356](https://github.com/klodr/gmail-mcp/issues/356)) ([feb557d](https://github.com/klodr/gmail-mcp/commit/feb557dd9b1419b0c37cc0e17c60d61e9bc706f4))
+* **deps-dev:** bump tsup from 8.5.1 to 9.0.0 ([#353](https://github.com/klodr/gmail-mcp/issues/353)) ([5b158ef](https://github.com/klodr/gmail-mcp/commit/5b158effaee87926dada833e3669339a6730258a))
+* **deps:** bump @hono/node-server, hono, minimatch for OSV ([#363](https://github.com/klodr/gmail-mcp/issues/363)) ([3e059bb](https://github.com/klodr/gmail-mcp/commit/3e059bb358d17ced1662f9c95b63423444c0c836))
+* **deps:** bump googleapis from 185.0.0 to 189.0.0 ([#366](https://github.com/klodr/gmail-mcp/issues/366)) ([eb8b595](https://github.com/klodr/gmail-mcp/commit/eb8b59575f219a2aa50c5f8f9f10d9da45ec11cb))
+* **deps:** bump the production-dependencies group across 1 directory with 4 updates ([#360](https://github.com/klodr/gmail-mcp/issues/360)) ([81b8068](https://github.com/klodr/gmail-mcp/commit/81b8068d070fb91965d2ec076932980434e10d81))
+* **deps:** pin re2js to ^2.8.7 (GHSA-gg6h-894w-4m9c) ([#367](https://github.com/klodr/gmail-mcp/issues/367)) ([d91c677](https://github.com/klodr/gmail-mcp/commit/d91c677a9c53c1cd982ea51ccb43ef539817cdcb))
+
 ## [3.0.0](https://github.com/klodr/gmail-mcp/compare/v2.0.3...v3.0.0) (2026-10-23)
 
 
